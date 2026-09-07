@@ -443,6 +443,7 @@ function HttpSendResponseEntityBody(ReqQueueHandle: THandle; RequestId: HTTP_REQ
 
 type
   HTTP_SERVICE_CONFIG_ID = (
+    HttpServiceConfigIPListenList,  // Set, Query & Delete.
     HttpServiceConfigSslCertInfo,
     HttpServiceConfigUrlAclInfo,
     HttpServiceConfigTimeout,
