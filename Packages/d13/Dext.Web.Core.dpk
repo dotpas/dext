@@ -1,4 +1,4 @@
-package Dext.Web.Core;
+﻿package Dext.Web.Core;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -105,6 +105,7 @@ contains
   Dext.Web.EntityDataSetApi in '..\..\Sources\Web\Dext.Web.EntityDataSetApi.pas',
   Dext.Web.Pipeline in '..\..\Sources\Web\Dext.Web.Pipeline.pas',
   Dext.Web.Results in '..\..\Sources\Web\Dext.Web.Results.pas',
+  Dext.Web.Htmx in '..\..\Sources\Web\Dext.Web.Htmx.pas',
   Dext.Web.Routing.Attributes in '..\..\Sources\Web\Dext.Web.Routing.Attributes.pas',
   Dext.Web.Routing in '..\..\Sources\Web\Dext.Web.Routing.pas',
   Dext.Web.RoutingMiddleware in '..\..\Sources\Web\Dext.Web.RoutingMiddleware.pas',

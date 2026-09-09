@@ -397,6 +397,8 @@ One of Dext's most powerful features: **automatic generation of full REST APIs f
 ### 3.11.1 HTMX Integration
 - **Auto-Detection** — The pipeline automatically detects `HX-Request` headers and **suppresses the global layout** on compatible endpoints.
 - **Partial Rendering** — `Results.View<T>('fragment', Query).WithLayout('')` for partial fragment rendering without layout.
+- **HTMX 4 Request Inspection** — `Htmx.Request(Context)` reads `HX-Request-Type` (`partial` / `full`) plus source, target, current URL, boosted, and history-restore headers.
+- **HTMX 4 Multi-Target Partials** — `Htmx.Partials.Target(...).Id(...).AsResult` builds `<hx-partial>` responses without manual lifetime management.
 - **Full-Stack SPA Feel** — Combines server-side SSR with dynamic HTMX swapping for highly responsive apps without heavy JavaScript.
 
 ### 3.11.2 Flyweight Iterators (Streaming SSR)
