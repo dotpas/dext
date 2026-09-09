@@ -44,7 +44,7 @@ interface
 
 uses
   System.SysUtils,
-  System.JSON;
+  DextJsonDataObjects;
 
 type
   /// <summary>Discriminated type tag for MCP content items.</summary>
@@ -81,7 +81,7 @@ type
     class function ResourceBlob(const AUri, ABase64Blob: string;
       const AMimeType: string = 'application/octet-stream'): TMCPContent; static;
 
-    function ToJSON: TJSONObject;
+    function ToJSON: TJsonObject;
 
     property ContentType: TMCPContentType read FContentType;
     property TextValue: string read FTextValue;
@@ -120,7 +120,7 @@ type
     procedure AddContent(const AContent: TMCPContent);
 
     /// <summary>Serialises to the MCP tools/call result JSON object.</summary>
-    function ToJSON: TJSONObject;
+    function ToJSON: TJsonObject;
   end;
 
   /// <summary>
@@ -128,7 +128,7 @@ type
   /// Preferred over TMCPToolCallback for multi-content and error signalling.
   /// </summary>
   TMCPToolResultCallback = reference to function(
-    const Args: TJSONObject): TMCPToolResult;
+    const Args: TJsonObject): TMCPToolResult;
 
   // ---------------------------------------------------------------------------
   // Resource types
@@ -147,7 +147,7 @@ type
     class function BlobResource(const AUri, ABase64Blob: string;
       const AMimeType: string = 'application/octet-stream'): TMCPResourceContents; static;
 
-    function ToJSON: TJSONObject;
+    function ToJSON: TJsonObject;
   end;
 
   /// <summary>Callback invoked on resources/read - receives URI, returns contents.</summary>
@@ -167,7 +167,7 @@ type
     class function Assistant(const AText: string): TMCPPromptMessage; static;
     class function UserImage(const ABase64Data, AMimeType: string): TMCPPromptMessage; static;
 
-    function ToJSON: TJSONObject;
+    function ToJSON: TJsonObject;
   end;
 
   /// <summary>Full result from a prompts/get call.</summary>
@@ -177,12 +177,12 @@ type
 
     class function Create(const ADescription: string = ''): TMCPPromptResult; static;
     procedure AddMessage(const AMessage: TMCPPromptMessage);
-    function ToJSON: TJSONObject;
+    function ToJSON: TJsonObject;
   end;
 
   /// <summary>Callback invoked on prompts/get - receives template arguments.</summary>
   TMCPPromptGetCallback = reference to function(
-    const Args: TJSONObject): TMCPPromptResult;
+    const Args: TJsonObject): TMCPPromptResult;
 
 implementation
 
@@ -231,42 +231,43 @@ begin
   Result.FResourceMimeType := AMimeType;
 end;
 
-function TMCPContent.ToJSON: TJSONObject;
+function TMCPContent.ToJSON: TJsonObject;
 var
-  Res: TJSONObject;
-  ResObj: TJSONObject;
+  Res: TJsonObject;
+  ResObj: TJsonObject;
 begin
-  Res := TJSONObject.Create;
+  Res := TJsonObject.Create;
   case FContentType of
     mctText:
     begin
-      Res.AddPair('type', 'text');
-      Res.AddPair('text', FTextValue);
+      Res.S['type'] := 'text';
+      Res.S['text'] := FTextValue;
     end;
     mctImage:
     begin
-      Res.AddPair('type', 'image');
-      Res.AddPair('data', FData);
-      Res.AddPair('mimeType', FMimeType);
+      Res.S['type'] := 'image';
+      Res.S['data'] := FData;
+      Res.S['mimeType'] := FMimeType;
     end;
     mctAudio:
     begin
-      Res.AddPair('type', 'audio');
-      Res.AddPair('data', FData);
-      Res.AddPair('mimeType', FMimeType);
+      Res.S['type'] := 'audio';
+      Res.S['data'] := FData;
+      Res.S['mimeType'] := FMimeType;
     end;
     mctResource:
     begin
-      Res.AddPair('type', 'resource');
-      ResObj := TJSONObject.Create;
-      ResObj.AddPair('uri', FResourceUri);
+      Res.S['type'] := 'resource';
+      // Res.O['resource'] auto-cria e já anexa o objeto vazio a Res — não
+      // precisa de atribuição separada como em System.JSON's AddPair.
+      ResObj := Res.O['resource'];
+      ResObj.S['uri'] := FResourceUri;
       if FResourceMimeType <> '' then
-        ResObj.AddPair('mimeType', FResourceMimeType);
+        ResObj.S['mimeType'] := FResourceMimeType;
       if FResourceBlob <> '' then
-        ResObj.AddPair('blob', FResourceBlob)
+        ResObj.S['blob'] := FResourceBlob
       else
-        ResObj.AddPair('text', FResourceText);
-      Res.AddPair('resource', ResObj);
+        ResObj.S['text'] := FResourceText;
     end;
   end;
   Result := Res;
@@ -321,18 +322,17 @@ begin
   Content[High(Content)] := AContent;
 end;
 
-function TMCPToolResult.ToJSON: TJSONObject;
+function TMCPToolResult.ToJSON: TJsonObject;
 var
-  ContentArr: TJSONArray;
+  ContentArr: TJsonArray;
   Item: TMCPContent;
 begin
-  Result := TJSONObject.Create;
-  ContentArr := TJSONArray.Create;
+  Result := TJsonObject.Create;
+  ContentArr := Result.A['content'];
   for Item in Content do
     ContentArr.Add(Item.ToJSON);
-  Result.AddPair('content', ContentArr);
   if IsError then
-    Result.AddPair('isError', TJSONTrue.Create);
+    Result.B['isError'] := True;
 end;
 
 { TMCPResourceContents }
@@ -357,16 +357,16 @@ begin
   Result.IsText      := False;
 end;
 
-function TMCPResourceContents.ToJSON: TJSONObject;
+function TMCPResourceContents.ToJSON: TJsonObject;
 begin
-  Result := TJSONObject.Create;
-  Result.AddPair('uri', Uri);
+  Result := TJsonObject.Create;
+  Result.S['uri'] := Uri;
   if MimeType <> '' then
-    Result.AddPair('mimeType', MimeType);
+    Result.S['mimeType'] := MimeType;
   if IsText then
-    Result.AddPair('text', TextContent)
+    Result.S['text'] := TextContent
   else
-    Result.AddPair('blob', BlobContent);
+    Result.S['blob'] := BlobContent;
 end;
 
 { TMCPPromptMessage }
@@ -393,11 +393,11 @@ begin
   Result.Content := TMCPContent.Image(ABase64Data, AMimeType);
 end;
 
-function TMCPPromptMessage.ToJSON: TJSONObject;
+function TMCPPromptMessage.ToJSON: TJsonObject;
 begin
-  Result := TJSONObject.Create;
-  Result.AddPair('role', Role);
-  Result.AddPair('content', Content.ToJSON);
+  Result := TJsonObject.Create;
+  Result.S['role'] := Role;
+  Result.O['content'] := Content.ToJSON;
 end;
 
 { TMCPPromptResult }
@@ -414,18 +414,17 @@ begin
   Messages[High(Messages)] := AMessage;
 end;
 
-function TMCPPromptResult.ToJSON: TJSONObject;
+function TMCPPromptResult.ToJSON: TJsonObject;
 var
-  MsgsArr: TJSONArray;
+  MsgsArr: TJsonArray;
   Msg: TMCPPromptMessage;
 begin
-  Result := TJSONObject.Create;
+  Result := TJsonObject.Create;
   if Description <> '' then
-    Result.AddPair('description', Description);
-  MsgsArr := TJSONArray.Create;
+    Result.S['description'] := Description;
+  MsgsArr := Result.A['messages'];
   for Msg in Messages do
     MsgsArr.Add(Msg.ToJSON);
-  Result.AddPair('messages', MsgsArr);
 end;
 
 end.

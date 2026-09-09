@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Package</AppType>
@@ -97,6 +97,9 @@
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
         <DCC_CBuilderOutput>None</DCC_CBuilderOutput>
+        <DCC_UnitSearchPath>..\..\Output\$(ProductVersion)\$(Platform)\$(Config);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -107,6 +110,7 @@
         <DCCReference Include="IndyProtocols.dcp"/>
         <DCCReference Include="IndyCore.dcp"/>
         <DCCReference Include="Dext.Core.dcp"/>
+        <DCCReference Include="Dext.Net.Core.dcp"/>
         <DCCReference Include="Dext.Web.Core.dcp"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Attributes.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Prompts.pas"/>
@@ -115,6 +119,21 @@
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Server.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Tools.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Types.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Contracts.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Factory.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Observer.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Runner.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Anthropic.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Ollama.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.OpenAI.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Contracts.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.State.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Edge.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Graph.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Compiled.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Checkpointer.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.LLM.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.Tools.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -135,20 +154,17 @@
                 <Source>
                     <Source Name="MainSource">Dext.AI.Core.dpk</Source>
                 </Source>
-                <Excluded_Packages/>
+                <Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k370.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp370.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                </Excluded_Packages>
             </Delphi.Personality>
             <Platforms>
-                <Platform value="Android">False</Platform>
-                <Platform value="Android64">False</Platform>
                 <Platform value="Linux64">True</Platform>
-                <Platform value="OSX64">False</Platform>
-                <Platform value="OSXARM64">False</Platform>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">True</Platform>
                 <Platform value="Win64x">False</Platform>
                 <Platform value="WinARM64EC">False</Platform>
-                <Platform value="iOSDevice64">False</Platform>
-                <Platform value="iOSSimARM64">False</Platform>
             </Platforms>
         </BorlandProject>
         <ProjectFileVersion>12</ProjectFileVersion>

@@ -127,6 +127,11 @@
 - [AI Skills](13-ai-assistants/README.md) - Native AI integration skills
 - [MCP Server](15-mcp-server/README.md) - Model Context Protocol implementation
 
+#### [16. AI Agents & Orchestration](16-ai-agents/README.md) ⭐ NEW
+
+- Dext.AI.Agent - Single-agent ReAct loop (LangChain-style)
+- Dext.AI.Graph - Graph orchestration, checkpointing, human-in-the-loop, subgraphs (LangGraph-style)
+
 ---
 
 ### Appendix
@@ -154,6 +159,8 @@ Each chapter references working examples from the `Examples/` directory:
 | [Orm.EntityDemo](../../Examples/Orm.EntityDemo/) | ORM Basics |
 | [Hubs](../../Examples/Hubs/) | Real-Time SignalR |
 | [Desktop.MVVM.CustomerCRUD](../../Examples/Desktop.MVVM.CustomerCRUD/) | Navigator, MVVM, Testing |
+| [AI.AgentDemo](../../Examples/AI/AgentDemo/) | Dext.AI.Agent, ReAct loop |
+| [AI.GraphDemo](../../Examples/AI/GraphDemo/) | Dext.AI.Graph, checkpointing, HITL, subgraphs |
 
 ---
 

@@ -9,7 +9,7 @@ uses
   FireDAC.Stan.Error, FireDAC.UI.Intf, FireDAC.Phys.Intf, FireDAC.Stan.Def,
   FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Phys, FireDAC.Phys.SQLite,
   FireDAC.Phys.SQLiteDef, FireDAC.Stan.ExprFuncs, FireDAC.VCLUI.Wait,
-  FireDAC.Comp.Client, FireDAC.Comp.UI, System.JSON,
+  FireDAC.Comp.Client, FireDAC.Comp.UI, DextJsonDataObjects,
   Dext.AI.MCP.Server, Dext.AI.MCP.Tools, Dext.AI.MCP.Types, Dext.AI.MCP.Attributes,
   Dext.AI.MCP.Protocol, FireDAC.Phys.SQLiteWrapper.Stat, FireDAC.ConsoleUI.Wait, FireDAC.Stan.Param, FireDAC.DatS,
   FireDAC.DApt.Intf, FireDAC.DApt, FireDAC.Comp.DataSet;
@@ -43,9 +43,9 @@ type
     procedure SyncRefreshGrid;
   public
     // Tool callbacks (invoked by the MCP provider)
-    function DoListar(const Args: TJSONObject): TMCPToolResult;
-    function DoSortear(const Args: TJSONObject): TMCPToolResult;
-    function DoExecutarSQL(const Args: TJSONObject): TMCPToolResult;
+    function DoListar(const Args: TJsonObject): TMCPToolResult;
+    function DoSortear(const Args: TJsonObject): TMCPToolResult;
+    function DoExecutarSQL(const Args: TJsonObject): TMCPToolResult;
   end;
 
   // RTTI tool provider class
@@ -71,15 +71,15 @@ type
     constructor Create(AForm: TFormMain);
 
     [MCPTool('listar-participantes', 'Retorna a lista de todos os participantes do sorteio cadastrados no banco.')]
-    function ListarParticipantes(const Args: TJSONObject): TMCPToolResult; virtual;
+    function ListarParticipantes(const Args: TJsonObject): TMCPToolResult; virtual;
 
     [MCPTool('sortear-participante', 'Sorteia um participante que ainda não ganhou e o marca como sorteado.')]
     [MCPParam('evento', 'Nome do evento de sorteio (opcional)', ptString, False)]
-    function SortearParticipante(const Args: TJSONObject): TMCPToolResult; virtual;
+    function SortearParticipante(const Args: TJsonObject): TMCPToolResult; virtual;
 
     [MCPTool('executar-sql', 'Executa uma consulta SQL SELECT ou comando UPDATE/INSERT no banco SQLite.')]
     [MCPParam('sql', 'O comando SQL completo a ser executado', ptString, True)]
-    function ExecutarSQL(const Args: TJSONObject): TMCPToolResult; virtual;
+    function ExecutarSQL(const Args: TJsonObject): TMCPToolResult; virtual;
   end;
 
 var
@@ -97,17 +97,17 @@ begin
   FForm := AForm;
 end;
 
-function TDatabaseMCPProvider.ListarParticipantes(const Args: TJSONObject): TMCPToolResult;
+function TDatabaseMCPProvider.ListarParticipantes(const Args: TJsonObject): TMCPToolResult;
 begin
   Result := FForm.DoListar(Args);
 end;
 
-function TDatabaseMCPProvider.SortearParticipante(const Args: TJSONObject): TMCPToolResult;
+function TDatabaseMCPProvider.SortearParticipante(const Args: TJsonObject): TMCPToolResult;
 begin
   Result := FForm.DoSortear(Args);
 end;
 
-function TDatabaseMCPProvider.ExecutarSQL(const Args: TJSONObject): TMCPToolResult;
+function TDatabaseMCPProvider.ExecutarSQL(const Args: TJsonObject): TMCPToolResult;
 begin
   Result := FForm.DoExecutarSQL(Args);
 end;
@@ -259,32 +259,32 @@ begin
   end;
 end;
 
-function TFormMain.DoListar(const Args: TJSONObject): TMCPToolResult;
+function TFormMain.DoListar(const Args: TJsonObject): TMCPToolResult;
 var
   Qry: TFDQuery;
-  JA: TJSONArray;
+  JA: TJsonArray;
+  JO: TJsonObject;
 begin
   LogMsg('Tool "listar-participantes" invocada.');
-  
+
   // Como as ferramentas rodam em threads do servidor HTTP, criamos conexões ou queries locais
   Qry := TFDQuery.Create(nil);
   try
     Qry.Connection := FDConnection;
     Qry.Open('SELECT id, nome, email, sorteado FROM participantes');
-    
-    JA := TJSONArray.Create;
+
+    JA := TJsonArray.Create;
     try
       while not Qry.Eof do
       begin
-        JA.Add(TJSONObject.Create
-          .AddPair('id', Qry.FieldByName('id').AsInteger)
-          .AddPair('nome', Qry.FieldByName('nome').AsString)
-          .AddPair('email', Qry.FieldByName('email').AsString)
-          .AddPair('sorteado', Qry.FieldByName('sorteado').AsBoolean)
-        );
+        JO := JA.AddObject;
+        JO.I['id'] := Qry.FieldByName('id').AsInteger;
+        JO.S['nome'] := Qry.FieldByName('nome').AsString;
+        JO.S['email'] := Qry.FieldByName('email').AsString;
+        JO.B['sorteado'] := Qry.FieldByName('sorteado').AsBoolean;
         Qry.Next;
       end;
-      
+
       Result := TMCPToolResult.Text(JA.ToJSON);
     finally
       JA.Free;
@@ -295,13 +295,16 @@ begin
   end;
 end;
 
-function TFormMain.DoSortear(const Args: TJSONObject): TMCPToolResult;
+function TFormMain.DoSortear(const Args: TJsonObject): TMCPToolResult;
 var
   Qry: TFDQuery;
   Evento, Nome, Email: string;
   Id: Integer;
 begin
-  Evento := Args.GetValue<string>('evento', 'Embarcadero Conference');
+  if Args.Contains('evento') then
+    Evento := Args.S['evento']
+  else
+    Evento := 'Embarcadero Conference';
   LogMsg('Tool "sortear-participante" invocada para o evento: ' + Evento);
   
   Qry := TFDQuery.Create(nil);
@@ -333,16 +336,17 @@ begin
   end;
 end;
 
-function TFormMain.DoExecutarSQL(const Args: TJSONObject): TMCPToolResult;
+function TFormMain.DoExecutarSQL(const Args: TJsonObject): TMCPToolResult;
 var
   Sql: string;
   Qry: TFDQuery;
-  JA: TJSONArray;
+  JA: TJsonArray;
+  JO: TJsonObject;
   I: Integer;
 begin
-  Sql := Args.GetValue<string>('sql', '');
+  Sql := Args.S['sql'];
   LogMsg('Tool "executar-sql" invocada: ' + Sql);
-  
+
   if Sql = '' then
     Exit(TMCPToolResult.Error('O parâmetro "sql" não pode ser vazio.'));
 
@@ -350,34 +354,33 @@ begin
   try
     Qry.Connection := FDConnection;
     Qry.SQL.Text := Sql;
-    
+
     if Sql.Trim.ToLower.StartsWith('select') then
     begin
       Qry.Open;
-      JA := TJSONArray.Create;
+      JA := TJsonArray.Create;
       try
         while not Qry.Eof do
         begin
-          var JO := TJSONObject.Create;
+          JO := JA.AddObject;
           for I := 0 to Qry.FieldCount - 1 do
           begin
             if Qry.Fields[I].IsNull then
-              JO.AddPair(Qry.Fields[I].FieldName, TJSONNull.Create)
+              JO.O[Qry.Fields[I].FieldName] := nil
             else
             begin
               case Qry.Fields[I].DataType of
                 ftInteger, ftSmallint, ftWord, ftLargeint:
-                  JO.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsLargeInt));
+                  JO.L[Qry.Fields[I].FieldName] := Qry.Fields[I].AsLargeInt;
                 ftFloat, ftCurrency, ftBCD, ftFMTBcd:
-                  JO.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsFloat));
+                  JO.F[Qry.Fields[I].FieldName] := Qry.Fields[I].AsFloat;
                 ftBoolean:
-                  JO.AddPair(Qry.Fields[I].FieldName, TJSONBool.Create(Qry.Fields[I].AsBoolean));
+                  JO.B[Qry.Fields[I].FieldName] := Qry.Fields[I].AsBoolean;
                 else
-                  JO.AddPair(Qry.Fields[I].FieldName, Qry.Fields[I].AsString);
+                  JO.S[Qry.Fields[I].FieldName] := Qry.Fields[I].AsString;
               end;
             end;
           end;
-          JA.Add(JO);
           Qry.Next;
         end;
         Result := TMCPToolResult.Text(JA.ToJSON);

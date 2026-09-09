@@ -46,9 +46,9 @@
 {    Server.Tool('hello')                                                   }
 {      .Description('Say hello')                                            }
 {      .Param('name', 'Person name', ptString)                              }
-{      .OnCallResult(function(Args: TJSONObject): TMCPToolResult            }
+{      .OnCallResult(function(Args: TJsonObject): TMCPToolResult            }
 {        begin Result := TMCPToolResult.Text('Hello, ' +                    }
-{          Args.GetValue<string>('name', 'World') + '!'); end);             }
+{          Args.S['name'] + '!'); end);                                     }
 {    Server.Run(mtStreamable, 'http://localhost:3031');                     }
 {                                                                           }
 {***************************************************************************}
@@ -59,7 +59,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.JSON,
+  DextJsonDataObjects,
   System.SyncObjs,
   System.DateUtils,
   Dext.Collections,
@@ -101,7 +101,7 @@ type
   ///   Server.Tool('get-customer')
   ///     .Description('Fetches customer by CPF')
   ///     .Param('cpf', 'Customer CPF', ptString)
-  ///     .OnCallResult(function(Args: TJSONObject): TMCPToolResult
+  ///     .OnCallResult(function(Args: TJsonObject): TMCPToolResult
   ///       begin ... end);
   ///
   ///   // RTTI provider (preferred for large tool sets)
@@ -117,7 +117,7 @@ type
   ///   // Prompts
   ///   Server.Prompt('review-invoice', 'Reviews an invoice for errors')
   ///     .Arg('invoice_id', 'Invoice number')
-  ///     .OnGet(function(Args: TJSONObject): TMCPPromptResult
+  ///     .OnGet(function(Args: TJsonObject): TMCPPromptResult
   ///       begin ... end);
   ///
   ///   Server.Run(mtStreamable, 'http://localhost:3031');
@@ -139,20 +139,18 @@ type
     FTransport: TMCPTransport;
     FUrl: string;
 
-    // ---- JSON-RPC dispatch ----
-    function Dispatch(const Body: string; const SessionId: string = ''): string; reintroduce; overload;
-    function HandleInitialize(const Id: TJSONValue; const Params: TJSONObject;
+    function HandleInitialize(const Id: TJsonDataValueHelper; const Params: TJsonObject;
       out ANewSessionId: string): string;
-    function HandlePing(const Id: TJSONValue): string;
-    function HandleToolsList(const Id: TJSONValue): string;
-    function HandleToolsCall(const Id: TJSONValue;
-      const Params: TJSONObject): string;
-    function HandleResourcesList(const Id: TJSONValue): string;
-    function HandleResourcesRead(const Id: TJSONValue;
-      const Params: TJSONObject): string;
-    function HandlePromptsList(const Id: TJSONValue): string;
-    function HandlePromptsGet(const Id: TJSONValue;
-      const Params: TJSONObject): string;
+    function HandlePing(const Id: TJsonDataValueHelper): string;
+    function HandleToolsList(const Id: TJsonDataValueHelper): string;
+    function HandleToolsCall(const Id: TJsonDataValueHelper;
+      const Params: TJsonObject): string;
+    function HandleResourcesList(const Id: TJsonDataValueHelper): string;
+    function HandleResourcesRead(const Id: TJsonDataValueHelper;
+      const Params: TJsonObject): string;
+    function HandlePromptsList(const Id: TJsonDataValueHelper): string;
+    function HandlePromptsGet(const Id: TJsonDataValueHelper;
+      const Params: TJsonObject): string;
 
     // ---- HTTP route handlers (Streamable) ----
     procedure RouteStreamablePost(Ctx: IHttpContext);
@@ -167,12 +165,22 @@ type
 
     // ---- Helpers ----
     class function ReadBody(Ctx: IHttpContext): string; static;
-    class function ToolResultToJSON(const CallResult: string): TJSONObject; static;
+    class function ToolResultToJSON(const CallResult: string): TJsonObject; static;
     class procedure AddCORSHeaders(const Response: IHttpResponse); static;
     procedure LogDebug(const AMsg: string);
   public
     constructor Create(const AName: string; const AVersion: string = '1.0.0');
     destructor Destroy; override;
+
+    // ---- JSON-RPC dispatch ----
+
+    /// <summary>
+    /// Dispatches a single JSON-RPC request body and returns the response
+    /// body (or '' for a notification/no-reply case). Pure string-in,
+    /// string-out with no network dependency - public specifically so it
+    /// can be exercised directly in tests without a live HTTP host.
+    /// </summary>
+    function Dispatch(const Body: string; const SessionId: string = ''): string; reintroduce; overload;
 
     // ---- Tool registration ----
 
@@ -355,20 +363,16 @@ begin
 end;
 
 class function TMCPServer.ToolResultToJSON(
-  const CallResult: string): TJSONObject;
+  const CallResult: string): TJsonObject;
 var
-  ContentArr: TJSONArray;
-  ContentItem: TJSONObject;
+  ContentArr: TJsonArray;
+  ContentItem: TJsonObject;
 begin
-  ContentItem := TJSONObject.Create;
-  ContentItem.AddPair('type', 'text');
-  ContentItem.AddPair('text', CallResult);
-
-  ContentArr := TJSONArray.Create;
-  ContentArr.Add(ContentItem);
-
-  Result := TJSONObject.Create;
-  Result.AddPair('content', ContentArr);
+  Result := TJsonObject.Create;
+  ContentArr := Result.A['content'];
+  ContentItem := ContentArr.AddObject;
+  ContentItem.S['type'] := 'text';
+  ContentItem.S['text'] := CallResult;
 end;
 
 class procedure TMCPServer.AddCORSHeaders(const Response: IHttpResponse);
@@ -393,9 +397,11 @@ end;
 function TMCPServer.Dispatch(const Body: string;
   const SessionId: string): string;
 var
-  Req: TJSONObject;
+  Parsed: TJsonBaseObject;
+  Req: TJsonObject;
   Method: string;
-  Id, Params: TJSONValue;
+  Id: TJsonDataValueHelper;
+  Params: TJsonObject;
   IgnoredSessionId: string;
 begin
   Result := '';
@@ -403,14 +409,26 @@ begin
   if Body = '' then
     Exit(TJsonRpc.Error(nil, JSONRPC_INVALID_REQUEST, 'Empty request body'));
 
-  Req := TJSONObject.ParseJSONValue(Body) as TJSONObject;
-  if Req = nil then
+  try
+    Parsed := TJsonBaseObject.Parse(Body);
+  except
+    Parsed := nil;
+  end;
+
+  if not (Parsed is TJsonObject) then
+  begin
+    Parsed.Free;
     Exit(TJsonRpc.Error(nil, JSONRPC_PARSE_ERROR, 'Failed to parse JSON'));
+  end;
+  Req := TJsonObject(Parsed);
 
   try
     Id     := TJsonRpc.GetId(Req);
-    Method := Req.GetValue<string>('method', '');
-    Params := Req.GetValue('params');
+    Method := Req.S['method'];
+
+    Params := nil;
+    if Req.Types['params'] = jdtObject then
+      Params := Req.O['params'];
 
     if Method = 'notifications/initialized' then
       Exit('');
@@ -419,25 +437,28 @@ begin
     if Method = 'initialize' then
     begin
       IgnoredSessionId := '';
-      Exit(HandleInitialize(Id, Params as TJSONObject, IgnoredSessionId));
+      Exit(HandleInitialize(Id, Params, IgnoredSessionId));
     end
     else if Method = 'ping' then
       Exit(HandlePing(Id))
     else if Method = 'tools/list' then
       Exit(HandleToolsList(Id))
     else if Method = 'tools/call' then
-      Exit(HandleToolsCall(Id, Params as TJSONObject))
+      Exit(HandleToolsCall(Id, Params))
     else if Method = 'resources/list' then
       Exit(HandleResourcesList(Id))
     else if Method = 'resources/read' then
-      Exit(HandleResourcesRead(Id, Params as TJSONObject))
+      Exit(HandleResourcesRead(Id, Params))
     else if Method = 'prompts/list' then
       Exit(HandlePromptsList(Id))
     else if Method = 'prompts/get' then
-      Exit(HandlePromptsGet(Id, Params as TJSONObject))
+      Exit(HandlePromptsGet(Id, Params))
     else
     begin
-      if Id <> nil then
+      // A missing "id" (notification) means we must not respond, even for
+      // an unknown method - IsNull also covers an explicit "id":null since
+      // the parser represents both the same way (see TJsonRpc.GetId).
+      if not Id.IsNull then
         Result := TJsonRpc.Error(Id, JSONRPC_METHOD_NOT_FOUND,
           'Method not found: ' + Method);
     end;
@@ -446,31 +467,27 @@ begin
   end;
 end;
 
-function TMCPServer.HandleInitialize(const Id: TJSONValue;
-  const Params: TJSONObject; out ANewSessionId: string): string;
+function TMCPServer.HandleInitialize(const Id: TJsonDataValueHelper;
+  const Params: TJsonObject; out ANewSessionId: string): string;
 var
-  ResultObj, ServerInfo, Caps: TJSONObject;
-  ToolsCap, ResourcesCap, PromptsCap: TJSONObject;
+  ResultObj, ServerInfo, Caps: TJsonObject;
+  ToolsCap, ResourcesCap, PromptsCap: TJsonObject;
   ClientProtoVer, AgreedProtoVer: string;
 begin
   // Create a session for this client
   ANewSessionId := FSessions.CreateSession.Id;
 
-  ServerInfo := TJSONObject.Create;
-  ServerInfo.AddPair('name', FName);
-  ServerInfo.AddPair('version', FVersion);
-
   // Negotiate protocol version dynamically
   AgreedProtoVer := '2025-11-25'; // Default to latest stable
   if Params <> nil then
   begin
-    ClientProtoVer := Params.GetValue<string>('protocolVersion', '');
+    ClientProtoVer := Params.S['protocolVersion'];
     if ClientProtoVer <> '' then
     begin
       // Support all official stable versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05
-      if (ClientProtoVer = '2025-11-25') or 
-         (ClientProtoVer = '2025-06-18') or 
-         (ClientProtoVer = '2025-03-26') or 
+      if (ClientProtoVer = '2025-11-25') or
+         (ClientProtoVer = '2025-06-18') or
+         (ClientProtoVer = '2025-03-26') or
          (ClientProtoVer = '2024-11-05') then
       begin
         AgreedProtoVer := ClientProtoVer;
@@ -478,45 +495,44 @@ begin
     end;
   end;
 
-  // Advertise capabilities based on what is registered
-  ToolsCap := TJSONObject.Create;
-  ToolsCap.AddPair('listChanged', TJSONFalse.Create);
-
-  Caps := TJSONObject.Create;
-  Caps.AddPair('tools', ToolsCap);
-
-  if FResources.Count > 0 then
-  begin
-    ResourcesCap := TJSONObject.Create;
-    ResourcesCap.AddPair('subscribe', TJSONFalse.Create);
-    ResourcesCap.AddPair('listChanged', TJSONFalse.Create);
-    Caps.AddPair('resources', ResourcesCap);
-  end;
-
-  if FPrompts.Count > 0 then
-  begin
-    PromptsCap := TJSONObject.Create;
-    PromptsCap.AddPair('listChanged', TJSONFalse.Create);
-    Caps.AddPair('prompts', PromptsCap);
-  end;
-
-  ResultObj := TJSONObject.Create;
-  ResultObj.AddPair('protocolVersion', AgreedProtoVer);
-  ResultObj.AddPair('capabilities', Caps);
-  ResultObj.AddPair('serverInfo', ServerInfo);
-
+  ResultObj := TJsonObject.Create;
   try
+    ResultObj.S['protocolVersion'] := AgreedProtoVer;
+
+    // Advertise capabilities based on what is registered
+    Caps := ResultObj.O['capabilities'];
+
+    ToolsCap := Caps.O['tools'];
+    ToolsCap.B['listChanged'] := False;
+
+    if FResources.Count > 0 then
+    begin
+      ResourcesCap := Caps.O['resources'];
+      ResourcesCap.B['subscribe'] := False;
+      ResourcesCap.B['listChanged'] := False;
+    end;
+
+    if FPrompts.Count > 0 then
+    begin
+      PromptsCap := Caps.O['prompts'];
+      PromptsCap.B['listChanged'] := False;
+    end;
+
+    ServerInfo := ResultObj.O['serverInfo'];
+    ServerInfo.S['name'] := FName;
+    ServerInfo.S['version'] := FVersion;
+
     Result := TJsonRpc.Success(Id, ResultObj);
   finally
     ResultObj.Free;
   end;
 end;
 
-function TMCPServer.HandlePing(const Id: TJSONValue): string;
+function TMCPServer.HandlePing(const Id: TJsonDataValueHelper): string;
 var
-  Empty: TJSONObject;
+  Empty: TJsonObject;
 begin
-  Empty := TJSONObject.Create;
+  Empty := TJsonObject.Create;
   try
     Result := TJsonRpc.Success(Id, Empty);
   finally
@@ -524,37 +540,36 @@ begin
   end;
 end;
 
-function TMCPServer.HandleToolsList(const Id: TJSONValue): string;
+function TMCPServer.HandleToolsList(const Id: TJsonDataValueHelper): string;
 var
-  ResultObj: TJSONObject;
-  ToolsArr: TJSONArray;
+  ResultObj: TJsonObject;
+  ToolsArr: TJsonArray;
 begin
   ToolsArr  := FRegistry.BuildToolsArray;
-  ResultObj := TJSONObject.Create;
+  ResultObj := TJsonObject.Create;
   try
-    ResultObj.AddPair('tools', ToolsArr);
+    ResultObj.A['tools'] := ToolsArr;
     Result := TJsonRpc.Success(Id, ResultObj);
   finally
     ResultObj.Free;
   end;
 end;
 
-function TMCPServer.HandleToolsCall(const Id: TJSONValue;
-  const Params: TJSONObject): string;
+function TMCPServer.HandleToolsCall(const Id: TJsonDataValueHelper;
+  const Params: TJsonObject): string;
 var
   ToolName: string;
   Def: TMCPToolDef;
-  ArgsVal: TJSONValue;
-  ArgsObj: TJSONObject;
+  ArgsObj: TJsonObject;
   OwnArgs: Boolean;
   CallResult: string;
   RichResult: TMCPToolResult;
-  Content: TJSONObject;
+  Content: TJsonObject;
 begin
   if Params = nil then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing params'));
 
-  ToolName := Params.GetValue<string>('name', '');
+  ToolName := Params.S['name'];
   if ToolName = '' then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing tool name'));
 
@@ -562,17 +577,19 @@ begin
     Exit(TJsonRpc.Error(Id, MCP_ERROR_TOOL_NOT_FOUND,
       'Tool not found: ' + ToolName));
 
-  ArgsVal := Params.GetValue('arguments');
-  if (ArgsVal <> nil) and (ArgsVal is TJSONObject) then
+  // "arguments" absent AND "arguments": null explicit both surface as
+  // jdtObject with a nil pointer from Params.O[] - treat both as "no args"
+  // rather than handing tool callbacks a nil TJsonObject.
+  ArgsObj := nil;
+  if Params.Types['arguments'] = jdtObject then
+    ArgsObj := Params.O['arguments'];
+  if ArgsObj = nil then
   begin
-    ArgsObj  := ArgsVal as TJSONObject;
-    OwnArgs  := False;
+    ArgsObj := TJsonObject.Create;
+    OwnArgs := True;
   end
   else
-  begin
-    ArgsObj  := TJSONObject.Create;
-    OwnArgs  := True;
-  end;
+    OwnArgs := False;
 
   try
     // ResultCallback (rich) takes precedence over legacy Callback (string)
@@ -618,33 +635,33 @@ begin
   end;
 end;
 
-function TMCPServer.HandleResourcesList(const Id: TJSONValue): string;
+function TMCPServer.HandleResourcesList(const Id: TJsonDataValueHelper): string;
 var
-  ResultObj: TJSONObject;
-  ResArr: TJSONArray;
+  ResultObj: TJsonObject;
+  ResArr: TJsonArray;
 begin
   ResArr    := FResources.BuildResourcesArray;
-  ResultObj := TJSONObject.Create;
+  ResultObj := TJsonObject.Create;
   try
-    ResultObj.AddPair('resources', ResArr);
+    ResultObj.A['resources'] := ResArr;
     Result := TJsonRpc.Success(Id, ResultObj);
   finally
     ResultObj.Free;
   end;
 end;
 
-function TMCPServer.HandleResourcesRead(const Id: TJSONValue;
-  const Params: TJSONObject): string;
+function TMCPServer.HandleResourcesRead(const Id: TJsonDataValueHelper;
+  const Params: TJsonObject): string;
 var
   Uri: string;
   Contents: TMCPResourceContents;
-  ResultObj: TJSONObject;
-  ContentsArr: TJSONArray;
+  ResultObj: TJsonObject;
+  ContentsArr: TJsonArray;
 begin
   if Params = nil then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing params'));
 
-  Uri := Params.GetValue<string>('uri', '');
+  Uri := Params.S['uri'];
   if Uri = '' then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing uri'));
 
@@ -652,61 +669,57 @@ begin
     Exit(TJsonRpc.Error(Id, MCP_ERROR_RESOURCE_NOT_FOUND,
       'Resource not found: ' + Uri));
 
-  ContentsArr := TJSONArray.Create;
-  ContentsArr.Add(Contents.ToJSON);
-
-  ResultObj := TJSONObject.Create;
+  ResultObj := TJsonObject.Create;
   try
-    ResultObj.AddPair('contents', ContentsArr);
+    ContentsArr := ResultObj.A['contents'];
+    ContentsArr.Add(Contents.ToJSON);
     Result := TJsonRpc.Success(Id, ResultObj);
   finally
     ResultObj.Free;
   end;
 end;
 
-function TMCPServer.HandlePromptsList(const Id: TJSONValue): string;
+function TMCPServer.HandlePromptsList(const Id: TJsonDataValueHelper): string;
 var
-  ResultObj: TJSONObject;
-  PromptsArr: TJSONArray;
+  ResultObj: TJsonObject;
+  PromptsArr: TJsonArray;
 begin
   PromptsArr := FPrompts.BuildPromptsArray;
-  ResultObj  := TJSONObject.Create;
+  ResultObj  := TJsonObject.Create;
   try
-    ResultObj.AddPair('prompts', PromptsArr);
+    ResultObj.A['prompts'] := PromptsArr;
     Result := TJsonRpc.Success(Id, ResultObj);
   finally
     ResultObj.Free;
   end;
 end;
 
-function TMCPServer.HandlePromptsGet(const Id: TJSONValue;
-  const Params: TJSONObject): string;
+function TMCPServer.HandlePromptsGet(const Id: TJsonDataValueHelper;
+  const Params: TJsonObject): string;
 var
   PromptName: string;
-  ArgsVal: TJSONValue;
-  ArgsObj: TJSONObject;
+  ArgsObj: TJsonObject;
   OwnArgs: Boolean;
   PromptResult: TMCPPromptResult;
-  ResultObj: TJSONObject;
+  ResultObj: TJsonObject;
 begin
   if Params = nil then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing params'));
 
-  PromptName := Params.GetValue<string>('name', '');
+  PromptName := Params.S['name'];
   if PromptName = '' then
     Exit(TJsonRpc.Error(Id, JSONRPC_INVALID_PARAMS, 'Missing prompt name'));
 
-  ArgsVal := Params.GetValue('arguments');
-  if (ArgsVal <> nil) and (ArgsVal is TJSONObject) then
+  ArgsObj := nil;
+  if Params.Types['arguments'] = jdtObject then
+    ArgsObj := Params.O['arguments'];
+  if ArgsObj = nil then
   begin
-    ArgsObj := ArgsVal as TJSONObject;
-    OwnArgs := False;
+    ArgsObj := TJsonObject.Create;
+    OwnArgs := True;
   end
   else
-  begin
-    ArgsObj := TJSONObject.Create;
-    OwnArgs := True;
-  end;
+    OwnArgs := False;
 
   try
     if not FPrompts.TryGet(PromptName, ArgsObj, PromptResult) then
@@ -731,9 +744,10 @@ end;
 procedure TMCPServer.RouteStreamablePost(Ctx: IHttpContext);
 var
   SessionId, Body, Response, Method, NewSessionId: string;
-  ReqObj: TJSONObject;
-  Id: TJSONValue;
-  Params: TJSONObject;
+  Parsed: TJsonBaseObject;
+  ReqObj: TJsonObject;
+  Id: TJsonDataValueHelper;
+  Params: TJsonObject;
 begin
   // CORS preflight
   if Ctx.Request.Method = 'OPTIONS' then
@@ -750,18 +764,26 @@ begin
   Body      := ReadBody(Ctx);
 
   // Peek at the method without consuming the body
-  Method  := '';
-  ReqObj  := TJSONObject.ParseJSONValue(Body) as TJSONObject;
-  if ReqObj <> nil then
+  Method := '';
+  try
+    Parsed := TJsonBaseObject.Parse(Body);
+  except
+    Parsed := nil;
+  end;
+
+  if Parsed is TJsonObject then
   begin
+    ReqObj := TJsonObject(Parsed);
     try
-      Method := ReqObj.GetValue<string>('method', '');
+      Method := ReqObj.S['method'];
 
       if Method = 'initialize' then
       begin
         // Handle initialize directly so we can capture the new session ID
         Id     := TJsonRpc.GetId(ReqObj);
-        Params := ReqObj.GetValue('params') as TJSONObject;
+        Params := nil;
+        if ReqObj.Types['params'] = jdtObject then
+          Params := ReqObj.O['params'];
 
         NewSessionId := '';
         Response     := HandleInitialize(Id, Params, NewSessionId);
@@ -787,7 +809,10 @@ begin
     end;
   end
   else
+  begin
+    Parsed.Free;
     Response := TJsonRpc.Error(nil, JSONRPC_PARSE_ERROR, 'Failed to parse JSON');
+  end;
 
   if Response <> '' then
   begin

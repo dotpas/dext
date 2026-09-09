@@ -126,7 +126,7 @@ begin
     //
     // Server.Tool('tool-adicional')
     //   .Description('Tool registrada via fluent API além do provider')
-    //   .OnCallResult(function(Args: TJSONObject): TMCPToolResult
+    //   .OnCallResult(function(Args: TJsonObject): TMCPToolResult
     //     begin Result := TMCPToolResult.Text('ok'); end);
 
     if Transport = mtStdio then

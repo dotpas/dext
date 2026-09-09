@@ -21,7 +21,7 @@ interface
 
 uses
   System.SysUtils,
-  System.JSON,
+  DextJsonDataObjects,
   Dext.AI.MCP.Attributes,
   Dext.AI.MCP.Protocol,
   Dext.AI.MCP.Types,
@@ -48,14 +48,14 @@ type
       'Regras: até R$100 = 5%, R$101-500 = 10%, R$501-1000 = 15%, acima = 20%. ' +
       'Retorna o valor com desconto e o percentual aplicado.')]
     [MCPParam('valor', 'Valor bruto da venda em reais', ptNumber)]
-    function CalcularDesconto(const Args: TJSONObject): TMCPToolResult; virtual;
+    function CalcularDesconto(const Args: TJsonObject): TMCPToolResult; virtual;
 
     [MCPTool('validar-cpf',
       'Valida se um CPF é matematicamente correto (dígitos verificadores). ' +
       'Não consulta base de dados - apenas valida o formato e dígitos. ' +
       'Aceita CPF com ou sem pontuação (999.999.999-99 ou 99999999999).')]
     [MCPParam('cpf', 'CPF a validar (com ou sem formatação)', ptString)]
-    function ValidarCPF(const Args: TJSONObject): TMCPToolResult; virtual;
+    function ValidarCPF(const Args: TJsonObject): TMCPToolResult; virtual;
 
     [MCPTool('calcular-imc',
       'Calcula o IMC (Índice de Massa Corporal) com classificação OMS. ' +
@@ -64,14 +64,14 @@ type
       'Obesidade grau II (35-39.9), Obesidade grau III (>=40).')]
     [MCPParam('peso', 'Peso em kg (ex: 75.5)', ptNumber)]
     [MCPParam('altura', 'Altura em metros (ex: 1.72)', ptNumber)]
-    function CalcularIMC(const Args: TJSONObject): TMCPToolResult; virtual;
+    function CalcularIMC(const Args: TJsonObject): TMCPToolResult; virtual;
 
     [MCPTool('gerar-relatorio-texto',
       'Gera um relatório de exemplo com múltiplos conteúdos. ' +
       'Demonstra o uso de TMCPToolResult.AddContent para resultados ricos.')]
     [MCPParam('titulo', 'Título do relatório', ptString)]
     [MCPParam('linhas', 'Número de linhas de dados de exemplo', ptInteger, False)]
-    function GerarRelatorio(const Args: TJSONObject): TMCPToolResult; virtual;
+    function GerarRelatorio(const Args: TJsonObject): TMCPToolResult; virtual;
 
     // =========================================================================
     // RESOURCES - dados que o LLM pode consultar por URI
@@ -94,13 +94,13 @@ type
     [MCPPromptArg('valor', 'Valor da venda em reais')]
     [MCPPromptArg('produto', 'Nome do produto ou serviço')]
     [MCPPromptArg('cliente', 'Nome do cliente', {required=}False)]
-    function AnaliseVenda(const Args: TJSONObject): TMCPPromptResult; virtual;
+    function AnaliseVenda(const Args: TJsonObject): TMCPPromptResult; virtual;
 
     [MCPPrompt('revisao-codigo-delphi',
       'Template para revisão de código Delphi com foco em qualidade e performance')]
     [MCPPromptArg('codigo', 'Código Delphi para revisar')]
     [MCPPromptArg('contexto', 'Contexto ou objetivo do código', {required=}False)]
-    function RevisaoCodigoDelphi(const Args: TJSONObject): TMCPPromptResult; virtual;
+    function RevisaoCodigoDelphi(const Args: TJsonObject): TMCPPromptResult; virtual;
   end;
 
 implementation
@@ -114,13 +114,13 @@ uses
 // ---------------------------------------------------------------------------
 
 function TDemoProvider.CalcularDesconto(
-  const Args: TJSONObject): TMCPToolResult;
+  const Args: TJsonObject): TMCPToolResult;
 var
   Valor, Desconto, ValorFinal: Double;
   Percentual: Integer;
   Msg: string;
 begin
-  Valor := Args.GetValue<Double>('valor', 0);
+  Valor := Args.F['valor'];
 
   if Valor <= 0 then
     Exit(TMCPToolResult.Error('Valor deve ser maior que zero'));
@@ -146,7 +146,7 @@ begin
   Result := TMCPToolResult.Text(Msg);
 end;
 
-function TDemoProvider.ValidarCPF(const Args: TJSONObject): TMCPToolResult;
+function TDemoProvider.ValidarCPF(const Args: TJsonObject): TMCPToolResult;
 var
   CPF: string;
   Digits: string;
@@ -158,7 +158,7 @@ var
   end;
 
 begin
-  CPF := Args.GetValue<string>('cpf', '').Trim;
+  CPF := Args.S['cpf'].Trim;
 
   // Remove formatting
   Digits := '';
@@ -201,13 +201,13 @@ begin
        Copy(Digits, 7, 3), Copy(Digits, 10, 2)]));
 end;
 
-function TDemoProvider.CalcularIMC(const Args: TJSONObject): TMCPToolResult;
+function TDemoProvider.CalcularIMC(const Args: TJsonObject): TMCPToolResult;
 var
   Peso, Altura, IMC: Double;
   Classificacao: string;
 begin
-  Peso   := Args.GetValue<Double>('peso', 0);
-  Altura := Args.GetValue<Double>('altura', 0);
+  Peso   := Args.F['peso'];
+  Altura := Args.F['altura'];
 
   if (Peso <= 0) or (Altura <= 0) then
     Exit(TMCPToolResult.Error('Peso e altura devem ser maiores que zero'));
@@ -239,14 +239,20 @@ begin
       [Peso, Altura, IMC, Classificacao]));
 end;
 
-function TDemoProvider.GerarRelatorio(const Args: TJSONObject): TMCPToolResult;
+function TDemoProvider.GerarRelatorio(const Args: TJsonObject): TMCPToolResult;
 var
   Titulo: string;
   Linhas, I: Integer;
   Header, Row, Footer: string;
 begin
-  Titulo := Args.GetValue<string>('titulo', 'Relatório Demo');
-  Linhas := Args.GetValue<Integer>('linhas', 3);
+  if Args.Contains('titulo') then
+    Titulo := Args.S['titulo']
+  else
+    Titulo := 'Relatório Demo';
+  if Args.Contains('linhas') then
+    Linhas := Args.I['linhas']
+  else
+    Linhas := 3;
   Linhas := Max(1, Min(Linhas, 10)); // clamp 1..10
 
   // First content: header
@@ -322,13 +328,19 @@ end;
 // ---------------------------------------------------------------------------
 
 function TDemoProvider.AnaliseVenda(
-  const Args: TJSONObject): TMCPPromptResult;
+  const Args: TJsonObject): TMCPPromptResult;
 var
   Valor, Produto, Cliente, Prompt: string;
 begin
-  Valor   := Args.GetValue<string>('valor', '0');
-  Produto := Args.GetValue<string>('produto', '');
-  Cliente := Args.GetValue<string>('cliente', 'cliente');
+  if Args.Contains('valor') then
+    Valor := Args.S['valor']
+  else
+    Valor := '0';
+  Produto := Args.S['produto'];
+  if Args.Contains('cliente') then
+    Cliente := Args.S['cliente']
+  else
+    Cliente := 'cliente';
 
   Prompt :=
     'Analise a seguinte venda e sugira ações comerciais:' + sLineBreak +
@@ -348,12 +360,12 @@ begin
 end;
 
 function TDemoProvider.RevisaoCodigoDelphi(
-  const Args: TJSONObject): TMCPPromptResult;
+  const Args: TJsonObject): TMCPPromptResult;
 var
   Codigo, Contexto, Prompt: string;
 begin
-  Codigo   := Args.GetValue<string>('codigo', '');
-  Contexto := Args.GetValue<string>('contexto', '');
+  Codigo   := Args.S['codigo'];
+  Contexto := Args.S['contexto'];
 
   Prompt :=
     'Faça uma revisão detalhada do código Delphi abaixo.' + sLineBreak +

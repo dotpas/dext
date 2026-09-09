@@ -1,4 +1,4 @@
-﻿{***************************************************************************}
+{***************************************************************************}
 {                                                                           }
 {           Dext Framework                                                  }
 {                                                                           }
@@ -11,7 +11,7 @@
 {               http://www.apache.org/licenses/LICENSE-2.0                  }
 {                                                                           }
 {           Unless required by applicable law or agreed to in writing,      }
-{           software distributed under the LICENSE is distributed on an     }
+{           software distributed under the License is distributed on an     }
 {           "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,    }
 {           either express or implied. See the License for the specific     }
 {           language governing permissions and limitations under the        }
@@ -26,14 +26,14 @@
 {    Server.Tool('my-tool')                                                 }
 {      .Description('Does something useful')                                }
 {      .Param('query', 'Search term', ptString)                             }
-{      .OnCall(function(Args: TJSONObject): string                          }
+{      .OnCall(function(Args: TJsonObject): string                          }
 (*        begin Result := '{"ok":true}'; end);                             *)
 {                                                                           }
 {  Rich result builder (preferred for new tools):                           }
 {    Server.Tool('my-tool')                                                 }
 {      .Description('Returns an image')                                     }
 {      .Param('id', 'Item ID', ptString)                                    }
-{      .OnCallResult(function(Args: TJSONObject): TMCPToolResult            }
+{      .OnCallResult(function(Args: TJsonObject): TMCPToolResult            }
 {        begin                                                              }
 {          Result := TMCPToolResult.Image(GetBase64(Args), 'image/png');    }
 {        end);                                                              }
@@ -43,7 +43,7 @@
 {      TMyTools = class(TMCPToolProvider)                                   }
 {        [MCPTool('search', 'Full-text search')]                            }
 {        [MCPParam('query', 'Search term', ptString)]                       }
-{        function Search(const Args: TJSONObject): TMCPToolResult; virtual; }
+{        function Search(const Args: TJsonObject): TMCPToolResult; virtual; }
 {      end;                                                                 }
 {    Server.RegisterProvider(TMyTools.Create);                              }
 {                                                                           }
@@ -54,7 +54,7 @@ interface
 
 uses
   System.SysUtils,
-  System.JSON,
+  DextJsonDataObjects,
   System.Rtti,
   Dext.Collections,
   Dext.Collections.Dict,
@@ -80,7 +80,7 @@ type
   TMCPToolProvider = class
   public
     /// <summary>Called before each tool invocation. Override for logging/auth.</summary>
-    procedure BeforeCall(const AToolName: string; const Args: TJSONObject); virtual;
+    procedure BeforeCall(const AToolName: string; const Args: TJsonObject); virtual;
     /// <summary>Called after each successful tool invocation.</summary>
     procedure AfterCall(const AToolName: string); virtual;
   end;
@@ -95,7 +95,7 @@ type
   /// The tool is committed to the registry when OnCall / OnCallResult is invoked.
   /// </summary>
   IMCPToolBuilder = interface
-    ['{D1E2F3A4-B5C6-7890-ABCD-EF0123456789}']
+    ['{47B27953-8614-46D1-BE60-2B50C44CD4BF}']
     function Description(const AText: string): IMCPToolBuilder;
     function Param(const AName, ADesc: string;
       AType: TMCPParamType = ptString;
@@ -135,10 +135,10 @@ type
   private
     FTools: TDictionary<string, TMCPToolDef>;
     FProviders: TList<TMCPToolProvider>;
-    FCachedTools: TJSONArray;
+    FCachedTools: TJsonArray;
 
     procedure InvalidateCache;
-    function BuildInputSchema(const Def: TMCPToolDef): TJSONObject;
+    function BuildInputSchema(const Def: TMCPToolDef): TJsonObject;
 
     function MakeProviderCallback(AProvider: TMCPToolProvider;
       AMethod: TRttiMethod; const AName: string): TMCPToolResultCallback;
@@ -163,9 +163,9 @@ type
 
     /// <summary>
     /// Builds the JSON array for the tools/list response.
-    /// Caller owns the returned TJSONArray.
+    /// Caller owns the returned TJsonArray.
     /// </summary>
-    function BuildToolsArray: TJSONArray;
+    function BuildToolsArray: TJsonArray;
 
     function Count: Integer;
   end;
@@ -175,7 +175,7 @@ implementation
 { TMCPToolProvider }
 
 procedure TMCPToolProvider.BeforeCall(const AToolName: string;
-  const Args: TJSONObject);
+  const Args: TJsonObject);
 begin
   // Default: no-op. Override for logging, auth checks, etc.
 end;
@@ -260,14 +260,14 @@ function TMCPToolRegistry.MakeProviderCallback(AProvider: TMCPToolProvider;
 begin
   // AMethod and AProvider are parameters - each call creates a distinct
   // activation record, so the closure captures the right values per tool.
-  Result := function(const Args: TJSONObject): TMCPToolResult
+  Result := function(const Args: TJsonObject): TMCPToolResult
   var
     InvokeResult: TValue;
   begin
     try
       AProvider.BeforeCall(AName, Args);
       InvokeResult := AMethod.Invoke(AProvider,
-        [TValue.From<TJSONObject>(Args)]);
+        [TValue.From<TJsonObject>(Args)]);
       AProvider.AfterCall(AName);
       Result := InvokeResult.AsType<TMCPToolResult>;
     except
@@ -332,60 +332,56 @@ begin
   Result := FTools.Count;
 end;
 
-function TMCPToolRegistry.BuildInputSchema(const Def: TMCPToolDef): TJSONObject;
+function TMCPToolRegistry.BuildInputSchema(const Def: TMCPToolDef): TJsonObject;
 var
-  Schema, Props, PropObj: TJSONObject;
-  Required: TJSONArray;
+  Schema, Props, PropObj: TJsonObject;
+  Required: TJsonArray;
   P: TMCPToolParam;
 begin
-  Schema := TJSONObject.Create;
-  Schema.AddPair('type', 'object');
+  Schema := TJsonObject.Create;
+  Schema.S['type'] := 'object';
 
-  Props    := TJSONObject.Create;
-  Required := TJSONArray.Create;
+  Props    := Schema.O['properties'];
+  Required := TJsonArray.Create;
 
   for P in Def.Params do
   begin
-    PropObj := TJSONObject.Create;
-    PropObj.AddPair('type', P.TypeName);
+    PropObj := Props.O[P.Name];
+    PropObj.S['type'] := P.TypeName;
     if P.Description <> '' then
-      PropObj.AddPair('description', P.Description);
-    Props.AddPair(P.Name, PropObj);
+      PropObj.S['description'] := P.Description;
 
     if P.Required then
       Required.Add(P.Name);
   end;
 
-  Schema.AddPair('properties', Props);
-
   if Required.Count > 0 then
-    Schema.AddPair('required', Required)
+    Schema.A['required'] := Required
   else
     Required.Free;
 
   Result := Schema;
 end;
 
-function TMCPToolRegistry.BuildToolsArray: TJSONArray;
+function TMCPToolRegistry.BuildToolsArray: TJsonArray;
 var
   Def: TMCPToolDef;
-  ToolObj: TJSONObject;
+  ToolObj: TJsonObject;
 begin
   if FCachedTools <> nil then
-    Exit(FCachedTools.Clone as TJSONArray);
+    Exit(FCachedTools.Clone as TJsonArray);
 
-  FCachedTools := TJSONArray.Create;
+  FCachedTools := TJsonArray.Create;
 
   for Def in FTools.Values do
   begin
-    ToolObj := TJSONObject.Create;
-    ToolObj.AddPair('name', Def.Name);
-    ToolObj.AddPair('description', Def.Description);
-    ToolObj.AddPair('inputSchema', BuildInputSchema(Def));
-    FCachedTools.Add(ToolObj);
+    ToolObj := FCachedTools.AddObject;
+    ToolObj.S['name'] := Def.Name;
+    ToolObj.S['description'] := Def.Description;
+    ToolObj.O['inputSchema'] := BuildInputSchema(Def);
   end;
 
-  Result := FCachedTools.Clone as TJSONArray;
+  Result := FCachedTools.Clone as TJsonArray;
 end;
 
 end.

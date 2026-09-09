@@ -118,6 +118,11 @@
 - [Skills de IA](13-ai-assistants/README.md) - Instruções nativas para integração de IA
 - [Servidor MCP](15-mcp-server/README.md) - Implementação nativa do Model Context Protocol
 
+#### [16. Agentes de IA & Orquestração](16-ai-agents/README.md) ⭐ NOVO
+
+- Dext.AI.Agent - Loop ReAct de agente único (estilo LangChain)
+- Dext.AI.Graph - Orquestração via grafo, checkpointing, human-in-the-loop, subgrafos (estilo LangGraph)
+
 ---
 
 ### Apêndice
@@ -148,6 +153,8 @@ Cada capítulo referencia exemplos funcionais do diretório `Examples/`
 | [Orm.EntityDemo](../../Examples/Orm.EntityDemo/) | ORM Básico |
 | [Hubs](../../Examples/Hubs/) | SignalR Tempo Real |
 | [Desktop.MVVM.CustomerCRUD](../../Examples/Desktop.MVVM.CustomerCRUD/) | Navigator, MVVM, Testes |
+| [AI.AgentDemo](../../Examples/AI/AgentDemo/) | Dext.AI.Agent, loop ReAct |
+| [AI.GraphDemo](../../Examples/AI/GraphDemo/) | Dext.AI.Graph, checkpointing, HITL, subgrafos |
 
 ---
 

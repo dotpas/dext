@@ -29,10 +29,10 @@
 {    Server.Prompt('code-review', 'Reviews Delphi code for quality issues') }
 {      .Arg('code',     'Delphi source code to review')                     }
 {      .Arg('language', 'Language hint', False)                             }
-{      .OnGet(function(Args: TJSONObject): TMCPPromptResult                 }
+{      .OnGet(function(Args: TJsonObject): TMCPPromptResult                 }
 {        var Code: string;                                                  }
 {        begin                                                              }
-{          Code := Args.GetValue<string>('code', '');                       }
+{          Code := Args.S['code'];                                          }
 {          Result := TMCPPromptResult.Create('Code review prompt');         }
 {          Result.AddMessage(TMCPPromptMessage.User(                        }
 {            'Review this Delphi code:' + sLineBreak + Code));              }
@@ -41,7 +41,7 @@
 {  RTTI provider (via MCPPrompt attribute on TMCPToolProvider subclass):    }
 {    [MCPPrompt('code-review', 'Reviews Delphi code')]                      }
 {    [MCPPromptArg('code', 'Source code to review')]                        }
-{    function CodeReview(const Args: TJSONObject):                          }
+{    function CodeReview(const Args: TJsonObject):                          }
 {      TMCPPromptResult; virtual;                                           }
 {                                                                           }
 {***************************************************************************}
@@ -51,7 +51,7 @@ interface
 
 uses
   System.SysUtils,
-  System.JSON,
+  DextJsonDataObjects,
   System.RTTI,
   Dext.Collections,
   Dext.Collections.Dict,
@@ -82,7 +82,7 @@ type
   /// Chain: .Arg / .OnGet to complete registration.
   /// </summary>
   IMCPPromptBuilder = interface
-    ['{B2C3D4E5-F6A7-8901-BCDE-F01234567891}']
+    ['{EAF6AD97-3600-42BB-87DE-F377BE7A3CA4}']
     function Arg(const AName, ADescription: string;
       ARequired: Boolean = True): IMCPPromptBuilder;
     function OnGet(ACallback: TMCPPromptGetCallback): IMCPPromptBuilder;
@@ -129,14 +129,14 @@ type
     procedure Commit(const ADef: TMCPPromptDef);
 
     /// <summary>Executes a prompt by name. Returns False if not found.</summary>
-    function TryGet(const AName: string; const Args: TJSONObject;
+    function TryGet(const AName: string; const Args: TJsonObject;
       out AResult: TMCPPromptResult): Boolean;
 
     /// <summary>
     /// Builds the JSON array for the prompts/list response.
-    /// Caller owns the returned TJSONArray.
+    /// Caller owns the returned TJsonArray.
     /// </summary>
-    function BuildPromptsArray: TJSONArray;
+    function BuildPromptsArray: TJsonArray;
 
     function Count: Integer;
   end;
@@ -198,13 +198,13 @@ end;
 function TMCPPromptRegistry.MakeProviderCallback(AProvider: TObject;
   AMethod: TRttiMethod): TMCPPromptGetCallback;
 begin
-  Result := function(const Args: TJSONObject): TMCPPromptResult
+  Result := function(const Args: TJsonObject): TMCPPromptResult
   var
     InvokeResult: TValue;
   begin
     try
       InvokeResult := AMethod.Invoke(AProvider,
-        [TValue.From<TJSONObject>(Args)]);
+        [TValue.From<TJsonObject>(Args)]);
       Result := InvokeResult.AsType<TMCPPromptResult>;
     except
       on E: Exception do
@@ -267,7 +267,7 @@ begin
 end;
 
 function TMCPPromptRegistry.TryGet(const AName: string;
-  const Args: TJSONObject; out AResult: TMCPPromptResult): Boolean;
+  const Args: TJsonObject; out AResult: TMCPPromptResult): Boolean;
 var
   Def: TMCPPromptDef;
 begin
@@ -286,39 +286,35 @@ begin
   Result := FPrompts.Count;
 end;
 
-function TMCPPromptRegistry.BuildPromptsArray: TJSONArray;
+function TMCPPromptRegistry.BuildPromptsArray: TJsonArray;
 var
-  Arr: TJSONArray;
+  Arr: TJsonArray;
   Def: TMCPPromptDef;
-  PromptObj, ArgObj: TJSONObject;
-  ArgsArr: TJSONArray;
+  PromptObj, ArgObj: TJsonObject;
+  ArgsArr: TJsonArray;
   ArgDef: TMCPPromptArgDef;
 begin
-  Arr := TJSONArray.Create;
+  Arr := TJsonArray.Create;
 
   for Def in FPrompts.Values do
   begin
-    PromptObj := TJSONObject.Create;
-    PromptObj.AddPair('name', Def.Name);
+    PromptObj := Arr.AddObject;
+    PromptObj.S['name'] := Def.Name;
     if Def.Description <> '' then
-      PromptObj.AddPair('description', Def.Description);
+      PromptObj.S['description'] := Def.Description;
 
     if Length(Def.Args) > 0 then
     begin
-      ArgsArr := TJSONArray.Create;
+      ArgsArr := PromptObj.A['arguments'];
       for ArgDef in Def.Args do
       begin
-        ArgObj := TJSONObject.Create;
-        ArgObj.AddPair('name', ArgDef.Name);
+        ArgObj := ArgsArr.AddObject;
+        ArgObj.S['name'] := ArgDef.Name;
         if ArgDef.Description <> '' then
-          ArgObj.AddPair('description', ArgDef.Description);
-        ArgObj.AddPair('required', TJSONBool.Create(ArgDef.Required));
-        ArgsArr.Add(ArgObj);
+          ArgObj.S['description'] := ArgDef.Description;
+        ArgObj.B['required'] := ArgDef.Required;
       end;
-      PromptObj.AddPair('arguments', ArgsArr);
     end;
-
-    Arr.Add(PromptObj);
   end;
 
   Result := Arr;

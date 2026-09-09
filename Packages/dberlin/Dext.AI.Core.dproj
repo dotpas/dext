@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Package</AppType>
@@ -107,6 +107,7 @@
         <DCCReference Include="IndyProtocols.dcp"/>
         <DCCReference Include="IndyCore.dcp"/>
         <DCCReference Include="Dext.Core.dcp"/>
+        <DCCReference Include="Dext.Net.Core.dcp"/>
         <DCCReference Include="Dext.Web.Core.dcp"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Attributes.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Prompts.pas"/>
@@ -115,6 +116,21 @@
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Server.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Tools.pas"/>
         <DCCReference Include="..\..\Sources\AI\MCP\Dext.AI.MCP.Types.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Contracts.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Factory.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Observer.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Dext.AI.Agent.Runner.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Anthropic.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Ollama.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.OpenAI.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Contracts.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.State.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Edge.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Graph.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Compiled.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Dext.AI.Graph.Checkpointer.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.LLM.pas"/>
+        <DCCReference Include="..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.Tools.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

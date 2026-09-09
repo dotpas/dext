@@ -1,4 +1,4 @@
-﻿package Dext.AI.Core;
+package Dext.AI.Core;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -36,6 +36,7 @@ requires
   IndyProtocols,
   IndyCore,
   Dext.Core,
+  Dext.Net.Core,
   Dext.Web.Core;
 
 contains
@@ -45,6 +46,21 @@ contains
   Dext.AI.MCP.Resources in '..\..\Sources\AI\MCP\Dext.AI.MCP.Resources.pas',
   Dext.AI.MCP.Server in '..\..\Sources\AI\MCP\Dext.AI.MCP.Server.pas',
   Dext.AI.MCP.Tools in '..\..\Sources\AI\MCP\Dext.AI.MCP.Tools.pas',
-  Dext.AI.MCP.Types in '..\..\Sources\AI\MCP\Dext.AI.MCP.Types.pas';
+  Dext.AI.MCP.Types in '..\..\Sources\AI\MCP\Dext.AI.MCP.Types.pas',
+  Dext.AI.Agent.Contracts in '..\..\Sources\AI\Agent\Dext.AI.Agent.Contracts.pas',
+  Dext.AI.Agent.Factory in '..\..\Sources\AI\Agent\Dext.AI.Agent.Factory.pas',
+  Dext.AI.Agent.Observer in '..\..\Sources\AI\Agent\Dext.AI.Agent.Observer.pas',
+  Dext.AI.Agent.Runner in '..\..\Sources\AI\Agent\Dext.AI.Agent.Runner.pas',
+  Dext.AI.Agent.Provider.Anthropic in '..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Anthropic.pas',
+  Dext.AI.Agent.Provider.Ollama in '..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.Ollama.pas',
+  Dext.AI.Agent.Provider.OpenAI in '..\..\Sources\AI\Agent\Providers\Dext.AI.Agent.Provider.OpenAI.pas',
+  Dext.AI.Graph.Contracts in '..\..\Sources\AI\Graph\Dext.AI.Graph.Contracts.pas',
+  Dext.AI.Graph.State in '..\..\Sources\AI\Graph\Dext.AI.Graph.State.pas',
+  Dext.AI.Graph.Edge in '..\..\Sources\AI\Graph\Dext.AI.Graph.Edge.pas',
+  Dext.AI.Graph.Graph in '..\..\Sources\AI\Graph\Dext.AI.Graph.Graph.pas',
+  Dext.AI.Graph.Compiled in '..\..\Sources\AI\Graph\Dext.AI.Graph.Compiled.pas',
+  Dext.AI.Graph.Checkpointer in '..\..\Sources\AI\Graph\Dext.AI.Graph.Checkpointer.pas',
+  Dext.AI.Graph.Node.LLM in '..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.LLM.pas',
+  Dext.AI.Graph.Node.Tools in '..\..\Sources\AI\Graph\Nodes\Dext.AI.Graph.Node.Tools.pas';
 
 end.
