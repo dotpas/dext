@@ -154,6 +154,7 @@
         <DCCReference Include="..\..\Sources\Web\Dext.Web.EntityDataSetApi.pas"/>
         <DCCReference Include="..\..\Sources\Web\Dext.Web.Pipeline.pas"/>
         <DCCReference Include="..\..\Sources\Web\Dext.Web.Results.pas"/>
+        <DCCReference Include="..\..\Sources\Web\Dext.Web.Htmx.pas"/>
         <DCCReference Include="..\..\Sources\Web\Dext.Web.Routing.Attributes.pas"/>
         <DCCReference Include="..\..\Sources\Web\Dext.Web.Routing.pas"/>
         <DCCReference Include="..\..\Sources\Web\Dext.Web.RoutingMiddleware.pas"/>

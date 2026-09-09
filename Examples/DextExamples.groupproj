@@ -78,6 +78,9 @@
         <Projects Include="02-Web\Web.NativeServer\Web.NativeServerExample.dproj">
             <Dependencies/>
         </Projects>
+        <Projects Include="07-UseCases\Web.Htmx4Demo\Web.Htmx4Demo.dproj">
+            <Dependencies/>
+        </Projects>
         <Projects Include="07-UseCases\Web.OrderAPI\Web.OrderAPI.dproj">
             <Dependencies/>
         </Projects>
@@ -350,6 +353,15 @@
     <Target Name="Web_NativeServerExample:Make">
         <MSBuild Projects="02-Web\Web.NativeServer\Web.NativeServerExample.dproj" Targets="Make"/>
     </Target>
+    <Target Name="Web_Htmx4Demo">
+        <MSBuild Projects="07-UseCases\Web.Htmx4Demo\Web.Htmx4Demo.dproj"/>
+    </Target>
+    <Target Name="Web_Htmx4Demo:Clean">
+        <MSBuild Projects="07-UseCases\Web.Htmx4Demo\Web.Htmx4Demo.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Web_Htmx4Demo:Make">
+        <MSBuild Projects="07-UseCases\Web.Htmx4Demo\Web.Htmx4Demo.dproj" Targets="Make"/>
+    </Target>
     <Target Name="Web_OrderAPI">
         <MSBuild Projects="07-UseCases\Web.OrderAPI\Web.OrderAPI.dproj"/>
     </Target>
@@ -540,13 +552,13 @@
         <MSBuild Projects="07-UseCases\Web.HelpDesk\Tests\Web.HelpDesk.Tests.dproj" Targets="Make"/>
     </Target>
     <Target Name="Build">
-        <CallTarget Targets="Core_TestConfig;Core_TestHttpParser;Core_EventBusDemo;Web_EventBusDemo;CustomerCRUD_Tests;Dext_Examples_ComplexQuerying;Dext_Examples_MultiTenancy;DesktopMVUCounter;DesktopMVUCounterFrame;DesktopMVVMCustomerCRUD;Orm_EntityDemo;Orm_EntityStyles;Orm_SpecificationDemo;RestClientDemo;Web_BasicAuthDemo;Web_CachingDemo;Web_ControllerExample;Web_ControllerExample_FluentAPI;Web_DatabaseAsApi;Web_Dext_Starter_Admin;Web_DextStore;Web_DextFood;Web_JwtAuthDemo;Web_MinimalAPIExample;Web_NativeServerExample;Web_OrderAPI;Web_RateLimitDemo;Web_SmartPropsDemo;Web_SslDemo;Web_StreamingDemo;Web_SwaggerControllerExample;Web_SwaggerExample;Web_TaskFlowAPI;Web_TUUIDBindingExample;Web_UUIDExample;WebStencilsDemo;Web_SalesSystem_Minimal;Web_SalesSystem_Tests;Web_TicketSales;Web_TicketSales_Tests;Web_EventHub;Web_EventHub_Tests;Web_HelpDesk;Web_HelpDesk_Tests"/>
+        <CallTarget Targets="Core_TestConfig;Core_TestHttpParser;Core_EventBusDemo;Web_EventBusDemo;CustomerCRUD_Tests;Dext_Examples_ComplexQuerying;Dext_Examples_MultiTenancy;DesktopMVUCounter;DesktopMVUCounterFrame;DesktopMVVMCustomerCRUD;Orm_EntityDemo;Orm_EntityStyles;Orm_SpecificationDemo;RestClientDemo;Web_BasicAuthDemo;Web_CachingDemo;Web_ControllerExample;Web_ControllerExample_FluentAPI;Web_DatabaseAsApi;Web_Dext_Starter_Admin;Web_DextStore;Web_DextFood;Web_JwtAuthDemo;Web_MinimalAPIExample;Web_NativeServerExample;Web_Htmx4Demo;Web_OrderAPI;Web_RateLimitDemo;Web_SmartPropsDemo;Web_SslDemo;Web_StreamingDemo;Web_SwaggerControllerExample;Web_SwaggerExample;Web_TaskFlowAPI;Web_TUUIDBindingExample;Web_UUIDExample;WebStencilsDemo;Web_SalesSystem_Minimal;Web_SalesSystem_Tests;Web_TicketSales;Web_TicketSales_Tests;Web_EventHub;Web_EventHub_Tests;Web_HelpDesk;Web_HelpDesk_Tests"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="Core_TestConfig:Clean;Core_TestHttpParser:Clean;Core_EventBusDemo:Clean;Web_EventBusDemo:Clean;CustomerCRUD_Tests:Clean;Dext_Examples_ComplexQuerying:Clean;Dext_Examples_MultiTenancy:Clean;DesktopMVUCounter:Clean;DesktopMVUCounterFrame:Clean;DesktopMVVMCustomerCRUD:Clean;Orm_EntityDemo:Clean;Orm_EntityStyles:Clean;Orm_SpecificationDemo:Clean;RestClientDemo:Clean;Web_BasicAuthDemo:Clean;Web_CachingDemo:Clean;Web_ControllerExample:Clean;Web_ControllerExample_FluentAPI:Clean;Web_DatabaseAsApi:Clean;Web_Dext_Starter_Admin:Clean;Web_DextStore:Clean;Web_DextFood:Clean;Web_JwtAuthDemo:Clean;Web_MinimalAPIExample:Clean;Web_NativeServerExample:Clean;Web_OrderAPI:Clean;Web_RateLimitDemo:Clean;Web_SmartPropsDemo:Clean;Web_SslDemo:Clean;Web_StreamingDemo:Clean;Web_SwaggerControllerExample:Clean;Web_SwaggerExample:Clean;Web_TaskFlowAPI:Clean;Web_TUUIDBindingExample:Clean;Web_UUIDExample:Clean;WebStencilsDemo:Clean;Web_SalesSystem_Minimal:Clean;Web_SalesSystem_Tests:Clean;Web_TicketSales:Clean;Web_TicketSales_Tests:Clean;Web_EventHub:Clean;Web_EventHub_Tests:Clean;Web_HelpDesk:Clean;Web_HelpDesk_Tests:Clean"/>
+        <CallTarget Targets="Core_TestConfig:Clean;Core_TestHttpParser:Clean;Core_EventBusDemo:Clean;Web_EventBusDemo:Clean;CustomerCRUD_Tests:Clean;Dext_Examples_ComplexQuerying:Clean;Dext_Examples_MultiTenancy:Clean;DesktopMVUCounter:Clean;DesktopMVUCounterFrame:Clean;DesktopMVVMCustomerCRUD:Clean;Orm_EntityDemo:Clean;Orm_EntityStyles:Clean;Orm_SpecificationDemo:Clean;RestClientDemo:Clean;Web_BasicAuthDemo:Clean;Web_CachingDemo:Clean;Web_ControllerExample:Clean;Web_ControllerExample_FluentAPI:Clean;Web_DatabaseAsApi:Clean;Web_Dext_Starter_Admin:Clean;Web_DextStore:Clean;Web_DextFood:Clean;Web_JwtAuthDemo:Clean;Web_MinimalAPIExample:Clean;Web_NativeServerExample:Clean;Web_Htmx4Demo:Clean;Web_OrderAPI:Clean;Web_RateLimitDemo:Clean;Web_SmartPropsDemo:Clean;Web_SslDemo:Clean;Web_StreamingDemo:Clean;Web_SwaggerControllerExample:Clean;Web_SwaggerExample:Clean;Web_TaskFlowAPI:Clean;Web_TUUIDBindingExample:Clean;Web_UUIDExample:Clean;WebStencilsDemo:Clean;Web_SalesSystem_Minimal:Clean;Web_SalesSystem_Tests:Clean;Web_TicketSales:Clean;Web_TicketSales_Tests:Clean;Web_EventHub:Clean;Web_EventHub_Tests:Clean;Web_HelpDesk:Clean;Web_HelpDesk_Tests:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="Core_TestConfig:Make;Core_TestHttpParser:Make;Core_EventBusDemo:Make;Web_EventBusDemo:Make;CustomerCRUD_Tests:Make;Dext_Examples_ComplexQuerying:Make;Dext_Examples_MultiTenancy:Make;DesktopMVUCounter:Make;DesktopMVUCounterFrame:Make;DesktopMVVMCustomerCRUD:Make;Orm_EntityDemo:Make;Orm_EntityStyles:Make;Orm_SpecificationDemo:Make;RestClientDemo:Make;Web_BasicAuthDemo:Make;Web_CachingDemo:Make;Web_ControllerExample:Make;Web_ControllerExample_FluentAPI:Make;Web_DatabaseAsApi:Make;Web_Dext_Starter_Admin:Make;Web_DextStore:Make;Web_DextFood:Make;Web_JwtAuthDemo:Make;Web_MinimalAPIExample:Make;Web_NativeServerExample:Make;Web_OrderAPI:Make;Web_RateLimitDemo:Make;Web_SmartPropsDemo:Make;Web_SslDemo:Make;Web_StreamingDemo:Make;Web_SwaggerControllerExample:Make;Web_SwaggerExample:Make;Web_TaskFlowAPI:Make;Web_TUUIDBindingExample:Make;Web_UUIDExample:Make;WebStencilsDemo:Make;Web_SalesSystem_Minimal:Make;Web_SalesSystem_Tests:Make;Web_TicketSales:Make;Web_TicketSales_Tests:Make;Web_EventHub:Make;Web_EventHub_Tests:Make;Web_HelpDesk:Make;Web_HelpDesk_Tests:Make"/>
+        <CallTarget Targets="Core_TestConfig:Make;Core_TestHttpParser:Make;Core_EventBusDemo:Make;Web_EventBusDemo:Make;CustomerCRUD_Tests:Make;Dext_Examples_ComplexQuerying:Make;Dext_Examples_MultiTenancy:Make;DesktopMVUCounter:Make;DesktopMVUCounterFrame:Make;DesktopMVVMCustomerCRUD:Make;Orm_EntityDemo:Make;Orm_EntityStyles:Make;Orm_SpecificationDemo:Make;RestClientDemo:Make;Web_BasicAuthDemo:Make;Web_CachingDemo:Make;Web_ControllerExample:Make;Web_ControllerExample_FluentAPI:Make;Web_DatabaseAsApi:Make;Web_Dext_Starter_Admin:Make;Web_DextStore:Make;Web_DextFood:Make;Web_JwtAuthDemo:Make;Web_MinimalAPIExample:Make;Web_NativeServerExample:Make;Web_Htmx4Demo:Make;Web_OrderAPI:Make;Web_RateLimitDemo:Make;Web_SmartPropsDemo:Make;Web_SslDemo:Make;Web_StreamingDemo:Make;Web_SwaggerControllerExample:Make;Web_SwaggerExample:Make;Web_TaskFlowAPI:Make;Web_TUUIDBindingExample:Make;Web_UUIDExample:Make;WebStencilsDemo:Make;Web_SalesSystem_Minimal:Make;Web_SalesSystem_Tests:Make;Web_TicketSales:Make;Web_TicketSales_Tests:Make;Web_EventHub:Make;Web_EventHub_Tests:Make;Web_HelpDesk:Make;Web_HelpDesk_Tests:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
