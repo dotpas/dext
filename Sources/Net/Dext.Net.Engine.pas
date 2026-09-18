@@ -67,6 +67,9 @@ type
     procedure SetSendTimeout(AMilliseconds: Integer);
     procedure SetResponseTimeout(AMilliseconds: Integer);
     procedure SetIgnoreCertificateErrors(AValue: Boolean);
+    procedure SetClientCertificate(const APath, APassword: string); overload;
+    procedure SetClientCertificate(AStream: TStream; const APassword: string); overload;
+    procedure ClearClientCertificate;
     function Execute(const AMethod, AUrl: string; const ABody: TStream; const AHeaders: TDextNetHeaders): IDextHttpResponse;
     /// <summary>
     ///   Same as Execute, but the response body is written straight into
@@ -226,6 +229,9 @@ type
     procedure SetSendTimeout(AMilliseconds: Integer);
     procedure SetResponseTimeout(AMilliseconds: Integer);
     procedure SetIgnoreCertificateErrors(AValue: Boolean);
+    procedure SetClientCertificate(const APath, APassword: string); overload;
+    procedure SetClientCertificate(AStream: TStream; const APassword: string); overload;
+    procedure ClearClientCertificate;
     function Execute(const AMethod, AUrl: string; const ABody: TStream; const AHeaders: TDextNetHeaders): IDextHttpResponse;
     function ExecuteInto(const AMethod, AUrl: string; const ABody: TStream;
       const AHeaders: TDextNetHeaders; const ATarget: TStream;
@@ -266,6 +272,21 @@ end;
 procedure TDextIndyHttpEngine.SetIgnoreCertificateErrors(AValue: Boolean);
 begin
   FIgnoreCertErrors := AValue;
+end;
+
+procedure TDextIndyHttpEngine.SetClientCertificate(const APath, APassword: string);
+begin
+  // Indy stub - client certificate configuration
+end;
+
+procedure TDextIndyHttpEngine.SetClientCertificate(AStream: TStream; const APassword: string);
+begin
+  // Indy stub - client certificate configuration
+end;
+
+procedure TDextIndyHttpEngine.ClearClientCertificate;
+begin
+  // Indy stub - client certificate cleanup
 end;
 
 function TDextIndyHttpEngine.VerifyPeer(ACertificate: TIdX509; AOk: Boolean;
@@ -487,7 +508,11 @@ type
   private
     FClient: THTTPClient;
     FIgnoreCertErrors: Boolean;
+    FCertPath: string;
+    FCertPassword: string;
+    FCertStream: TMemoryStream;
     procedure ValidateServerCertificate(const Sender: TObject; const ARequest: TURLRequest; const Certificate: TCertificate; var AValidate: Boolean);
+    procedure ApplyClientCertificate(const ARequest: IHTTPRequest);
   public
     constructor Create;
     destructor Destroy; override;
@@ -495,6 +520,9 @@ type
     procedure SetSendTimeout(AMilliseconds: Integer);
     procedure SetResponseTimeout(AMilliseconds: Integer);
     procedure SetIgnoreCertificateErrors(AValue: Boolean);
+    procedure SetClientCertificate(const APath, APassword: string); overload;
+    procedure SetClientCertificate(AStream: TStream; const APassword: string); overload;
+    procedure ClearClientCertificate;
     function Execute(const AMethod, AUrl: string; const ABody: TStream; const AHeaders: TDextNetHeaders): IDextHttpResponse;
     function ExecuteInto(const AMethod, AUrl: string; const ABody: TStream;
       const AHeaders: TDextNetHeaders; const ATarget: TStream;
@@ -524,6 +552,7 @@ end;
 
 destructor TDextNetHttpEngine.Destroy;
 begin
+  ClearClientCertificate;
   FClient.Free;
   inherited;
 end;
@@ -543,31 +572,70 @@ begin
   FClient.ResponseTimeout := AMilliseconds;
 end;
 
+procedure TDextNetHttpEngine.SetClientCertificate(const APath, APassword: string);
+begin
+  ClearClientCertificate;
+  FCertPath := APath;
+  FCertPassword := APassword;
+end;
+
+procedure TDextNetHttpEngine.SetClientCertificate(AStream: TStream; const APassword: string);
+begin
+  ClearClientCertificate;
+  FCertPassword := APassword;
+  if Assigned(AStream) then
+  begin
+    FCertStream := TMemoryStream.Create;
+    AStream.Position := 0;
+    FCertStream.CopyFrom(AStream, AStream.Size);
+    FCertStream.Position := 0;
+  end;
+end;
+
+procedure TDextNetHttpEngine.ClearClientCertificate;
+begin
+  FCertPath := '';
+  FCertPassword := '';
+  FreeAndNil(FCertStream);
+end;
+
+procedure TDextNetHttpEngine.ApplyClientCertificate(const ARequest: IHTTPRequest);
+begin
+  if not Assigned(ARequest) then Exit;
+  if Assigned(FCertStream) then
+  begin
+    FCertStream.Position := 0;
+    ARequest.SetClientCertificate(FCertStream, FCertPassword);
+  end
+  else if FCertPath <> '' then
+    ARequest.SetClientCertificate(FCertPath, FCertPassword);
+end;
+
 function TDextNetHttpEngine.Execute(const AMethod, AUrl: string; const ABody: TStream; const AHeaders: TDextNetHeaders): IDextHttpResponse;
 var
   i: Integer;
-  NetHeadersList: TList<TNetHeader>;
+  Request: IHTTPRequest;
   Response: IHTTPResponse;
 begin
-  NetHeadersList := TList<TNetHeader>.Create;
-  try
-    for i := 0 to High(AHeaders) do
-      NetHeadersList.Add(TNetHeader.Create(AHeaders[i].Name, AHeaders[i].Value));
+  Request := FClient.GetRequest(AMethod, TURI.Create(AUrl));
+  for i := 0 to High(AHeaders) do
+    Request.AddHeader(AHeaders[i].Name, AHeaders[i].Value);
+  if Assigned(ABody) then
+    Request.SourceStream := ABody;
 
-    Response := FClient.Execute(AMethod, TURI.Create(AUrl), ABody, nil, NetHeadersList.ToArray) as IHTTPResponse;
-    // No copy: the RTL already buffered the payload. We hand the same stream over
-    // and keep the IHTTPResponse referenced, so its memory stays valid.
-    Result := TDextHttpResponseImpl.Create(
-      Response.StatusCode,
-      Response.StatusText,
-      Response.ContentStream,
-      Response.Headers,
-      False { AOwnsStream },
-      Response { AKeepAlive }
-    );
-  finally
-    NetHeadersList.Free;
-  end;
+  ApplyClientCertificate(Request);
+
+  Response := FClient.Execute(Request) as IHTTPResponse;
+  // No copy: the RTL already buffered the payload. We hand the same stream over
+  // and keep the IHTTPResponse referenced, so its memory stays valid.
+  Result := TDextHttpResponseImpl.Create(
+    Response.StatusCode,
+    Response.StatusText,
+    Response.ContentStream,
+    Response.Headers,
+    False { AOwnsStream },
+    Response { AKeepAlive }
+  );
 end;
 
 function TDextNetHttpEngine.ExecuteInto(const AMethod, AUrl: string; const ABody: TStream;
@@ -598,6 +666,8 @@ begin
       LRequest.AddHeader(AHeaders[i].Name, AHeaders[i].Value);
     if Assigned(ABody) then
       LRequest.SourceStream := ABody;
+
+    ApplyClientCertificate(LRequest);
 
     // On the REQUEST, not on the client: engines come from a shared pool, and a
     // callback left behind on the client would fire for the next borrower.

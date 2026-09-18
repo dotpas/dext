@@ -559,6 +559,7 @@ Exposes delta-tracking mechanisms and transport decompression.
   `Accept-Encoding` and decompresses response streams dynamically.
 - **Raw Stream Preservation** — Preserves raw compressed bytes via
   `RawContentStream` property for audit or direct byte checking.
+- **Dynamic Client Certificate / mTLS** — `TRestClient.ClientCertificate` with overloads for file path (`cert.pfx`, `cert.p12`) and in-memory stream (`TStream`). Enables direct submission to public webservices (such as Portugal SAF-T) without requiring certificates installed in the Windows certificate store. Automatic per-request isolation and cleanup in connection pools.
 
 ### 5.2 Authentication Providers
 - **Bearer Token (JWT)** — Automatic `Authorization: Bearer <token>` header.

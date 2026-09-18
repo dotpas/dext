@@ -570,6 +570,7 @@ Oferece controle de alterações distribuído e descompressão de rede.
   e realiza a descompactação via `TZDecompressionStream` de forma transparente.
 - **Preservação de Stream Bruto** — Mantém o stream compactado original
   disponível em `RawContentStream` para inspeção e auditoria.
+- **Certificado de Cliente Dinâmico / mTLS** — `TRestClient.ClientCertificate` com sobrecargas para arquivo (`cert.pfx`, `cert.p12`) e stream em memória (`TStream`). Permite a comunicação com webservices públicos (como SAF-T em Portugal) sem necessidade de instalação prévia no repositório de certificados do Windows. Isolamento automático por requisição e limpeza nos pools de conexão.
 
 ### 5.2 Authentication Providers
 - **Bearer Token (JWT)** — Envio automático de `Authorization: Bearer <token>`.

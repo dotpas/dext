@@ -184,6 +184,10 @@ uses
     function IgnoreCertificateErrors(AValue: Boolean = True): IRestClient;
     /// <summary>Alias for IgnoreCertificateErrors to allow self-signed certificates.</summary>
     function AllowSelfSigned(AValue: Boolean = True): IRestClient;
+    /// <summary>Configures a dynamic client certificate (PFX/P12 or PEM) from a file path.</summary>
+    function ClientCertificate(const APath, APassword: string): IRestClient; overload;
+    /// <summary>Configures a dynamic client certificate (PFX/P12) directly from a stream (e.g. database blob or memory).</summary>
+    function ClientCertificate(ACertStream: TStream; const APassword: string): IRestClient; overload;
     /// <summary>Associates an authentication provider (Bearer, Basic, API Key).</summary>
     function Auth(AProvider: IAuthenticationProvider): IRestClient;
     /// <summary>Adds a fixed HTTP header to the client.</summary>
@@ -349,6 +353,9 @@ uses
     FLock: TCriticalSection;
     FResiliencePipeline: IResiliencePipeline;
     FOnReceive: TRestReceiveAnonEvent;
+    FCertPath: string;
+    FCertPassword: string;
+    FCertStream: TMemoryStream;
 
     function GetFullUrl(const AEndpoint: string): string;
     /// Unico punto di esecuzione: ExecuteAsync e ExecuteIntoAsync passano di qui.
@@ -375,6 +382,8 @@ uses
     function Retry(AValue: Integer): IRestClient;
     function IgnoreCertificateErrors(AValue: Boolean = True): IRestClient;
     function AllowSelfSigned(AValue: Boolean = True): IRestClient;
+    function ClientCertificate(const APath, APassword: string): IRestClient; overload;
+    function ClientCertificate(ACertStream: TStream; const APassword: string): IRestClient; overload;
     function Auth(AProvider: IAuthenticationProvider): IRestClient;
     function Header(const AName, AValue: string): IRestClient;
     function ContentType(AValue: TDextContentType): IRestClient;
@@ -437,6 +446,10 @@ uses
     function IgnoreCertificateErrors(AValue: Boolean = True): TRestClient;
     /// <summary>Alias for IgnoreCertificateErrors to allow self-signed certificates.</summary>
     function AllowSelfSigned(AValue: Boolean = True): TRestClient;
+    /// <summary>Configures a dynamic client certificate (PFX/P12 or PEM) from a file path.</summary>
+    function ClientCertificate(const APath, APassword: string): TRestClient; overload;
+    /// <summary>Configures a dynamic client certificate (PFX/P12) directly from a stream (e.g. database blob or memory).</summary>
+    function ClientCertificate(ACertStream: TStream; const APassword: string): TRestClient; overload;
     /// <summary>Configures Bearer (JWT) authentication for requests.</summary>
     function BearerToken(const AToken: string): TRestClient;
     /// <summary>Configures basic authentication (Username/Password).</summary>
@@ -795,6 +808,7 @@ end;
 destructor TRestClientImpl.Destroy;
 begin
   // FHeaders is ARC
+  FCertStream.Free;
   FLock.Free;
   inherited;
 end;
@@ -808,6 +822,39 @@ end;
 function TRestClientImpl.AllowSelfSigned(AValue: Boolean): IRestClient;
 begin
   Result := IgnoreCertificateErrors(AValue);
+end;
+
+function TRestClientImpl.ClientCertificate(const APath, APassword: string): IRestClient;
+begin
+  FLock.Enter;
+  try
+    FCertPath := APath;
+    FCertPassword := APassword;
+    FreeAndNil(FCertStream);
+  finally
+    FLock.Leave;
+  end;
+  Result := Self;
+end;
+
+function TRestClientImpl.ClientCertificate(ACertStream: TStream; const APassword: string): IRestClient;
+begin
+  FLock.Enter;
+  try
+    FCertPath := '';
+    FCertPassword := APassword;
+    FreeAndNil(FCertStream);
+    if Assigned(ACertStream) then
+    begin
+      FCertStream := TMemoryStream.Create;
+      ACertStream.Position := 0;
+      FCertStream.CopyFrom(ACertStream, ACertStream.Size);
+      FCertStream.Position := 0;
+    end;
+  finally
+    FLock.Leave;
+  end;
+  Result := Self;
 end;
 
 function TRestClientImpl.GetFullUrl(const AEndpoint: string): string;
@@ -977,6 +1024,9 @@ var
   Retries: Integer;
   Timeout: Integer;
   Url: string;
+  CertPath: string;
+  CertPassword: string;
+  CertStream: TMemoryStream;
 begin
   Url := GetFullUrl(AEndpoint);
   Retries := FMaxRetries;
@@ -1004,12 +1054,22 @@ begin
   end;
   Timeout := FTimeout;
   Auth := FAuthProvider;
+  CertStream := nil;
   
-  // Snapshot headers (Thread Safety)
+  // Snapshot headers and certificate (Thread Safety)
   HeadList := TList<TDextNetHeader>.Create;
   try
     FLock.Enter;
     try
+      CertPath := FCertPath;
+      CertPassword := FCertPassword;
+      if Assigned(FCertStream) then
+      begin
+        CertStream := TMemoryStream.Create;
+        FCertStream.Position := 0;
+        CertStream.CopyFrom(FCertStream, FCertStream.Size);
+        CertStream.Position := 0;
+      end;
       for Pair in FHeaders do
         HeadList.Add(TDextNetHeader.Create(Pair.Key, Pair.Value));
     finally
@@ -1125,6 +1185,16 @@ begin
                     HttpClient.SetSendTimeout(Timeout);
                     HttpClient.SetResponseTimeout(Timeout);
 
+                    if Assigned(CertStream) then
+                    begin
+                      CertStream.Position := 0;
+                      HttpClient.SetClientCertificate(CertStream, CertPassword);
+                    end
+                    else if CertPath <> '' then
+                      HttpClient.SetClientCertificate(CertPath, CertPassword)
+                    else
+                      HttpClient.ClearClientCertificate;
+
                     if Streaming then
                     begin
                       // Ogni tentativo riparte da dove stava il chiamante.
@@ -1154,6 +1224,7 @@ begin
                     LSpan.SetAttribute('http.status_code', Response.GetStatusCode);
                     LSpan.SetStatus('Success');
                   finally
+                    HttpClient.ClearClientCertificate;
                     TConnectionPool(TRestClient.FSharedPool).Release(HttpClient);
                   end;
                 end
@@ -1168,6 +1239,7 @@ begin
           end;
         finally
           LSpan.Finish;
+          CertStream.Free;
           if AOwnsBody and Assigned(ABody) then
             ABody.Free;
           // Il file .part si chiude QUI, dentro il task: chi viene dopo (il
@@ -1454,6 +1526,18 @@ end;
 function TRestClient.AllowSelfSigned(AValue: Boolean): TRestClient;
 begin
   FInstance.AllowSelfSigned(AValue);
+  Result := Self;
+end;
+
+function TRestClient.ClientCertificate(const APath, APassword: string): TRestClient;
+begin
+  FInstance.ClientCertificate(APath, APassword);
+  Result := Self;
+end;
+
+function TRestClient.ClientCertificate(ACertStream: TStream; const APassword: string): TRestClient;
+begin
+  FInstance.ClientCertificate(ACertStream, APassword);
   Result := Self;
 end;
 
