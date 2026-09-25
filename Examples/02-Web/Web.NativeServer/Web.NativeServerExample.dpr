@@ -85,7 +85,8 @@ begin
     // Configure Dext to use the Native HTTP.sys / epoll server engine
     (Host as IWebApplication).UseNativeServer;
 
-    Host.Run;
+    // 8080 fica com o Web.SslDemo. http.sys não aceita http://+:8080/ e https://+:8080/ juntos.
+    Host.Run(8090);
     Host.Stop;
 
   except

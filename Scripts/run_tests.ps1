@@ -169,6 +169,7 @@ foreach ($test in $Tests) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $test.FullName
     $psi.Arguments = '-no-wait'
+    $psi.WorkingDirectory = $RunTempPath
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $false
 

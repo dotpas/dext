@@ -49,7 +49,7 @@ const
     '        "Port": 8080,' + sLineBreak +
     '        "UseHttps": "true",' + sLineBreak +
     '        "SslProvider": "' + SELECTED_PROVIDER + '",' + sLineBreak +
-    '        "SslCertHash": "450D882D8080B6F92B6F2512ABE6FAB9768035C6",' + sLineBreak +
+    '        "SslCertHash": "BE93CEF4B0A4727477B432A801B3F2DC000AAC34",' + sLineBreak +
     '        "SslCert": "server.crt",' + sLineBreak +
     '        "SslKey": "server.key",' + sLineBreak +
     '        "SslRootCert": ""' + sLineBreak +

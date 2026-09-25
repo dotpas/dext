@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{E26F0000-4A11-4E01-8C26-000000000000}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="WebStencilsDemo\WebStencilsDemo.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="WebStencilsDemo.Tests\WebStencilsDemo.Tests.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="WebStencilsDemo">
+        <MSBuild Projects="WebStencilsDemo\WebStencilsDemo.dproj"/>
+    </Target>
+    <Target Name="WebStencilsDemo:Clean">
+        <MSBuild Projects="WebStencilsDemo\WebStencilsDemo.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="WebStencilsDemo:Make">
+        <MSBuild Projects="WebStencilsDemo\WebStencilsDemo.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="WebStencilsDemo_Tests">
+        <MSBuild Projects="WebStencilsDemo.Tests\WebStencilsDemo.Tests.dproj"/>
+    </Target>
+    <Target Name="WebStencilsDemo_Tests:Clean">
+        <MSBuild Projects="WebStencilsDemo.Tests\WebStencilsDemo.Tests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="WebStencilsDemo_Tests:Make">
+        <MSBuild Projects="WebStencilsDemo.Tests\WebStencilsDemo.Tests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="WebStencilsDemo;WebStencilsDemo_Tests"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="WebStencilsDemo:Clean;WebStencilsDemo_Tests:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="WebStencilsDemo:Make;WebStencilsDemo_Tests:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

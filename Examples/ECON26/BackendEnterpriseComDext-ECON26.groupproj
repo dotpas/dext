@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{E26F0000-4A11-4E01-8C26-000000000000}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Faturamento.Api\ECON26.Faturamento.Api.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Faturamento.Tests\ECON26.Faturamento.Tests.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="ECON26_Faturamento_Api">
+        <MSBuild Projects="Faturamento.Api\ECON26.Faturamento.Api.dproj"/>
+    </Target>
+    <Target Name="ECON26_Faturamento_Api:Clean">
+        <MSBuild Projects="Faturamento.Api\ECON26.Faturamento.Api.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="ECON26_Faturamento_Api:Make">
+        <MSBuild Projects="Faturamento.Api\ECON26.Faturamento.Api.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="ECON26_Faturamento_Tests">
+        <MSBuild Projects="Faturamento.Tests\ECON26.Faturamento.Tests.dproj"/>
+    </Target>
+    <Target Name="ECON26_Faturamento_Tests:Clean">
+        <MSBuild Projects="Faturamento.Tests\ECON26.Faturamento.Tests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="ECON26_Faturamento_Tests:Make">
+        <MSBuild Projects="Faturamento.Tests\ECON26.Faturamento.Tests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="ECON26_Faturamento_Api;ECON26_Faturamento_Tests"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="ECON26_Faturamento_Api:Clean;ECON26_Faturamento_Tests:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="ECON26_Faturamento_Api:Make;ECON26_Faturamento_Tests:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

@@ -184,7 +184,9 @@ var
   I: Integer;
 begin
   CleanStr := S.Trim;
-  
+  if CleanStr = '' then
+    Exit(TUUID.Empty);
+
   // Remove braces if present
   if CleanStr.StartsWith('{') and CleanStr.EndsWith('}') then
     CleanStr := CleanStr.Substring(1, CleanStr.Length - 2);

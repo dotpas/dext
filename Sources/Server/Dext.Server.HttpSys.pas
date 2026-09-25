@@ -2899,6 +2899,15 @@ var
   FormattedPathBase: string;
   LocalhostPrefix: string;
   LocalIpPrefix: string;
+
+  function AddUrl(const Prefix: string): ULONG;
+  var
+    WidePrefix: WideString;
+  begin
+    WidePrefix := Prefix;
+    Result := HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WidePrefix), 0, 0);
+  end;
+
 begin
   if FRunning then Exit;
 
@@ -2929,8 +2938,7 @@ begin
       FormattedPathBase]);
     
   SafeWriteLn('[http.sys] Registering URL Prefix in Kernel: ' + UrlPrefix);
-  Ret := HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WideString(UrlPrefix)),
-    0, 0);
+  Ret := AddUrl(UrlPrefix);
 
   if Ret = ERROR_SUCCESS then
     SafeWriteLn('[http.sys] URL Prefix successfully registered in Kernel: ' +
@@ -2944,14 +2952,12 @@ begin
   begin
     UrlPrefix := Format('%s://127.0.0.1:%d%s/', [Scheme, FListeningPort,
       FormattedPathBase]);
-    Ret := HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WideString(UrlPrefix)),
-      0, 0);
+    Ret := AddUrl(UrlPrefix);
     if (Ret = ERROR_SUCCESS) or (Ret = 183 {ERROR_ALREADY_EXISTS}) then
     begin
       LocalhostPrefix := Format('%s://localhost:%d%s/',
         [Scheme, FListeningPort, FormattedPathBase]);
-      HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WideString(LocalhostPrefix)),
-        0, 0);
+      AddUrl(LocalhostPrefix);
     end;
   end
   else if (Ret = ERROR_SUCCESS) or (Ret = 183 {ERROR_ALREADY_EXISTS}) then
@@ -2959,12 +2965,10 @@ begin
     // Garante escuta nos aliases locais caso escutando via + ou 0.0.0.0
     LocalhostPrefix := Format('%s://localhost:%d%s/',
       [Scheme, FListeningPort, FormattedPathBase]);
-    HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WideString(LocalhostPrefix)),
-      0, 0);
+    AddUrl(LocalhostPrefix);
     LocalIpPrefix := Format('%s://127.0.0.1:%d%s/',
       [Scheme, FListeningPort, FormattedPathBase]);
-    HttpAddUrlToUrlGroup(FUrlGroupId, PWideChar(WideString(LocalIpPrefix)),
-      0, 0);
+    AddUrl(LocalIpPrefix);
   end;
 
   // 183 (ERROR_ALREADY_EXISTS) é tolerado pois o prefixo já se encontra registrado no Kernel

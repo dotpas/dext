@@ -412,7 +412,7 @@ end;
 
 function TOrderDetails.ObterTotalComDesconto: Double;
 begin
-  Result := (FUnitPrice * FQuantity) * (1.0 - FDiscount);
+  Result := (FUnitPrice * FQuantity) * (Double(1.0) - FDiscount);
 end;
 
 initialization

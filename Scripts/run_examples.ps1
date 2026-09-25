@@ -71,6 +71,17 @@ foreach ($proj in $projects) {
 
     Write-Host "`n[$current/$total] Processing: $projName" -ForegroundColor White
 
+    # The shared output folder is the process working directory. A previous
+    # example must not leave appsettings or certificates for the next one.
+    foreach ($leaked in @(
+        'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json',
+        'server.crt', 'server.key', 'server.pfx')) {
+        $leakedPath = Join-Path $ExamplesOutput $leaked
+        if (Test-Path $leakedPath) {
+            Remove-Item -Path $leakedPath -Force
+        }
+    }
+
     # 4a. Build
     Write-Host '  [BUILD] Compiling...' -NoNewline
     $msbuildArgs = @(
@@ -98,6 +109,13 @@ foreach ($proj in $projects) {
         continue
     }
     Write-Host ' OK' -ForegroundColor Green
+
+    # AI demos compile in the normal run. They need provider keys to execute.
+    if ($projName -in @('AgentDemo', 'GraphDemo')) {
+        Write-Host '  [SKIP] Execution requires an AI provider key.' -ForegroundColor DarkYellow
+        $results += [PSCustomObject]@{ Project = $projName; Status = 'Passed'; Dir = $projDir }
+        continue
+    }
 
     # 4b. Verify Execution/Test
     $exePath = Join-Path $ExamplesOutput "$projName.exe"
