@@ -3267,6 +3267,7 @@ var
   Ret: ULONG;
   i: Integer;
   ThreadCount: Integer;
+  Receives: Integer;
   Worker: TDextHttpSysWorker;
   Err: EOSError;
   Affinity: TDextProcessorGroupAffinity;
@@ -3395,7 +3396,10 @@ begin
     FOptions.OutstandingReceiveDepth := 2
   else if FOptions.OutstandingReceiveDepth > 8 then
     FOptions.OutstandingReceiveDepth := 8;
-  for i := 0 to (ThreadCount * FOptions.OutstandingReceiveDepth) - 1 do
+  Receives := FOptions.OutstandingReceives;
+  if Receives <= 0 then
+    Receives := ThreadCount * FOptions.OutstandingReceiveDepth;
+  for i := 0 to Receives - 1 do
     PostReceiveRequest(AcquireContext);
 end;
 

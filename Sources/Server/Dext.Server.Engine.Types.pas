@@ -60,6 +60,13 @@ type
     /// <summary>Outstanding Http.Sys receives per I/O worker (default: 2).</summary>
     OutstandingReceiveDepth: Integer;
     /// <summary>
+    ///   Total outstanding Http.Sys receives. 0 (default) keeps
+    ///   IoThreadCount x OutstandingReceiveDepth. Set it to run more workers
+    ///   than receives: extra workers then only pick up requests while others
+    ///   are blocked (database, file, remote call).
+    /// </summary>
+    OutstandingReceives: Integer;
+    /// <summary>
     ///   Http.sys request-queue length (HttpServerQueueLengthProperty).
     ///   0 leaves the kernel default (typically 1000).
     /// </summary>
@@ -158,6 +165,8 @@ type
     /// <summary>Configures outstanding Http.Sys receives per worker (1..8).</summary>
     function WithOutstandingReceiveDepth(
       ADepth: Integer): TServerEngineOptions;
+    /// <summary>Configures the total outstanding Http.Sys receives (0 = workers x depth).</summary>
+    function WithOutstandingReceives(ACount: Integer): TServerEngineOptions;
     /// <summary>Configures the http.sys request-queue length (0 = kernel default).</summary>
     function WithQueueLength(ALength: Integer): TServerEngineOptions;
     /// <summary>Configures the http.sys max bandwidth in bytes/sec (0 = unlimited).</summary>
@@ -205,6 +214,7 @@ begin
   Result.MaxExecutorThreads := 0;
   Result.MaxQueueCapacity := 1024;
   Result.OutstandingReceiveDepth := 2;
+  Result.OutstandingReceives := 0;
   Result.QueueLength := 0;
   Result.MaxBandwidth := 0;
   Result.EntityBodyTimeoutSec := 0;
@@ -296,6 +306,13 @@ function TServerEngineOptionsHelper.WithMaxQueueCapacity(
   ACapacity: Integer): TServerEngineOptions;
 begin
   Self.MaxQueueCapacity := ACapacity;
+  Result := Self;
+end;
+
+function TServerEngineOptionsHelper.WithOutstandingReceives(
+  ACount: Integer): TServerEngineOptions;
+begin
+  Self.OutstandingReceives := ACount;
   Result := Self;
 end;
 
