@@ -233,17 +233,25 @@ end;
 
 function StringRawHashIgnoreCase(Key: Pointer; KeySize: Integer): Cardinal;
 var
-  S: string;
-  I: Integer;
+  P: PChar;
+  I, Len: Integer;
+  C: Char;
 begin
-  S := UpperCase(PString(Key)^); // UpperCase is more predictable than ToUpper sometimes
-  if S = '' then
+  // The same value as hashing UpperCase(S) (ASCII letters only, like
+  // UpperCase and SameText), without building the upper-case copy: this runs
+  // on every lookup of a case-insensitive dictionary (request and response
+  // headers), and the copy was an allocation each time.
+  Len := Length(PString(Key)^);
+  if Len = 0 then
     Exit(0);
-
+  P := PChar(PString(Key)^);
   Result := FNV_OFFSET_BASIS;
-  for I := 1 to Length(S) do
+  for I := 0 to Len - 1 do
   begin
-    Result := Result xor Ord(S[I]);
+    C := P[I];
+    if (C >= 'a') and (C <= 'z') then
+      C := Char(Ord(C) - 32);
+    Result := Result xor Ord(C);
     Result := Result * FNV_PRIME;
   end;
 end;

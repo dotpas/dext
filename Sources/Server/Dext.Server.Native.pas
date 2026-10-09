@@ -93,6 +93,11 @@ type
     FPath: string;
     FPathBase: string;
     FHasCustomPath: Boolean;
+    // Method and raw path, read once: the raw request builds a new string on
+    // every call, and routing, the matcher and telemetry each ask.
+    FMethod: string;
+    FRawPath: string;
+    FRawPathRead: Boolean;
     function ParseQueryString(const AQuery: string): IStringDictionary;
     function ParseHeaders: IStringDictionary;
   public
@@ -177,7 +182,13 @@ type
   private
     FRawResponse: IDextRawResponse;
     FHtmx: IHtmxResponse;
+    // The headers set so far, mirrored for whoever reads Response.Headers.
+    // The first few stay in a fixed array (no allocation: a typical response
+    // sets only Content-Type); the dictionary is built from them on demand.
     FHeaders: IStringDictionary;
+    FPendingNames: array [0 .. 3] of string;
+    FPendingValues: array [0 .. 3] of string;
+    FPendingCount: Integer;
     FStreamBuffer: TBytes;
     FStatusCode: Integer;
     FOutputStream: TDextResponseSinkStream;
@@ -262,6 +273,8 @@ type
     FResponse: IHttpResponse;
     FScope: IServiceScope;
     FServices: IServiceProvider;
+    // The root provider: the request scope is created from it on first use.
+    FRootServices: IServiceProvider;
     FUser: IClaimsPrincipal;
     FItems: IDictionary<string, TValue>;
     FEndpointMetadata: TEndpointMetadata;
@@ -431,7 +444,7 @@ begin
   FRawRequest := ARawRequest;
   FRemoteIp := ARemoteIp;
   FRouteParams.Clear;
-  FFiles := TFormFileCollection.Create(TCollections.CreateList<IFormFile>);
+  // FFiles: created on first use (GetFiles); most requests carry no files.
 end;
 
 destructor TDextNativeHttpRequest.Destroy;
@@ -445,13 +458,25 @@ begin
   inherited;
 end;
 
-function TDextNativeHttpRequest.GetMethod: string; begin Result := FRawRequest.Method; end;
+function TDextNativeHttpRequest.GetMethod: string;
+begin
+  if FMethod = '' then
+    FMethod := FRawRequest.Method;
+  Result := FMethod;
+end;
+
 function TDextNativeHttpRequest.GetPath: string;
 begin
   if FHasCustomPath then
     Exit(FPath);
-  Result := FRawRequest.Path;
-  if Result = '' then Result := '/';
+  if not FRawPathRead then
+  begin
+    FRawPath := FRawRequest.Path;
+    if FRawPath = '' then
+      FRawPath := '/';
+    FRawPathRead := True;
+  end;
+  Result := FRawPath;
 end;
 
 procedure TDextNativeHttpRequest.SetPath(const AValue: string);
@@ -665,6 +690,8 @@ end;
 
 function TDextNativeHttpRequest.GetFiles: IFormFileCollection;
 begin
+  if FFiles = nil then
+    FFiles := TFormFileCollection.Create(TCollections.CreateList<IFormFile>);
   Result := FFiles;
 end;
 
@@ -688,8 +715,27 @@ begin
 end;
 
 procedure TDextNativeHttpResponse.AddHeader(const AName, AValue: string);
+var
+  I: Integer;
 begin
   FRawResponse.SetHeader(AName, AValue);
+  if FHeaders = nil then
+  begin
+    // Same rule as the dictionary (AddOrSetValue, case-insensitive keys).
+    for I := 0 to FPendingCount - 1 do
+      if SameText(FPendingNames[I], AName) then
+      begin
+        FPendingValues[I] := AValue;
+        Exit;
+      end;
+    if FPendingCount <= High(FPendingNames) then
+    begin
+      FPendingNames[FPendingCount] := AName;
+      FPendingValues[FPendingCount] := AValue;
+      Inc(FPendingCount);
+      Exit;
+    end;
+  end;
   GetHeaders.AddOrSetValue(AName, AValue);
 end;
 
@@ -1003,14 +1049,30 @@ begin
 end;
 
 function TDextNativeHttpResponse.GetContentType: string;
+var
+  I: Integer;
 begin
-  Result := GetHeaders.GetValue('Content-Type');
+  if FHeaders = nil then
+  begin
+    for I := 0 to FPendingCount - 1 do
+      if SameText(FPendingNames[I], 'Content-Type') then
+        Exit(FPendingValues[I]);
+    Exit('');
+  end;
+  Result := FHeaders.GetValue('Content-Type');
 end;
 
 function TDextNativeHttpResponse.GetHeaders: IStringDictionary;
+var
+  I: Integer;
 begin
   if FHeaders = nil then
+  begin
     FHeaders := TCollections.CreateStringDictionary(True);
+    for I := 0 to FPendingCount - 1 do
+      FHeaders.AddOrSetValue(FPendingNames[I], FPendingValues[I]);
+    FPendingCount := 0;
+  end;
   Result := FHeaders;
 end;
 
@@ -1037,17 +1099,16 @@ constructor TDextNativeHttpContext.Create(
 begin
   inherited Create;
   FConnection := AConnection;
-  FServices := AServices;
+  // The request scope and the Items dictionary are created on first use
+  // (GetServices, GetItems): a route that touches neither -- a plain ping, a
+  // query that writes its JSON -- no longer pays a service scope with two
+  // dictionaries and a TValue dictionary on every request.
+  FRootServices := AServices;
+  FServices := nil;
   FScope := nil;
-  if AServices <> nil then
-  begin
-    // Create scope per request
-    FScope := AServices.CreateScope;
-    FServices := FScope.ServiceProvider;
-  end;
+  FItems := nil;
   FRequest := TDextNativeHttpRequest.Create(ARawRequest, AConnection.RemoteAddress);
   FResponse := TDextNativeHttpResponse.Create(ARawResponse);
-  FItems := TCollections.CreateDictionary<string, TValue>;
 end;
 
 destructor TDextNativeHttpContext.Destroy;
@@ -1055,19 +1116,42 @@ begin
   FRequest := nil;
   FResponse := nil;
   FItems := nil;
-  FScope := nil;
   FServices := nil;
+  FScope := nil;
+  FRootServices := nil;
   FConnection := nil;
   inherited;
 end;
 
 function TDextNativeHttpContext.GetConnection: IDextServerConnection; begin Result := FConnection; end;
-function TDextNativeHttpContext.GetItems: IDictionary<string, TValue>; begin Result := FItems; end;
+function TDextNativeHttpContext.GetItems: IDictionary<string, TValue>;
+begin
+  if FItems = nil then
+    FItems := TCollections.CreateDictionary<string, TValue>;
+  Result := FItems;
+end;
+
 function TDextNativeHttpContext.GetRequest: IHttpRequest; begin Result := FRequest; end;
 function TDextNativeHttpContext.GetResponse: IHttpResponse; begin Result := FResponse; end;
 procedure TDextNativeHttpContext.SetResponse(const AValue: IHttpResponse); begin FResponse := AValue; end;
-function TDextNativeHttpContext.GetServices: IServiceProvider; begin Result := FServices; end;
-procedure TDextNativeHttpContext.SetServices(const AValue: IServiceProvider); begin FServices := AValue; end;
+function TDextNativeHttpContext.GetServices: IServiceProvider;
+begin
+  // Create scope per request, on first use
+  if (FServices = nil) and (FRootServices <> nil) then
+  begin
+    FScope := FRootServices.CreateScope;
+    FServices := FScope.ServiceProvider;
+  end;
+  Result := FServices;
+end;
+
+procedure TDextNativeHttpContext.SetServices(const AValue: IServiceProvider);
+begin
+  // An explicit provider wins: no lazy scope after this.
+  FRootServices := nil;
+  FServices := AValue;
+end;
+
 function TDextNativeHttpContext.GetUser: IClaimsPrincipal; begin Result := FUser; end;
 procedure TDextNativeHttpContext.SetUser(const AValue: IClaimsPrincipal); begin FUser := AValue; end;
 function TDextNativeHttpContext.GetSession: IStreamableSession; begin Result := nil; end;

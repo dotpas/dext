@@ -185,6 +185,10 @@ type
     FRoot: TRouteNode;
     FCompiledRoot: TDextCompiledRouteNode;
     FExactRoutes: IDictionary<string, IDictionary<string, TRouteLeaf>>;
+    // True if at least one route declares API versions. Without any, the
+    // requested version never changes the match (an empty list matches every
+    // version), so FindMatchingRoute does not read it.
+    FHasVersionedRoutes: Boolean;
     procedure AddRouteToTree(const ARoute: TRouteDefinition);
     function GetRequestedApiVersion(const AContext: IHttpContext): string;
     function IsVersionMatch(
@@ -788,6 +792,8 @@ begin
       Route.Method, Route.Path, Route.Handler
     );
     NewRoute.Metadata := Route.Metadata;
+    if Length(Route.Metadata.ApiVersions) > 0 then
+      FHasVersionedRoutes := True;
     FRoutes.Add(NewRoute);
     AddRouteToTree(NewRoute);
   end;
@@ -1013,7 +1019,12 @@ begin
   Result := False;
   Method := AContext.Request.Method;
   Path := AContext.Request.Path;
-  RequestVersion := GetRequestedApiVersion(AContext);
+  // Reading the version parses the query string and all the headers into two
+  // dictionaries: only worth it when some route is versioned.
+  if FHasVersionedRoutes then
+    RequestVersion := GetRequestedApiVersion(AContext)
+  else
+    RequestVersion := '';
 
   ExactPath := Path;
   if (Length(ExactPath) > 1) and

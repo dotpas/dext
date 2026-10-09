@@ -118,6 +118,7 @@ implementation
 uses
   System.Math,
   System.JSON,
+  System.Diagnostics,
   Dext.Logging.Telemetry,
   Dext.Web.ModelBinding,
   Dext.Web.Indy,
@@ -450,10 +451,18 @@ begin
   Result := 
     procedure(AContext: IHttpContext)
     var
-      Start: TDateTime;
+      Watch: TStopwatch;
       Data: TJSONObject;
     begin
-      Start := Now;
+      // Nobody listening (the common case): no event to build. Building it
+      // anyway cost two Now calls and a TJSONObject with three pairs --
+      // 15 allocations -- on every request, only for Write to free it.
+      if not TDiagnosticSource.Instance.IsActive then
+      begin
+        Pipeline(AContext);
+        Exit;
+      end;
+      Watch := TStopwatch.StartNew;
       try
         Pipeline(AContext);
       finally
@@ -463,7 +472,7 @@ begin
           Data.AddPair('Path', AContext.Request.Path);
           Data.AddPair('StatusCode', TJSONNumber.Create(AContext.Response.StatusCode));
           
-          TDiagnosticSource.Instance.Write('HTTP.Request', Data, 'HTTP', Round((Now - Start) * 86400000));
+          TDiagnosticSource.Instance.Write('HTTP.Request', Data, 'HTTP', Watch.ElapsedMilliseconds);
         except
           Data.Free;
         end;
