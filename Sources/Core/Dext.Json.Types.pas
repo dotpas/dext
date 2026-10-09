@@ -127,6 +127,7 @@ type
     FServiceProvider: IServiceProvider;
     FSmartRecordMapping: Boolean;
     FZeroDateAsNull: Boolean;
+    FKeepDefaultEnums: Boolean;
     Formatting: TJsonFormatting;
     IgnoreDefaultValues: Boolean;
     DateFormat: string;
@@ -152,6 +153,12 @@ type
     ///   IgnoreNullValues). A TTime is left alone: 0 is midnight there.
     /// </summary>
     function ZeroDateAsNull(AValue: Boolean = True): TJsonSettings;
+    /// <summary>
+    ///   With IgnoreDefaultValues, an enum at its first value (ordinal 0) is
+    ///   still written: that value is often a business state ("Draft",
+    ///   "Active") that a consumer must see. A False Boolean is still dropped.
+    /// </summary>
+    function KeepDefaultEnums(AValue: Boolean = True): TJsonSettings;
     function ISODateFormat: TJsonSettings;
     function UnixTimestamp: TJsonSettings;
     function CustomDateFormat(const Format: string): TJsonSettings;
@@ -201,6 +208,7 @@ begin
   Result.FCaseInsensitive := False;
   Result.FSmartRecordMapping := True; // Default is True
   Result.FZeroDateAsNull := False;
+  Result.FKeepDefaultEnums := False;
 end;
 
 function TJsonSettings.EnumAsNumber: TJsonSettings;
@@ -250,6 +258,12 @@ function TJsonSettings.SmartRecordMapping(AValue: Boolean): TJsonSettings;
 begin
   Result := Self;
   Result.FSmartRecordMapping := AValue;
+end;
+
+function TJsonSettings.KeepDefaultEnums(AValue: Boolean): TJsonSettings;
+begin
+  Result := Self;
+  Result.FKeepDefaultEnums := AValue;
 end;
 
 function TJsonSettings.ZeroDateAsNull(AValue: Boolean): TJsonSettings;

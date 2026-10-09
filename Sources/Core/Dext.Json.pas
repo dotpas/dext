@@ -1592,7 +1592,8 @@ begin
           if FSettings.IgnoreDefaultValues and not PropValue.AsBoolean then
             Continue;
         skEnumAsString, skEnumAsNumber:
-          if FSettings.IgnoreDefaultValues and (PropValue.AsOrdinal = 0) then
+          if FSettings.IgnoreDefaultValues and not FSettings.FKeepDefaultEnums and
+            (PropValue.AsOrdinal = 0) then
             Continue;
         skDateTime:
           if PropValue.AsExtended = 0 then
@@ -2326,6 +2327,28 @@ begin
       Continue;
     end;
 
+    // Default values: the same rules as SerializeObjectWithPlan for class
+    // properties. ShouldSkipField did this for record fields before the
+    // record plan, and is no longer called.
+    if FSettings.IgnoreDefaultValues then
+      case Item^.Kind of
+        skInteger:
+          if FieldValue.AsInt64 = 0 then
+            Continue;
+        skFloat, skDateTime:
+          if FieldValue.AsExtended = 0 then
+            Continue;
+        skString:
+          if FieldValue.AsString = '' then
+            Continue;
+        skBoolean:
+          if not FieldValue.AsBoolean then
+            Continue;
+        skEnumAsString, skEnumAsNumber:
+          if not FSettings.FKeepDefaultEnums and (FieldValue.AsOrdinal = 0) then
+            Continue;
+      end;
+
     if (Item^.FieldTypeInfo = TypeInfo(TGUID)) then
     begin
       Result.SetString(FieldName, GetGUIDString(FieldValue));
@@ -2482,7 +2505,7 @@ begin
         begin
           if not FieldValue.AsBoolean then Exit(True)
         end
-        else if FieldValue.AsOrdinal = 0 then Exit(True);
+        else if not FSettings.FKeepDefaultEnums and (FieldValue.AsOrdinal = 0) then Exit(True);
     end;
   end;
 
