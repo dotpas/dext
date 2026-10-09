@@ -104,6 +104,10 @@ uses
   IdSSL,
   IdComponent,
   IdHeaderList;
+{$ELSE}
+uses
+  System.Types,
+  System.SyncObjs;
 {$ENDIF}
 
 {$IF defined(DEXT_FORCE_INDY) or (CompilerVersion < 29.0)}
@@ -507,12 +511,15 @@ type
   TDextNetHttpEngine = class(TInterfacedObject, IDextHttpEngine)
   private
     FClient: THTTPClient;
+    FResponseTimeout: Integer;
     FIgnoreCertErrors: Boolean;
     FCertPath: string;
     FCertPassword: string;
     FCertStream: TMemoryStream;
     procedure ValidateServerCertificate(const Sender: TObject; const ARequest: TURLRequest; const Certificate: TCertificate; var AValidate: Boolean);
     procedure ApplyClientCertificate(const ARequest: IHTTPRequest);
+    function ExecuteWithin(const ARequest: IHTTPRequest;
+      const AContentStream: TStream): IHTTPResponse;
   public
     constructor Create;
     destructor Destroy; override;
@@ -569,6 +576,7 @@ end;
 
 procedure TDextNetHttpEngine.SetResponseTimeout(AMilliseconds: Integer);
 begin
+  FResponseTimeout := AMilliseconds;
   FClient.ResponseTimeout := AMilliseconds;
 end;
 
@@ -611,6 +619,60 @@ begin
     ARequest.SetClientCertificate(FCertPath, FCertPassword);
 end;
 
+function TDextNetHttpEngine.ExecuteWithin(const ARequest: IHTTPRequest;
+  const AContentStream: TStream): IHTTPResponse;
+var
+  LAsync: IAsyncResult;
+  LLastActivity: Int64;
+  LIdle: Int64;
+  LPrevReceive: TReceiveDataCallback;
+  LPrevSend: TSendDataCallback;
+begin
+  // On Windows THTTPClient sets ResponseTimeout on the WinHTTP request, but
+  // WinHTTP does not honour it reliably: of ten identical calls with 300 ms
+  // against a route that answers after 1.5 s only every third one failed, the
+  // others waited the full 1.5 s (reproduced with a plain THTTPClient, no Dext).
+  // So the timeout is enforced here: the request runs asynchronously and is
+  // cancelled after ResponseTimeout ms WITHOUT ACTIVITY -- nothing sent and
+  // nothing received -- so a long download that keeps receiving is not cut.
+  if FResponseTimeout <= 0 then
+    Exit(FClient.Execute(ARequest, AContentStream) as IHTTPResponse);
+
+  LLastActivity := TThread.GetTickCount64;
+  LPrevReceive := ARequest.ReceiveDataCallback;
+  LPrevSend := ARequest.SendDataCallback;
+  ARequest.ReceiveDataCallback :=
+    procedure(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean)
+    begin
+      TInterlocked.Exchange(LLastActivity, Int64(TThread.GetTickCount64));
+      if Assigned(LPrevReceive) then
+        LPrevReceive(Sender, AContentLength, AReadCount, AAbort);
+    end;
+  ARequest.SendDataCallback :=
+    procedure(const Sender: TObject; AContentLength, AWriteCount: Int64; var AAbort: Boolean)
+    begin
+      TInterlocked.Exchange(LLastActivity, Int64(TThread.GetTickCount64));
+      if Assigned(LPrevSend) then
+        LPrevSend(Sender, AContentLength, AWriteCount, AAbort);
+    end;
+
+  LAsync := FClient.BeginExecute(ARequest, AContentStream);
+  while LAsync.AsyncWaitEvent.WaitFor(50) <> wrSignaled do
+  begin
+    LIdle := Int64(TThread.GetTickCount64) - TInterlocked.Read(LLastActivity);
+    if LIdle >= FResponseTimeout then
+    begin
+      LAsync.Cancel;
+      // Let the cancelled request wind down before the engine is reused.
+      LAsync.AsyncWaitEvent.WaitFor(10000);
+      raise ENetHTTPClientException.CreateFmt(
+        'Error receiving data: (12002) The operation timed out after %d ms',
+        [LIdle]);
+    end;
+  end;
+  Result := THTTPClient.EndAsyncHTTP(LAsync);
+end;
+
 function TDextNetHttpEngine.Execute(const AMethod, AUrl: string; const ABody: TStream; const AHeaders: TDextNetHeaders): IDextHttpResponse;
 var
   i: Integer;
@@ -625,7 +687,7 @@ begin
 
   ApplyClientCertificate(Request);
 
-  Response := FClient.Execute(Request) as IHTTPResponse;
+  Response := ExecuteWithin(Request, nil);
   // No copy: the RTL already buffered the payload. We hand the same stream over
   // and keep the IHTTPResponse referenced, so its memory stays valid.
   Result := TDextHttpResponseImpl.Create(
@@ -684,7 +746,7 @@ begin
       end;
 
     try
-      LResponse := FClient.Execute(LRequest, Gate);
+      LResponse := ExecuteWithin(LRequest, Gate);
     except
       // An abort surfaces as a socket or protocol failure. Say what it was.
       if Aborted then

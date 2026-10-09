@@ -15,7 +15,8 @@ uses
   Dext.Net.RestRequest in '..\..\Sources\Net\Dext.Net.RestRequest.pas',
   TRestClient_Streaming_Tests in 'TRestClient_Streaming_Tests.pas',
   TRestClient_Certificate_Tests in 'TRestClient_Certificate_Tests.pas',
-  TRestClient_IntoBody_Tests in 'TRestClient_IntoBody_Tests.pas';
+  TRestClient_IntoBody_Tests in 'TRestClient_IntoBody_Tests.pas',
+  TRestClient_Timeout_Tests in 'TRestClient_Timeout_Tests.pas';
 
 begin
   SetConsoleCharSet;
@@ -26,7 +27,8 @@ begin
         TDextDownloadGateTests,
         TRestClientStreamingTests,
         TRestClientCertificateTests,
-        TRestClientIntoBodyTests
+        TRestClientIntoBodyTests,
+        TRestClientTimeoutTests
       ]));
   except
     on error: Exception do
