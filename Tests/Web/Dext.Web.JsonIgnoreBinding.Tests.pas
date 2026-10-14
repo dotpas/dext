@@ -26,6 +26,7 @@ type
     property Total: Integer read FTotal write FTotal;
   end;
 
+  {$M+}
   /// Only the published properties come from the body.
   [JsonPublishedOnly]
   TIgnoreBodyPublished = class

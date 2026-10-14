@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.DateUtils,
+  System.TimeSpan,
   Dext.Testing.Attributes,
   Dext.Assertions,
   System.Rtti,
