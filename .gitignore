@@ -47,3 +47,5 @@ dext-symbols.*
 /Tests/Core/*.vrc
 *.db-shm
 /Benchmarks/*.db-wal
+*.lst
+/Tests/Core/UnitTests/.dext/testing/suite_history.json
