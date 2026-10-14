@@ -111,6 +111,7 @@ type
 implementation
 
 uses
+  System.DateUtils,
   Dext.Assertions,
   Dext.Web,
   Dext.Web.Interfaces,
@@ -210,7 +211,9 @@ begin
   Should(Received.Rate).Be(0.5);
   Should(Received.Active).BeTrue;
   Should(Ord(Received.Status)).Be(Ord(bsClosed));
-  Should(FormatDateTime('yyyy-mm-dd hh:nn', Received.When)).Be('2026-10-05 10:30');
+  // The 'Z' is UTC: converted to the local time of this machine
+  Should(FormatDateTime('yyyy-mm-dd hh:nn', Received.When)).Be(FormatDateTime('yyyy-mm-dd hh:nn',
+    TTimeZone.Local.ToLocalTime(EncodeDateTime(2026, 10, 5, 10, 30, 0, 0))));
   Should(GUIDToString(Received.Key)).Be('{A1B2C3D4-0000-0000-0000-000000000001}');
   Should(Integer(Received.Small)).Be(200);
 end;

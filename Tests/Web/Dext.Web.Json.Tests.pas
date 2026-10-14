@@ -34,6 +34,9 @@ type
 
 implementation
 
+uses
+  Dext.Core.DateUtils;
+
 { TJsonNullableTests }
 
 procedure TJsonNullableTests.Should_Serialize_Nullable_Fields_As_Null_When_Empty;
@@ -78,7 +81,8 @@ begin
 
   Should(Json).Contain('"PersonParentId": 10');
   Should(Json).Contain('"Email": "john@dext.com"');
-  Should(Json).Contain('"UpdatedAt": "2026-03-29T10:00:00.000"');
+  Should(Json).Contain('"UpdatedAt": "' +
+    FormatJsonDateTime(EncodeDate(2026, 3, 29) + EncodeTime(10, 0, 0, 0)) + '"');
 end;
 
 procedure TJsonNullableTests.Should_Skip_Nullable_Fields_When_Empty_And_IgnoreNullValues_Is_True;

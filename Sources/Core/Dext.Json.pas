@@ -165,9 +165,72 @@ type
   TJsonUtils = record
   public
     class function ToCamelCase(const S: string): string; static;
+    /// <summary>True for TDateTime, TDate and TTime.</summary>
+    class function IsDateType(AType: PTypeInfo): Boolean; static;
+    /// <summary>
+    ///   The JSON text of a date, the same on every path. With
+    ///   TDateFormat.ISO8601 (the default) the standard (RFC 3339 / ISO 8601):
+    ///   a TDateTime is the local time with its UTC offset
+    ///   ("2026-07-15T10:30:00.000+02:00", Dext.Core.DateUtils.FormatJsonDateTime),
+    ///   a TDate the calendar day ("2026-07-15"), a TTime the wall clock
+    ///   ("10:30:00.000"). Otherwise FormatDateTime(ASettings.DateFormat), as
+    ///   before (records write TDateFormat.UnixTimestamp as a number).
+    /// </summary>
+    class function DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
+      const ASettings: TJsonSettings): string; static;
+    /// <summary>
+    ///   Reads a JSON date for a TDateTime, TDate or TTime: the standard forms
+    ///   first (a 'Z' or an offset is converted to local time, no zone is local
+    ///   time; Dext.Core.DateUtils.TryParseJsonDateTime / TryParseJsonTime),
+    ///   then the other forms TryParseCommonDate knows. A TDate keeps the day,
+    ///   a TTime the time of day.
+    /// </summary>
+    class function TryJsonTextToDate(const AText: string; AType: PTypeInfo;
+      out AValue: TDateTime): Boolean; static;
     class function ToPascalCase(const S: string): string; static;
     class function ToSnakeCase(const S: string): string; static;
     class function ApplyCaseStyle(const S: string; Style: TCaseStyle): string; static;
+    /// <summary>
+    ///   True when a [JsonFormat] date format can be read back: made of
+    ///   yyyy yy mm m dd d hh h nn n ss s zzz z and of fixed text (in quotes,
+    ///   or characters that are not letters). Month and day names, am/pm and
+    ///   the other FormatDateTime letters are written but cannot be read.
+    /// </summary>
+    class function IsReadableDateFormat(const AFormat: string): Boolean; static;
+    /// <summary>
+    ///   Reads AText with a [JsonFormat] date format (see
+    ///   IsReadableDateFormat): the digits of each part, the fixed text equal.
+    ///   A part the format does not have takes the value of 1899-12-30 00:00.
+    ///   False when the text does not match or is not a valid date or time.
+    /// </summary>
+    class function TryParseDateWithFormat(const AText, AFormat: string;
+      out AValue: TDateTime): Boolean; static;
+    ///   The JSON name of a record field under SmartRecordMapping. A backing
+    ///   field, 'F' followed by an uppercase letter or '_' (FName, FValue,
+    ///   F_Note), loses the 'F'; any other name is left as it is (Flag,
+    ///   Format, Fee, Fattura). One rule for the record plan and GetFieldName.
+    /// </summary>
+    class function SmartRecordFieldName(const AName: string): string; static;
+    /// <summary>
+    ///   True for a byte array: TBytes, TArray&lt;Byte&gt; or any other
+    ///   dynamic array of Byte. In JSON it is binary data, written as Base64.
+    /// </summary>
+    class function IsBytesType(AType: PTypeInfo): Boolean; static;
+    /// <summary>
+    ///   Base64 on one line, with padding (RFC 4648, TNetEncoding.Base64String):
+    ///   not the MIME form, which breaks the line every 76 characters.
+    /// </summary>
+    class function BytesToBase64(const ABytes: TBytes): string; overload; static;
+    class function BytesToBase64(AData: Pointer; ASize: Integer): string; overload; static;
+    /// <summary>
+    ///   Base64 (RFC 4648) to bytes. Also accepted: without the final '=',
+    ///   with line breaks and spaces (the MIME form), and the URL alphabet
+    ///   ('-' and '_'). False for any other character, the two alphabets
+    ///   mixed, a '=' that is not at the end, or an impossible length, so
+    ///   that a text that is not Base64 is not turned into random bytes.
+    ///   An empty text is an empty array.
+    /// </summary>
+    class function TryBase64ToBytes(const AText: string; out ABytes: TBytes): Boolean; static;
   end;
 
   /// <summary>Deprecated alias for TJsonSettings.</summary>
@@ -308,9 +371,40 @@ type
     skClass,
     skList,
     skDynArray,
+    /// <summary>A byte array (TJsonUtils.IsBytesType): Base64.</summary>
+    skBytes,
     skInterface,
     skUnknown
   );
+
+  /// <summary>
+  ///   The format attributes of a field or property: [JsonFormat],
+  ///   [JsonString], [JsonNumber], [JsonBoolean] (#262). They work the same on
+  ///   classes and records, when writing and when reading; the plan checks
+  ///   them when it is built (Validate).
+  /// </summary>
+  TJsonFieldFormat = record
+    /// <summary>[JsonFormat]: the date/time format, '' when not set.</summary>
+    Format: string;
+    /// <summary>[JsonString]: a number or a Boolean written as a string.</summary>
+    AsString: Boolean;
+    /// <summary>[JsonNumber]: a string written as a number.</summary>
+    AsNumber: Boolean;
+    /// <summary>[JsonBoolean]: an integer written as true/false.</summary>
+    AsBoolean: Boolean;
+    /// <summary>True when one of the four attributes is present.</summary>
+    function IsSet: Boolean; inline;
+    /// <summary>The format attributes among AAttributes.</summary>
+    class function FromAttributes(const AAttributes: TArray<TCustomAttribute>)
+      : TJsonFieldFormat; static;
+    /// <summary>
+    ///   Raises EDextJsonException when the attributes cannot work on AType:
+    ///   more than one of them, [JsonFormat] not on a date or with a format
+    ///   that cannot be read back, [JsonString] not on a number or Boolean,
+    ///   [JsonNumber] not on a string, [JsonBoolean] not on an integer.
+    /// </summary>
+    procedure Validate(AType: PTypeInfo; const AOwner, AMember: string);
+  end;
 
   /// <summary>
   ///   Pre-computed serialization metadata for a single property.
@@ -349,6 +443,11 @@ type
     ///   is written as null, not as the inner default.
     /// </summary>
     HasValueOffset: NativeInt;
+    /// <summary>
+    ///   [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262). A
+    ///   property with one of them is not on the direct path.
+    /// </summary>
+    Format: TJsonFieldFormat;
   end;
   PSerializationPlanItem = ^TSerializationPlanItem;
 
@@ -359,10 +458,8 @@ type
     Field: TRttiField;
     Kind: TSerializeKind;
     IsSmartProp: Boolean;
-    HasCustomFormat: Boolean;
-    CustomFormat: string;
-    ForceString: Boolean;
-    ForceNumber: Boolean;
+    /// <summary>[JsonFormat], [JsonString], [JsonNumber], [JsonBoolean].</summary>
+    Format: TJsonFieldFormat;
     FieldTypeInfo: PTypeInfo;
     /// <summary>[JsonIgnore(OnWrite)]: read, not written.</summary>
     IgnoreOnWrite: Boolean;
@@ -396,7 +493,9 @@ type
   /// </summary>
   TDextSerializer = class
   private
-    class var FPlanCache: TObject;  // TObjectDictionary<PTypeInfo, TObject> wrapping TSerializationPlan
+    // One TObjectDictionary<PTypeInfo, TObject> wrapping TSerializationPlan
+    // per case style: the JSON names in a plan depend on it
+    class var FPlanCaches: array[TCaseStyle] of TObject;
     class var FPlanLock: TObject;   // TCriticalSection for thread-safe plan creation
     class var FRecordPlanCache: TObject; // TObjectDictionary<PTypeInfo, TObject> wrapping TRecordPlan
     class var FRecordPlanLock: TObject;  // TCriticalSection for thread-safe record plan creation
@@ -406,9 +505,25 @@ type
     FSettings: TJsonSettings;
     function CreateInstanceForDeserialization(AType: PTypeInfo): TValue;
     function GetOrBuildPlan(AType: PTypeInfo): PSerializationPlan;
+    /// <summary>
+    ///   Writes AValue with its format attributes (#262): [JsonFormat] with the
+    ///   invariant settings, [JsonString] as a string, [JsonNumber] as a
+    ///   number (empty text as null, text that is not a number as it is),
+    ///   [JsonBoolean] as true/false.
+    /// </summary>
+    procedure WriteFormattedValue(const AObj: IDextJsonObject; const AName: string;
+      const AValue: TValue; AType: PTypeInfo; const AFormat: TJsonFieldFormat);
+    /// <summary>
+    ///   Reads ANode with its format attributes (#262). False when the node is
+    ///   in the normal form (a number for [JsonString], a standard date for
+    ///   [JsonFormat]...): the normal reading takes it, so both forms are read.
+    /// </summary>
+    function ReadFormattedValue(const ANode: IDextJsonNode; AType: PTypeInfo;
+      const AFormat: TJsonFieldFormat; out AValue: TValue): Boolean;
     function GetOrBuildRecordPlan(AType: PTypeInfo): PRecordPlan;
     function ResolveFieldName(Item: PRecordPlanItem): string;
     function SerializeObjectWithPlan(Obj: TObject; const Plan: TSerializationPlan): IDextJsonObject;
+    function TryReadBytesRoot(const AJson: string; AType: PTypeInfo; out AValue: TValue): Boolean;
   protected
     function GetFieldName(AField: TRttiField): string;
     function GetRecordName(ARttiType: TRttiType): string;
@@ -531,6 +646,7 @@ uses
   System.Classes,
   System.DateUtils,
   System.Generics.Collections,
+  System.NetEncoding,
   System.SyncObjs,
   System.Variants,
   Dext.Core.Reflection,
@@ -544,42 +660,29 @@ type
     Plan: PRecordPlan;
   end;
 
-  TClassCacheEntry = record
+  /// <summary>
+  ///   Wrapper object to store a TSerializationPlan inside TObjectDictionary.
+  ///   The JSON names of a plan depend on the case style, so a plan belongs
+  ///   to a class AND a case style: both are kept here, next to the plan.
+  /// </summary>
+  TSerializationPlanHolder = class
+  public
     TypeInfo: PTypeInfo;
-    Plan: PSerializationPlan;
+    CaseStyle: TCaseStyle;
+    Plan: TSerializationPlan;
   end;
 
 var
   GRecordPlanCache: array[0..15] of TRecordCacheEntry;
-  GClassPlanCache: array[0..15] of TClassCacheEntry;
+  // A slot is a single pointer, written in one store: a reader sees either
+  // the old holder or the new one, never the type of one with the plan of
+  // the other.
+  GClassPlanCache: array[0..15] of TSerializationPlanHolder;
   GRecordCacheIdx: Integer = 0;
   GClassCacheIdx: Integer = 0;
 
 const
   ValueField = 'value';
-
-function FloatToJsonString(Value: Extended): string;
-begin
-  Result := FloatToStr(Value, TFormatSettings.Invariant);
-end;
-
-function JsonStringToFloat(const Value: string): Extended;
-var
-  CleanValue: string;
-begin
-
-  if Pos(',', Value) > 0 then
-    CleanValue := StringReplace(Value, ',', '.', [rfReplaceAll])
-  else
-    CleanValue := Value;
-
-  Result := StrToFloatDef(CleanValue, 0, TFormatSettings.Invariant);
-end;
-
-function IntToJsonString(Value: Int64): string;
-begin
-  Result := IntToStr(Value);
-end;
 
 function JsonStringToInt(const Value: string): Int64;
 begin
@@ -653,6 +756,53 @@ end;
 
 { TJsonUtils }
 
+class function TJsonUtils.IsDateType(AType: PTypeInfo): Boolean;
+begin
+  Result := (AType = TypeInfo(TDateTime)) or (AType = TypeInfo(TDate)) or
+    (AType = TypeInfo(TTime));
+end;
+
+class function TJsonUtils.DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
+  const ASettings: TJsonSettings): string;
+begin
+  if ASettings.DateFormatStyle <> TDateFormat.ISO8601 then
+    Result := FormatDateTime(ASettings.DateFormat, AValue)
+  else if AType = TypeInfo(TDate) then
+    Result := FormatJsonDate(AValue)
+  else if AType = TypeInfo(TTime) then
+    Result := FormatJsonTime(AValue)
+  else
+    Result := FormatJsonDateTime(AValue);
+end;
+
+class function TJsonUtils.TryJsonTextToDate(const AText: string; AType: PTypeInfo;
+  out AValue: TDateTime): Boolean;
+begin
+  if AType = TypeInfo(TTime) then
+    Result := TryParseJsonTime(AText, AValue)
+  else
+    Result := TryParseJsonDateTime(AText, AValue);
+  if not Result then
+    Result := TryParseCommonDate(AText, AValue);
+  if not Result then
+    Exit;
+  if AType = TypeInfo(TDate) then
+    AValue := Trunc(AValue)
+  else if AType = TypeInfo(TTime) then
+    AValue := Frac(AValue);
+end;
+
+// A JSON string read into a TDateTime, TDate or TTime of type AType;
+// EDextJsonException when it is not a date.
+function DateValueFromJsonText(const AText: string; AType: PTypeInfo): TValue;
+var
+  D: TDateTime;
+begin
+  if not TJsonUtils.TryJsonTextToDate(AText, AType, D) then
+    raise EDextJsonException.CreateFmt('"%s" is not a date', [AText]);
+  TValue.Make(@D, AType, Result);
+end;
+
 class function TJsonUtils.ToCamelCase(const S: string): string;
 var
   C: Char;
@@ -713,6 +863,363 @@ begin
   else
     Result := S;
   end;
+end;
+
+{ TJsonFieldFormat }
+
+function TJsonFieldFormat.IsSet: Boolean;
+begin
+  Result := (Format <> '') or AsString or AsNumber or AsBoolean;
+end;
+
+class function TJsonFieldFormat.FromAttributes(
+  const AAttributes: TArray<TCustomAttribute>): TJsonFieldFormat;
+var
+  Attr: TCustomAttribute;
+begin
+  Result := Default(TJsonFieldFormat);
+  for Attr in AAttributes do
+    if Attr is JsonFormatAttribute then
+      Result.Format := JsonFormatAttribute(Attr).Format
+    else if Attr is JsonStringAttribute then
+      Result.AsString := True
+    else if Attr is JsonNumberAttribute then
+      Result.AsNumber := True
+    else if Attr is JsonBooleanAttribute then
+      Result.AsBoolean := True;
+end;
+
+procedure TJsonFieldFormat.Validate(AType: PTypeInfo; const AOwner, AMember: string);
+
+  procedure Refuse(const AAttribute, ATypes: string);
+  begin
+    raise EDextJsonException.CreateFmt('%s.%s: %s applies to %s only',
+      [AOwner, AMember, AAttribute, ATypes]);
+  end;
+
+var
+  IsDate, IsInt, IsNum, IsText: Boolean;
+begin
+  if Ord(Format <> '') + Ord(AsString) + Ord(AsNumber) + Ord(AsBoolean) > 1 then
+    raise EDextJsonException.CreateFmt('%s.%s: [JsonFormat], [JsonString], ' +
+      '[JsonNumber] and [JsonBoolean] exclude each other: one per member',
+      [AOwner, AMember]);
+  IsDate := TJsonUtils.IsDateType(AType);
+  IsInt := (AType <> nil) and (AType^.Kind in [tkInteger, tkInt64]);
+  IsNum := IsInt or ((AType <> nil) and (AType^.Kind = tkFloat) and not IsDate) or
+    (AType = TypeInfo(Boolean));
+  IsText := (AType <> nil) and (AType^.Kind in [tkString, tkLString, tkWString, tkUString]);
+  if (Format <> '') and not IsDate then
+    Refuse('[JsonFormat]', 'TDateTime, TDate and TTime');
+  if (Format <> '') and not TJsonUtils.IsReadableDateFormat(Format) then
+    raise EDextJsonException.CreateFmt('%s.%s: the [JsonFormat] format ''%s'' ' +
+      'cannot be read back (yyyy yy mm m dd d hh h nn n ss s zzz z and fixed text)',
+      [AOwner, AMember, Format]);
+  if AsString and not IsNum then
+    Refuse('[JsonString]', 'integers, floats, Currency and Boolean');
+  if AsNumber and not IsText then
+    Refuse('[JsonNumber]', 'strings');
+  if AsBoolean and not IsInt then
+    Refuse('[JsonBoolean]', 'integers');
+end;
+
+// The next part of a [JsonFormat] date format: a run of the same letter
+// (lowercase, in AToken) or fixed text (in ALiteral: a quoted string, or one
+// character that is not a letter).
+function NextFormatPart(const AFormat: string; var P: Integer;
+  out AToken, ALiteral: string): Boolean;
+var
+  C, Q: Char;
+  Start: Integer;
+begin
+  Result := P <= Length(AFormat);
+  if not Result then
+    Exit;
+  AToken := '';
+  ALiteral := '';
+  C := AFormat[P];
+  if (C = '"') or (C = '''') then
+  begin
+    Q := C;
+    Inc(P);
+    Start := P;
+    while (P <= Length(AFormat)) and (AFormat[P] <> Q) do
+      Inc(P);
+    ALiteral := Copy(AFormat, Start, P - Start);
+    Inc(P); // the closing quote
+    Exit;
+  end;
+  // A letter is always a placeholder for FormatDateTime (also c, t, a...):
+  // fixed text that is a letter goes in quotes.
+  if CharInSet(C, ['A'..'Z', 'a'..'z']) then
+  begin
+    Start := P;
+    while (P <= Length(AFormat)) and (UpCase(AFormat[P]) = UpCase(C)) do
+      Inc(P);
+    AToken := LowerCase(Copy(AFormat, Start, P - Start));
+    Exit;
+  end;
+  ALiteral := C;
+  Inc(P);
+end;
+
+class function TJsonUtils.IsReadableDateFormat(const AFormat: string): Boolean;
+var
+  P: Integer;
+  Token, Literal: string;
+begin
+  Result := AFormat <> '';
+  P := 1;
+  while Result and NextFormatPart(AFormat, P, Token, Literal) do
+    if Token <> '' then
+      Result := (Token = 'yyyy') or (Token = 'yy') or (Token = 'mm') or
+        (Token = 'm') or (Token = 'dd') or (Token = 'd') or (Token = 'hh') or
+        (Token = 'h') or (Token = 'nn') or (Token = 'n') or (Token = 'ss') or
+        (Token = 's') or (Token = 'zzz') or (Token = 'z');
+end;
+
+class function TJsonUtils.TryParseDateWithFormat(const AText, AFormat: string;
+  out AValue: TDateTime): Boolean;
+var
+  P, T, Digits, MaxDigits, V, I: Integer;
+  Token, Literal: string;
+  Y, M, D, H, N, S, Z: Integer;
+  DatePart, TimePart: TDateTime;
+begin
+  Result := False;
+  if not IsReadableDateFormat(AFormat) then
+    Exit;
+  Y := 1899;
+  M := 12;
+  D := 30;
+  H := 0;
+  N := 0;
+  S := 0;
+  Z := 0;
+  P := 1;
+  T := 1;
+  while NextFormatPart(AFormat, P, Token, Literal) do
+  begin
+    if Token = '' then
+    begin
+      // the fixed text must be there, equal
+      for I := 1 to Length(Literal) do
+      begin
+        if (T > Length(AText)) or (AText[T] <> Literal[I]) then
+          Exit;
+        Inc(T);
+      end;
+      Continue;
+    end;
+    // yyyy 4 digits, zzz 3, mm dd hh nn ss yy 2; m d h n s z one or more
+    if Token = 'yyyy' then
+      MaxDigits := 4
+    else if (Token = 'zzz') or (Token = 'z') then
+      MaxDigits := 3
+    else
+      MaxDigits := 2;
+    Digits := 0;
+    V := 0;
+    while (T <= Length(AText)) and (Digits < MaxDigits) and
+      CharInSet(AText[T], ['0'..'9']) do
+    begin
+      V := V * 10 + Ord(AText[T]) - Ord('0');
+      Inc(T);
+      Inc(Digits);
+    end;
+    if (Digits = 0) or ((Length(Token) > 1) and (Digits <> MaxDigits)) then
+      Exit;
+    case Token[1] of
+      'y':
+        if Token = 'yy' then
+          Y := 2000 + V // as FormatDateTime writes two digits
+        else
+          Y := V;
+      'm': M := V;
+      'd': D := V;
+      'h': H := V;
+      'n': N := V;
+      's': S := V;
+      'z': Z := V;
+    end;
+  end;
+  if T <= Length(AText) then
+    Exit; // more text than the format
+  if not TryEncodeDate(Y, M, D, DatePart) or not TryEncodeTime(H, N, S, Z, TimePart) then
+    Exit;
+  AValue := DatePart + TimePart;
+  Result := True;
+end;
+
+class function TJsonUtils.SmartRecordFieldName(const AName: string): string;
+begin
+  if (AName.Length > 1) and (AName.Chars[0] = 'F') and
+    CharInSet(AName.Chars[1], ['A'..'Z', '_']) then
+    Result := AName.Substring(1)
+  else
+    Result := AName;
+end;
+
+class function TJsonUtils.IsBytesType(AType: PTypeInfo): Boolean;
+var
+  Element: PPTypeInfo;
+begin
+  Result := False;
+  if (AType = nil) or (AType.Kind <> tkDynArray) then
+    Exit;
+  // The element itself (elType2 is not it for an array of arrays)
+  Element := AType.TypeData^.DynArrElType;
+  Result := (Element <> nil) and (Element^ = TypeInfo(Byte));
+end;
+
+class function TJsonUtils.BytesToBase64(const ABytes: TBytes): string;
+begin
+  Result := BytesToBase64(Pointer(ABytes), Length(ABytes));
+end;
+
+class function TJsonUtils.BytesToBase64(AData: Pointer; ASize: Integer): string;
+{$IF CompilerVersion < 35.0}
+var
+  I, N: Integer;
+{$ENDIF}
+begin
+  if (AData = nil) or (ASize <= 0) then
+    Exit('');
+{$IF CompilerVersion >= 35.0}
+  Result := TNetEncoding.Base64String.EncodeBytesToString(AData, ASize);
+{$ELSE}
+  Result := TNetEncoding.Base64.EncodeBytesToString(AData, ASize);
+  // Single-pass in-place strip of CRLF without double reallocation
+  N := 0;
+  for I := 1 to Length(Result) do
+  begin
+    if (Result[I] <> #13) and (Result[I] <> #10) then
+    begin
+      Inc(N);
+      Result[N] := Result[I];
+    end;
+  end;
+  SetLength(Result, N);
+{$ENDIF}
+end;
+
+class function TJsonUtils.TryBase64ToBytes(const AText: string; out ABytes: TBytes): Boolean;
+var
+  Clean: string;
+  I, N, Pads: Integer;
+  C: Char;
+  Standard, Url: Boolean;
+begin
+  ABytes := nil;
+  Result := False;
+  SetLength(Clean, Length(AText));
+  N := 0;
+  Pads := 0;
+  Standard := False;
+  Url := False;
+  for I := 1 to Length(AText) do
+  begin
+    C := AText[I];
+    // Line breaks and spaces (the MIME form) are skipped
+    if C <= ' ' then
+      Continue;
+    if C = '=' then
+    begin
+      Inc(Pads);
+      Continue;
+    end;
+    // After a '=' only other '=' (and spaces) may follow
+    if Pads > 0 then
+      Exit;
+    case C of
+      'A'..'Z', 'a'..'z', '0'..'9':
+        ;
+      '+', '/':
+        Standard := True;
+      '-':
+        begin
+          Url := True;
+          C := '+';
+        end;
+      '_':
+        begin
+          Url := True;
+          C := '/';
+        end;
+    else
+      Exit;
+    end;
+    Inc(N);
+    Clean[N] := C;
+  end;
+  // A group of 4 characters carries 3 bytes: a last group of 1 is impossible
+  if (Standard and Url) or (Pads > 2) or (N mod 4 = 1) then
+    Exit;
+  SetLength(Clean, N);
+  while Length(Clean) mod 4 <> 0 do
+    Clean := Clean + '=';
+{$IF CompilerVersion >= 35.0}
+  ABytes := TNetEncoding.Base64String.DecodeStringToBytes(Clean);
+{$ELSE}
+  ABytes := TNetEncoding.Base64.DecodeStringToBytes(Clean);
+{$ENDIF}
+  Result := True;
+end;
+
+{ Byte arrays }
+
+function BytesValueToBase64(const AValue: TValue): string;
+var
+  P: Pointer;
+begin
+  P := PPointer(AValue.GetReferenceToRawData)^;
+  Result := TJsonUtils.BytesToBase64(P, DynArraySize(P));
+end;
+
+/// A byte array read from JSON: a Base64 string (TJsonUtils.TryBase64ToBytes)
+/// or an array of numbers from 0 to 255, as it was written before. null is
+/// no value (TValue.Empty). Anything else raises, naming the field.
+function BytesFromJsonNode(const ANode: IDextJsonNode; AType: PTypeInfo;
+  const AName: string): TValue;
+var
+  Bytes: TBytes;
+  Arr: IDextJsonArray;
+  Item: IDextJsonNode;
+  I: Integer;
+  V: Double;
+  Where: string;
+begin
+  Result := TValue.Empty;
+  if AName <> '' then
+    Where := 'Field "' + AName + '": '
+  else
+    Where := '';
+  case ANode.GetNodeType of
+    jntNull:
+      Exit;
+    jntString:
+      if not TJsonUtils.TryBase64ToBytes(ANode.AsString, Bytes) then
+        raise EDextJsonException.Create(Where + 'the text is not Base64');
+    jntArray:
+      begin
+        Arr := ANode as IDextJsonArray;
+        SetLength(Bytes, Arr.GetCount);
+        for I := 0 to Arr.GetCount - 1 do
+        begin
+          Item := Arr.GetNode(I);
+          if (Item = nil) or (Item.GetNodeType <> jntNumber) then
+            raise EDextJsonException.CreateFmt('%sitem %d is not a number from 0 to 255', [Where, I]);
+          V := Item.AsDouble;
+          if (V < 0) or (V > 255) or (Frac(V) <> 0) then
+            raise EDextJsonException.CreateFmt('%sitem %d is not a number from 0 to 255', [Where, I]);
+          Bytes[I] := Byte(Trunc(V));
+        end;
+      end;
+  else
+    raise EDextJsonException.Create(Where +
+      'binary data must be a Base64 string or an array of numbers from 0 to 255');
+  end;
+  TValue.Make(@Bytes, AType, Result);
 end;
 
 { JsonIgnoreAttribute }
@@ -823,6 +1330,9 @@ var
 begin
   Serializer := TDextSerializer.Create(ASettings);
   try
+    // A byte array as the root: a Base64 string (an array goes on below)
+    if Serializer.TryReadBytesRoot(AJson, AType, Result) then
+      Exit;
     JsonNode := TDextJson.Provider.Parse(AJson);
     if JsonNode.GetNodeType = jntObject then
     begin
@@ -940,30 +1450,28 @@ end;
 { TDextSerializer }
 
 type
-  /// <summary>
-  ///   Wrapper object to store a TSerializationPlan inside TObjectDictionary.
-  /// </summary>
-  TSerializationPlanHolder = class
-  public
-    Plan: TSerializationPlan;
-  end;
-
   TRecordPlanHolder = class
   public
     Plan: TRecordPlan;
   end;
 
 class constructor TDextSerializer.Create;
+var
+  Style: TCaseStyle;
 begin
-  FPlanCache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>.Create([doOwnsValues]);
+  for Style := Low(TCaseStyle) to High(TCaseStyle) do
+    FPlanCaches[Style] := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>.Create([doOwnsValues]);
   FPlanLock := TCriticalSection.Create;
   FRecordPlanCache := TObjectDictionary<PTypeInfo, TRecordPlanHolder>.Create([doOwnsValues]);
   FRecordPlanLock := TCriticalSection.Create;
 end;
 
 class destructor TDextSerializer.Destroy;
+var
+  Style: TCaseStyle;
 begin
-  FreeAndNil(FPlanCache);
+  for Style := Low(TCaseStyle) to High(TCaseStyle) do
+    FreeAndNil(FPlanCaches[Style]);
   FreeAndNil(FPlanLock);
   FreeAndNil(FRecordPlanCache);
   FreeAndNil(FRecordPlanLock);
@@ -992,15 +1500,21 @@ var
   BackingField: TRttiField;
   PublishedOnly: Boolean;
   Base: TRttiType;
+  Style: TCaseStyle;
+  Slot: TSerializationPlanHolder;
 begin
+  // The plan holds the JSON names, so it is looked up by class AND case style
+  Style := FSettings.CaseStyle;
+
   // Lock-free slot cache lookup
   for I := 0 to 15 do
   begin
-    if GClassPlanCache[I].TypeInfo = AType then
-      Exit(GClassPlanCache[I].Plan);
+    Slot := GClassPlanCache[I];
+    if (Slot <> nil) and (Slot.TypeInfo = AType) and (Slot.CaseStyle = Style) then
+      Exit(@Slot.Plan);
   end;
 
-  Cache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>(FPlanCache);
+  Cache := TObjectDictionary<PTypeInfo, TSerializationPlanHolder>(FPlanCaches[Style]);
   Lock := TCriticalSection(FPlanLock);
 
   // Fast path: plan already exists (lock-free read)
@@ -1009,12 +1523,11 @@ begin
     if Cache.TryGetValue(AType, Holder) then
     begin
       Result := @Holder.Plan;
-      
+
       // Update lock-free cache slot
       Idx := TInterlocked.Increment(GClassCacheIdx) and 15;
-      GClassPlanCache[Idx].TypeInfo := AType;
-      GClassPlanCache[Idx].Plan := Result;
-      
+      GClassPlanCache[Idx] := Holder;
+
       Exit;
     end;
   finally
@@ -1031,6 +1544,8 @@ begin
     TypeFields := nil;
 
   Holder := TSerializationPlanHolder.Create;
+  Holder.TypeInfo := AType;
+  Holder.CaseStyle := Style;
   SetLength(Holder.Plan.Items, Length(Props));
   ItemCount := 0;
 
@@ -1179,6 +1694,15 @@ begin
 
     Item.ValueTypeInfo := LTypeInfo;
 
+    // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262): checked
+    // when the plan is built; a formatted property leaves the direct path.
+    Item.Format := TJsonFieldFormat.FromAttributes(Prop.GetAttributes);
+    if Item.Format.IsSet then
+    begin
+      Item.Format.Validate(LTypeInfo, RttiType.Name, Prop.Name);
+      Item.UseDirect := False;
+    end;
+
     // Check if it's a list type
     Item.IsListType := (LTypeKind in [tkClass, tkInterface]) and (LTypeInfo <> nil) and
                         IsListType(LTypeInfo);
@@ -1235,7 +1759,10 @@ begin
             Item.Kind := skInterface;
         end;
       tkDynArray:
-        Item.Kind := skDynArray;
+        if TJsonUtils.IsBytesType(LTypeInfo) then
+          Item.Kind := skBytes
+        else
+          Item.Kind := skDynArray;
     else
       Item.Kind := skUnknown;
     end;
@@ -1264,8 +1791,7 @@ begin
 
   Result := @Holder.Plan;
   Idx := TInterlocked.Increment(GClassCacheIdx) and 15;
-  GClassPlanCache[Idx].TypeInfo := AType;
-  GClassPlanCache[Idx].Plan := Result;
+  GClassPlanCache[Idx] := Holder;
 end;
 
 function TDextSerializer.ResolveFieldName(Item: PRecordPlanItem): string;
@@ -1354,31 +1880,15 @@ begin
     Item.OriginalFieldName := Field.Name;
     Item.Field := Field;
     Item.CustomName := '';
-    Item.ForceString := False;
-    Item.ForceNumber := False;
-    Item.HasCustomFormat := False;
-    Item.CustomFormat := '';
 
     for Attr in Field.GetAttributes do
     begin
       if Attr is JsonNameAttribute then
       begin
         Item.CustomName := JsonNameAttribute(Attr).Name;
-      end
-      else if Attr is JsonFormatAttribute then
-      begin
-        Item.HasCustomFormat := True;
-        Item.CustomFormat := JsonFormatAttribute(Attr).Format;
-      end
-      else if Attr is JsonStringAttribute then
-      begin
-        Item.ForceString := True;
-      end
-      else if Attr is JsonNumberAttribute then
-      begin
-        Item.ForceNumber := True;
       end;
     end;
+    Item.Format := TJsonFieldFormat.FromAttributes(Field.GetAttributes);
 
     // Pre-resolve names for all case styles and smart mapping flags
     if Item.CustomName = '' then
@@ -1388,8 +1898,8 @@ begin
         for SmartMap := False to True do
         begin
           NameStr := Item.OriginalFieldName;
-          if SmartMap and (NameStr.Length > 1) and (NameStr.Chars[0] = 'F') then
-            NameStr := NameStr.Substring(1);
+          if SmartMap then
+            NameStr := TJsonUtils.SmartRecordFieldName(NameStr);
           
           Item.ResolvedNames[Style, SmartMap] := TJsonUtils.ApplyCaseStyle(NameStr, Style);
         end;
@@ -1421,6 +1931,8 @@ begin
     end;
 
     Item.FieldTypeInfo := LTypeInfo;
+    if Item.Format.IsSet then
+      Item.Format.Validate(LTypeInfo, RttiType.Name, Field.Name);
 
     // Classify serialization kind
     case LTypeKind of
@@ -1462,7 +1974,10 @@ begin
             Item.Kind := skInterface;
         end;
       tkDynArray:
-        Item.Kind := skDynArray;
+        if TJsonUtils.IsBytesType(LTypeInfo) then
+          Item.Kind := skBytes
+        else
+          Item.Kind := skDynArray;
     else
       Item.Kind := skUnknown;
     end;
@@ -1493,6 +2008,146 @@ begin
   Idx := TInterlocked.Increment(GRecordCacheIdx) and 15;
   GRecordPlanCache[Idx].TypeInfo := AType;
   GRecordPlanCache[Idx].Plan := Result;
+end;
+
+procedure TDextSerializer.WriteFormattedValue(const AObj: IDextJsonObject;
+  const AName: string; const AValue: TValue; AType: PTypeInfo;
+  const AFormat: TJsonFieldFormat);
+var
+  Text: string;
+  I64: Int64;
+  F: Double;
+begin
+  if AFormat.Format <> '' then
+    // The invariant settings: '/' and ':' stay as written in the format
+    AObj.SetString(AName, FormatDateTime(AFormat.Format, AValue.AsExtended,
+      TFormatSettings.Invariant))
+  else if AFormat.AsString then
+  begin
+    if AType = TypeInfo(Boolean) then
+      AObj.SetString(AName, BoolToStr(AValue.AsBoolean, True).ToLower)
+    else if (AType <> nil) and (AType^.Kind in [tkInteger, tkInt64]) then
+      AObj.SetString(AName, IntToStr(AValue.AsInt64))
+    else if AType = TypeInfo(Currency) then
+      AObj.SetString(AName, CurrToStr(AValue.AsCurrency, TFormatSettings.Invariant))
+    else
+      AObj.SetString(AName, FloatToStr(AValue.AsExtended, TFormatSettings.Invariant));
+  end
+  else if AFormat.AsNumber then
+  begin
+    // Empty text is null; text that is not a number is written as it is
+    Text := Trim(AValue.AsString);
+    if Text = '' then
+      AObj.SetNull(AName)
+    else if TryStrToInt64(Text, I64) then
+      AObj.SetInt64(AName, I64)
+    else if TryStrToFloat(Text, F, TFormatSettings.Invariant) then
+      AObj.SetDouble(AName, F)
+    else
+      AObj.SetString(AName, AValue.AsString);
+  end
+  else // [JsonBoolean]: 0 is false, anything else true
+    AObj.SetBoolean(AName, AValue.AsInt64 <> 0);
+end;
+
+function TDextSerializer.ReadFormattedValue(const ANode: IDextJsonNode;
+  AType: PTypeInfo; const AFormat: TJsonFieldFormat; out AValue: TValue): Boolean;
+var
+  Text: string;
+  D: TDateTime;
+  I64: Int64;
+  F: Double;
+  C: Currency;
+  Si: Single;
+begin
+  Result := False;
+  AValue := TValue.Empty;
+  if AType = nil then
+    Exit;
+  case ANode.GetNodeType of
+    jntString:
+      begin
+        Text := ANode.AsString;
+        if AFormat.Format <> '' then
+        begin
+          // The attribute's form; a standard date is read by the normal path
+          if not TJsonUtils.TryParseDateWithFormat(Text, AFormat.Format, D) then
+            Exit;
+          if AType = TypeInfo(TDate) then
+            D := Trunc(D)
+          else if AType = TypeInfo(TTime) then
+            D := Frac(D);
+          TValue.Make(@D, AType, AValue);
+          Result := True;
+        end
+        else if AFormat.AsString then
+        begin
+          Text := Trim(Text);
+          if AType = TypeInfo(Boolean) then
+          begin
+            if SameText(Text, 'true') then
+              AValue := TValue.From<Boolean>(True)
+            else if SameText(Text, 'false') then
+              AValue := TValue.From<Boolean>(False)
+            else
+              Exit;
+          end
+          else if AType^.Kind = tkInt64 then
+          begin
+            if not TryStrToInt64(Text, I64) then
+              Exit;
+            TValue.Make(@I64, AType, AValue);
+          end
+          else if AType^.Kind = tkInteger then
+          begin
+            if not TryStrToInt64(Text, I64) then
+              Exit;
+            AValue := TValue.FromOrdinal(AType, I64);
+          end
+          else if AType = TypeInfo(Currency) then
+          begin
+            if not TryStrToCurr(Text, C, TFormatSettings.Invariant) then
+              Exit;
+            TValue.Make(@C, AType, AValue);
+          end
+          else if AType = TypeInfo(Single) then
+          begin
+            if not TryStrToFloat(Text, F, TFormatSettings.Invariant) then
+              Exit;
+            Si := F;
+            TValue.Make(@Si, AType, AValue);
+          end
+          else
+          begin
+            if not TryStrToFloat(Text, F, TFormatSettings.Invariant) then
+              Exit;
+            TValue.Make(@F, AType, AValue);
+          end;
+          Result := True;
+        end;
+      end;
+    jntNumber:
+      if AFormat.AsNumber then
+      begin
+        // A number for a string: its text, an integer without decimals
+        F := ANode.AsDouble;
+        if (Frac(F) = 0) and (Abs(F) < 1E15) then
+          AValue := TValue.From<string>(IntToStr(ANode.AsInt64))
+        else
+          AValue := TValue.From<string>(FloatToStr(F, TFormatSettings.Invariant));
+        Result := True;
+      end;
+    jntBoolean:
+      if AFormat.AsBoolean then
+      begin
+        I64 := Ord(ANode.AsBoolean);
+        if AType^.Kind = tkInt64 then
+          TValue.Make(@I64, AType, AValue)
+        else
+          AValue := TValue.FromOrdinal(AType, I64);
+        Result := True;
+      end;
+  end;
 end;
 
 function TDextSerializer.SerializeObjectWithPlan(Obj: TObject; const Plan: TSerializationPlan): IDextJsonObject;
@@ -1583,10 +2238,15 @@ begin
         nkCurrency:
           Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadCurrency(Obj, Item^.DirectOffset));
         nkDouble:
-          Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset));
+          // A TDate or TTime on the direct path is a date, not a number
+          if Item^.Kind = skDateTime then
+            Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
+              TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings))
+          else
+            Result.SetDouble(Item^.JsonName, TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset));
         nkDateTime:
-          Result.SetString(Item^.JsonName, FormatDateTime(FSettings.DateFormat,
-            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset)));
+          Result.SetString(Item^.JsonName, TJsonUtils.DateToJsonText(
+            TDextDirectAccess.ReadDouble(Obj, Item^.DirectOffset), Item^.ValueTypeInfo, FSettings));
         nkString:
           Result.SetString(Item^.JsonName, TDextDirectAccess.ReadString(Obj, Item^.DirectOffset));
         nkGuid:
@@ -1691,6 +2351,14 @@ begin
           end;
       end;
 
+    // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262)
+    if Item^.Format.IsSet then
+    begin
+      WriteFormattedValue(Result, Item^.JsonName, PropValue, Item^.ValueTypeInfo,
+        Item^.Format);
+      Continue;
+    end;
+
     // Dispatch based on pre-computed kind
     case Item^.Kind of
       skInteger:
@@ -1698,7 +2366,8 @@ begin
       skFloat:
         Result.SetDouble(Item^.JsonName, PropValue.AsExtended);
       skDateTime:
-        Result.SetString(Item^.JsonName, FormatDateTime(FSettings.DateFormat, PropValue.AsExtended));
+        Result.SetString(Item^.JsonName,
+          TJsonUtils.DateToJsonText(PropValue.AsExtended, Item^.ValueTypeInfo, FSettings));
       skString:
         Result.SetString(Item^.JsonName, PropValue.AsString);
       skBoolean:
@@ -1727,6 +2396,11 @@ begin
         Result.SetArray(Item^.JsonName, SerializeList(PropValue));
       skDynArray:
         Result.SetArray(Item^.JsonName, SerializeArray(PropValue));
+      skBytes:
+        if FSettings.FBytesAsBase64 then
+          Result.SetString(Item^.JsonName, BytesValueToBase64(PropValue))
+        else
+          Result.SetArray(Item^.JsonName, SerializeArray(PropValue));
       skInterface:
         Result.SetNull(Item^.JsonName);
     end;
@@ -1752,6 +2426,10 @@ var
   JsonNode: IDextJsonNode;
   Value: TValue;
 begin
+  // A byte array as the root: a Base64 string (an array goes on below)
+  if TryReadBytesRoot(AJson, TypeInfo(T), Value) then
+    Exit(Value.AsType<T>);
+
   JsonNode := TDextJson.Provider.Parse(AJson);
   try
     if JsonNode.GetNodeType = jntObject then
@@ -1773,6 +2451,26 @@ begin
   finally
     // Interface reference counting handles destruction
   end;
+end;
+
+function TDextSerializer.TryReadBytesRoot(const AJson: string; AType: PTypeInfo;
+  out AValue: TValue): Boolean;
+var
+  S: string;
+  Bytes: TBytes;
+begin
+  Result := False;
+  if not TJsonUtils.IsBytesType(AType) then
+    Exit;
+  S := Trim(AJson);
+  if (Length(S) < 2) or (S[1] <> '"') or (S[Length(S)] <> '"') then
+    Exit;
+  // Base64 has nothing to escape, but a writer may escape the '/' as '\/'
+  S := StringReplace(Copy(S, 2, Length(S) - 2), '\/', '/', [rfReplaceAll]);
+  if not TJsonUtils.TryBase64ToBytes(S, Bytes) then
+    raise EDextJsonException.Create('the text is not Base64');
+  TValue.Make(@Bytes, AType, AValue);
+  Result := True;
 end;
 
 function TDextSerializer.DeserializeObject(AJson: IDextJsonObject; AType: PTypeInfo; AInstance: TObject): TValue;
@@ -1801,6 +2499,8 @@ var
   PublishedOnly: Boolean;
   IgnoreRead: Boolean;
   HasName: Boolean;
+  PropAttrs: TArray<TCustomAttribute>;
+  PropFormat: TJsonFieldFormat;
 begin
   if AJson = nil then
     Exit(TValue.Empty);
@@ -1845,7 +2545,8 @@ begin
       // Check JsonName, and JsonIgnore unless it ignores only on write
       HasName := False;
       IgnoreRead := False;
-      for Attr in Prop.GetAttributes do
+      PropAttrs := Prop.GetAttributes;
+      for Attr in PropAttrs do
         if (Attr is JsonNameAttribute) and not HasName then
         begin
           PropName := JsonNameAttribute(Attr).Name;
@@ -1855,6 +2556,8 @@ begin
           IgnoreRead := True;
       if IgnoreRead then
         Continue;
+      // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262)
+      PropFormat := TJsonFieldFormat.FromAttributes(PropAttrs);
 
       ActualPropName := PropName;
       Found := AJson.Contains(PropName);
@@ -1881,6 +2584,18 @@ begin
       Node := AJson.GetNode(ActualPropName);
       if Node <> nil then
       begin
+        // The format attributes first, before the direct path: the normal
+        // form falls through to it. Not on a smart property (Prop<T>).
+        if PropFormat.IsSet and not TReflection.IsSmartProp(Prop.PropertyType.Handle) and
+          ReadFormattedValue(Node, Prop.PropertyType.Handle, PropFormat, Val) then
+        begin
+          Handler := TReflection.GetHandler(AType, Prop.Name);
+          if Handler <> nil then
+            Handler.SetValue(Instance, Val)
+          else
+            Prop.SetValue(Instance, Val);
+          Continue;
+        end;
         ExistingPropVal := TValue.Empty;
         ExistingIntf := nil;
         DirectFound := False;
@@ -1941,7 +2656,8 @@ begin
             nkDateTime:
               if Node.GetNodeType = jntString then
               begin
-                TDextDirectAccess.WriteDouble(Instance, DirectField.Offset, ISO8601ToDate(Node.AsString));
+                TDextDirectAccess.WriteDouble(Instance, DirectField.Offset,
+                  DateValueFromJsonText(Node.AsString, TypeInfo(TDateTime)).AsExtended);
                 Continue;
               end
               else if Node.GetNodeType = jntNumber then
@@ -2019,9 +2735,26 @@ begin
         end;
         Handler := TReflection.GetHandler(AType, Prop.Name);
         Val := TValue.Empty;
+        // Binary data: a Base64 string, or an array of numbers from 0 to 255
+        if TJsonUtils.IsBytesType(Prop.PropertyType.Handle) then
+        begin
+          Val := BytesFromJsonNode(Node, Prop.PropertyType.Handle, Prop.Name);
+          if not Val.IsEmpty then
+          begin
+            if Handler <> nil then
+              Handler.SetValue(Instance, Val)
+            else
+              Prop.SetValue(Instance, Val);
+          end;
+          Continue;
+        end;
         case Node.GetNodeType of
           jntString:
-            Val := TValue.From<string>(Node.AsString);
+            // A date: the standard forms, the zone converted to local time
+            if TJsonUtils.IsDateType(Prop.PropertyType.Handle) then
+              Val := DateValueFromJsonText(Node.AsString, Prop.PropertyType.Handle)
+            else
+              Val := TValue.From<string>(Node.AsString);
           jntNumber:
             begin
               case Prop.PropertyType.TypeKind of
@@ -2168,8 +2901,30 @@ begin
 
     Val := TValue.Empty; // Reset for each field
 
+    // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262); the
+    // normal form is read below. Not on a smart property (Prop<T>).
+    if Item^.Format.IsSet and not Item^.IsSmartProp and
+      ReadFormattedValue(Node, Item^.FieldTypeInfo, Item^.Format, Val) then
+    begin
+      TReflection.SetValue(Result.GetReferenceToRawData, Item^.Field, Val);
+      Continue;
+    end;
+
+    // Binary data: a Base64 string, or an array of numbers from 0 to 255
+    if Item^.Kind = skBytes then
+    begin
+      TReflection.SetValue(Result.GetReferenceToRawData, Item^.Field,
+        BytesFromJsonNode(Node, Item^.FieldTypeInfo, FieldName));
+      Continue;
+    end;
+
     case Node.GetNodeType of
-      jntString: Val := TValue.From<string>(Node.AsString);
+      jntString:
+        // A date: the standard forms, the zone converted to local time
+        if TJsonUtils.IsDateType(Item^.FieldTypeInfo) then
+          Val := DateValueFromJsonText(Node.AsString, Item^.FieldTypeInfo)
+        else
+          Val := TValue.From<string>(Node.AsString);
       jntNumber:
         begin
           if (Item^.FieldTypeInfo = TypeInfo(Integer)) then
@@ -2229,16 +2984,11 @@ begin
   Result := AField.Name;
 
   // Standard Dext Convention for Records:
-  // If field starts with 'F' and it is a record, we assume it is a storage field
-  // and strip the 'F' to match the intended property name in JSON.
+  // a backing field ('F' + uppercase letter or '_', as FName) loses the 'F' to
+  // match the intended property name in JSON; Flag or Fattura stay as they are.
   RttiType := AField.Parent;
   if (RttiType <> nil) and (RttiType.IsRecord) and (FSettings.FSmartRecordMapping) then
-  begin
-    if (Result.Length > 1) and (Result.Chars[0] = 'F') then
-    begin
-      Result := Result.Substring(1);
-    end;
-  end;
+    Result := TJsonUtils.SmartRecordFieldName(Result);
   
   Result := ApplyCaseStyle(Result);
 end;
@@ -2352,6 +3102,11 @@ function TDextSerializer.Serialize<T>(const AValue: T): string;
 var
   JsonNode: IDextJsonNode;
 begin
+  // A byte array as the root: a Base64 string
+  if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(TypeInfo(T)) then
+    Exit('"' + TJsonUtils.BytesToBase64(PPointer(@AValue)^,
+      DynArraySize(PPointer(@AValue)^)) + '"');
+
   // Check if root is array or list
   if IsArrayType(TypeInfo(T)) then
     JsonNode := SerializeArray(TValue.From<T>(AValue))
@@ -2370,6 +3125,10 @@ function TDextSerializer.Serialize(const AValue: TValue): string;
 var
   JsonNode: IDextJsonNode;
 begin
+  // A byte array as the root: a Base64 string
+  if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(AValue.TypeInfo) then
+    Exit('"' + BytesValueToBase64(AValue) + '"');
+
   // Check if root is array or list
   if IsArrayType(AValue.TypeInfo) then
     JsonNode := SerializeArray(AValue)
@@ -2392,7 +3151,6 @@ var
   FieldValue: TValue;
   Unwrapped: TValue;
   NestedRecord: IDextJsonObject;
-  NumValue: Double;
   FieldName: string;
 begin
   if AValue.TypeInfo = TypeInfo(TGUID) then
@@ -2470,23 +3228,24 @@ begin
       Continue;
     end;
 
+    // [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262)
+    if Item^.Format.IsSet then
+    begin
+      WriteFormattedValue(Result, FieldName, FieldValue, Item^.FieldTypeInfo,
+        Item^.Format);
+      Continue;
+    end;
+
     case Item^.Kind of
       skInteger:
-        begin
-          if Item^.ForceString then
-            Result.SetString(FieldName, IntToJsonString(FieldValue.AsInt64))
-          else
-            Result.SetInt64(FieldName, FieldValue.AsInt64);
-        end;
+        Result.SetInt64(FieldName, FieldValue.AsInt64);
 
       skDateTime:
         begin
-          if Item^.HasCustomFormat then
-            Result.SetString(FieldName, FormatDateTime(Item^.CustomFormat, FieldValue.AsExtended))
-          else
             case FSettings.DateFormatStyle of
               TDateFormat.ISO8601:
-                Result.SetString(FieldName, FormatDateTime(FSettings.DateFormat, FieldValue.AsExtended));
+                Result.SetString(FieldName,
+                  TJsonUtils.DateToJsonText(FieldValue.AsExtended, Item^.FieldTypeInfo, FSettings));
               TDateFormat.UnixTimestamp:
                 Result.SetInt64(FieldName, DateTimeToUnix(FieldValue.AsExtended));
               TDateFormat.CustomFormat:
@@ -2495,33 +3254,13 @@ begin
         end;
 
       skFloat:
-        begin
-          if Item^.ForceString then
-            Result.SetString(FieldName, FloatToJsonString(FieldValue.AsExtended))
-          else
-            Result.SetDouble(FieldName, FieldValue.AsExtended);
-        end;
+        Result.SetDouble(FieldName, FieldValue.AsExtended);
 
       skString:
-        begin
-          if Item^.ForceNumber then
-          begin
-            NumValue := JsonStringToFloat(FieldValue.AsString);
-            Result.SetDouble(FieldName, NumValue);
-          end
-          else
-          begin
-            Result.SetString(FieldName, FieldValue.AsString);
-          end;
-        end;
+        Result.SetString(FieldName, FieldValue.AsString);
 
       skBoolean:
-        begin
-          if Item^.ForceString then
-            Result.SetString(FieldName, BoolToStr(FieldValue.AsBoolean, True).ToLower)
-          else
-            Result.SetBoolean(FieldName, FieldValue.AsBoolean);
-        end;
+        Result.SetBoolean(FieldName, FieldValue.AsBoolean);
 
       skEnumAsString, skEnumAsNumber:
         begin
@@ -2543,6 +3282,12 @@ begin
 
       skDynArray:
         Result.SetArray(FieldName, SerializeArray(FieldValue));
+
+      skBytes:
+        if FSettings.FBytesAsBase64 then
+          Result.SetString(FieldName, BytesValueToBase64(FieldValue))
+        else
+          Result.SetArray(FieldName, SerializeArray(FieldValue));
 
       skClass, skInterface:
         Result.SetObject(FieldName, SerializeObject(FieldValue));
@@ -2648,8 +3393,8 @@ begin
 
     tkFloat:
       begin
-        if AValue.TypeInfo = TypeInfo(TDateTime) then
-          Result.SetString(ValueField, FormatDateTime(FSettings.DateFormat, AValue.AsExtended))
+        if TJsonUtils.IsDateType(AValue.TypeInfo) then
+          Result.SetString(ValueField, TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
         else
           Result.SetDouble(ValueField, AValue.AsExtended);
       end;
@@ -2797,6 +3542,10 @@ var
   P: PByte;
   ElSize: Integer;
 begin
+  // A byte array: only numbers from 0 to 255, nothing truncated
+  if TJsonUtils.IsBytesType(AType) then
+    Exit(BytesFromJsonNode(AJson, AType, ''));
+
   ElementType := GetArrayElementType(AType);
   DynArray := nil;
   Count := AJson.GetCount;
@@ -2813,8 +3562,8 @@ begin
         tkInt64:
           ElementValue := TValue.From<Int64>(AJson.GetInt64(I));
         tkFloat:
-          if ElementType = TypeInfo(TDateTime) then
-            ElementValue := TValue.From<TDateTime>(ISO8601ToDate(AJson.GetString(I)))
+          if TJsonUtils.IsDateType(ElementType) and (Node <> nil) and (Node.GetNodeType = jntString) then
+            ElementValue := DateValueFromJsonText(Node.AsString, ElementType)
           else
             ElementValue := TValue.From<Double>(AJson.GetDouble(I));
         tkString, tkLString, tkWString, tkUString:
@@ -2847,7 +3596,10 @@ begin
           end;
         tkDynArray:
           begin
-            if (Node <> nil) and (Node.GetNodeType = jntArray) then
+            // A byte array element may also be a Base64 string
+            if (Node <> nil) and TJsonUtils.IsBytesType(ElementType) then
+              ElementValue := BytesFromJsonNode(Node, ElementType, Format('[%d]', [I]))
+            else if (Node <> nil) and (Node.GetNodeType = jntArray) then
                ElementValue := DeserializeArray(Node as IDextJsonArray, ElementType)
             else
                ElementValue := TValue.Empty;
@@ -3016,8 +3768,8 @@ begin
           tkInteger: ElementValue := TValue.From<Integer>(AJson.GetInteger(I));
           tkInt64: ElementValue := TValue.From<Int64>(AJson.GetInt64(I));
           tkFloat:
-            if ElementType = TypeInfo(TDateTime) then
-              ElementValue := TValue.From<TDateTime>(ISO8601ToDate(AJson.GetString(I)))
+            if TJsonUtils.IsDateType(ElementType) and (Node <> nil) and (Node.GetNodeType = jntString) then
+              ElementValue := DateValueFromJsonText(Node.AsString, ElementType)
             else
               ElementValue := TValue.From<Double>(AJson.GetDouble(I));
           tkString, tkLString, tkWString, tkUString:
@@ -3043,7 +3795,10 @@ begin
             end;
           tkDynArray:
             begin
-              if (Node <> nil) and (Node.GetNodeType = jntArray) then
+              // A byte array element may also be a Base64 string
+              if (Node <> nil) and TJsonUtils.IsBytesType(ElementType) then
+                ElementValue := BytesFromJsonNode(Node, ElementType, Format('[%d]', [I]))
+              else if (Node <> nil) and (Node.GetNodeType = jntArray) then
                 ElementValue := DeserializeArray(Node as IDextJsonArray, ElementType)
               else
                 ElementValue := TValue.Empty;
@@ -3236,8 +3991,8 @@ begin
       tkInt64:
         Result.Add(ElementValue.AsInt64);
       tkFloat:
-        if ElementType = TypeInfo(TDateTime) then
-          Result.Add(FormatDateTime(FSettings.DateFormat, ElementValue.AsExtended))
+        if TJsonUtils.IsDateType(ElementType) then
+          Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementType, FSettings))
         else
           Result.Add(ElementValue.AsExtended);
       tkString, tkLString, tkWString, tkUString:
@@ -3264,7 +4019,10 @@ begin
             Result.Add(SerializeObject(ElementValue));
         end;
       tkDynArray:
-        Result.Add(SerializeArray(ElementValue));
+        if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+          Result.Add(BytesValueToBase64(ElementValue))
+        else
+          Result.Add(SerializeArray(ElementValue));
     else
       Result.AddNull;
     end;
@@ -3330,11 +4088,17 @@ begin
               Result.Add(SerializeObject(ElementValue));
           end;
         tkDynArray:
-          Result.Add(SerializeArray(ElementValue));
+          if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+            Result.Add(BytesValueToBase64(ElementValue))
+          else
+            Result.Add(SerializeArray(ElementValue));
         tkInteger, tkInt64:
           Result.Add(ElementValue.AsInt64);
         tkFloat:
-          Result.Add(ElementValue.AsExtended);
+          if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
+            Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+          else
+            Result.Add(ElementValue.AsExtended);
         tkString, tkLString, tkWString, tkUString:
           Result.Add(ElementValue.AsString);
         tkEnumeration:
@@ -3386,11 +4150,17 @@ begin
                 Result.Add(SerializeObject(ElementValue));
             end;
           tkDynArray:
-            Result.Add(SerializeArray(ElementValue));
+            if FSettings.FBytesAsBase64 and TJsonUtils.IsBytesType(ElementValue.TypeInfo) then
+              Result.Add(BytesValueToBase64(ElementValue))
+            else
+              Result.Add(SerializeArray(ElementValue));
           tkInteger, tkInt64:
             Result.Add(ElementValue.AsInt64);
           tkFloat:
-            Result.Add(ElementValue.AsExtended);
+            if TJsonUtils.IsDateType(ElementValue.TypeInfo) then
+              Result.Add(TJsonUtils.DateToJsonText(ElementValue.AsExtended, ElementValue.TypeInfo, FSettings))
+            else
+              Result.Add(ElementValue.AsExtended);
           tkString, tkLString, tkWString, tkUString:
             Result.Add(ElementValue.AsString);
           tkEnumeration:

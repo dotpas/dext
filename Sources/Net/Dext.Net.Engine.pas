@@ -107,7 +107,8 @@ uses
 {$ELSE}
 uses
   System.Types,
-  System.SyncObjs;
+  System.SyncObjs,
+  Dext.Resilience;
 {$ENDIF}
 
 {$IF defined(DEXT_FORCE_INDY) or (CompilerVersion < 29.0)}
@@ -638,20 +639,20 @@ begin
   if FResponseTimeout <= 0 then
     Exit(FClient.Execute(ARequest, AContentStream) as IHTTPResponse);
 
-  LLastActivity := TThread.GetTickCount64;
+  LLastActivity := GetTickCount64;
   LPrevReceive := ARequest.ReceiveDataCallback;
   LPrevSend := ARequest.SendDataCallback;
   ARequest.ReceiveDataCallback :=
     procedure(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean)
     begin
-      TInterlocked.Exchange(LLastActivity, Int64(TThread.GetTickCount64));
+      TInterlocked.Exchange(LLastActivity, Int64(GetTickCount64));
       if Assigned(LPrevReceive) then
         LPrevReceive(Sender, AContentLength, AReadCount, AAbort);
     end;
   ARequest.SendDataCallback :=
     procedure(const Sender: TObject; AContentLength, AWriteCount: Int64; var AAbort: Boolean)
     begin
-      TInterlocked.Exchange(LLastActivity, Int64(TThread.GetTickCount64));
+      TInterlocked.Exchange(LLastActivity, Int64(GetTickCount64));
       if Assigned(LPrevSend) then
         LPrevSend(Sender, AContentLength, AWriteCount, AAbort);
     end;
@@ -659,7 +660,7 @@ begin
   LAsync := FClient.BeginExecute(ARequest, AContentStream);
   while LAsync.AsyncWaitEvent.WaitFor(50) <> wrSignaled do
   begin
-    LIdle := Int64(TThread.GetTickCount64) - TInterlocked.Read(LLastActivity);
+    LIdle := Int64(GetTickCount64) - TInterlocked.Read(LLastActivity);
     if LIdle >= FResponseTimeout then
     begin
       LAsync.Cancel;

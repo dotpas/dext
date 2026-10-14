@@ -59,6 +59,24 @@ No `TEntityDataSet` e no sistema de mapeamento JSON, o Dext lida automaticamente
 - Propriedades `TDate` recebam apenas a parte da data (Trunc).
 - Propriedades `TTime` recebam apenas a parte da hora (Frac).
 
+### O formato das datas no JSON
+
+Todos os serializadores (`TDextJson`, o writer UTF-8 `TUtf8JsonWriter`, o deserializador de records usado pelo binding do corpo, as projeções do DbSet) escrevem e leem datas do mesmo jeito, o padrão ISO 8601 / RFC 3339:
+
+| Tipo | Texto JSON |
+|---|---|
+| `TDateTime` | `"2026-07-15T10:30:00.000+02:00"`: a hora **local** com o seu deslocamento do UTC (`Z` quando o deslocamento é zero) |
+| `TDate` | `"2026-07-15"`: o dia do calendário |
+| `TTime` | `"10:30:00.000"`: a hora do relógio |
+
+Os dígitos são a hora local do relógio, então um cliente que ignora o deslocamento ainda mostra 10:30; um cliente que o respeita (JavaScript `new Date()`, Java, .NET) obtém o instante certo, também na hora que se repete quando termina o horário de verão.
+
+A leitura aceita `yyyy-mm-dd`, `yyyy-mm-ddThh:nn[:ss[.fff]]` (também com espaço) e uma zona: `Z` ou um deslocamento (`+02:00`, `+0200`, `+02`) é **convertido para a hora local** do servidor; um valor sem zona já é hora local. Os outros formatos que `TryParseCommonDate` conhece continuam aceitos.
+
+As funções são públicas em `Dext.Core.DateUtils`: `FormatJsonDateTime`, `FormatJsonDate`, `FormatJsonTime`, `TryParseJsonDateTime`, `TryParseJsonTime`. O deslocamento do UTC é calculado em minutos inteiros e guardado por dia do calendário, então o sistema é consultado cerca de uma vez por dia, não uma vez por valor.
+
+Para manter o texto anterior (hora local sem zona), use um formato próprio: `TJsonSettings.Default.CustomDateFormat('yyyy-mm-dd"T"hh":"nn":"ss.zzz')`.
+
 ## Gerenciamento de Memória (FastMM5)
 
 Para aplicações de alta performance, o Dext inclui suporte nativo ao **FastMM5**. Ele vem habilitado por padrão no pacote `Dext.Core` para garantir performance ideal em requisições web multi-thread e processamento de grandes volumes de JSON.
@@ -178,6 +196,50 @@ type
 ```
 
 O mesmo vale para os campos de records. `[JsonPublishedOnly]` em uma classe também vale nos dois sentidos: só as propriedades published são escritas e lidas.
+
+### Dados Binários (`TBytes`)
+O JSON não tem um tipo binário, e a convenção para dados binários é uma **string Base64** (RFC 4648; `format: byte` no OpenAPI). Um `TBytes`, ou qualquer outro array dinâmico de `Byte`, é escrito assim: em uma linha, com padding, em classes, records, arrays, listas e na raiz do JSON.
+
+```pascal
+type
+  TDocument = class
+  public
+    property Name: string read FName write FName;
+    property Content: TBytes read FContent write FContent;
+  end;
+
+// {"Name":"a.png","Content":"iVBORw0KGgo="}
+Json := TDextJson.Serialize(Doc);
+```
+
+A leitura aceita as formas que outros sistemas escrevem: Base64 padrão, o alfabeto URL (`-` e `_`), sem o `=` final, com quebras de linha MIME; e um array de números de 0 a 255, para que o JSON escrito por versões anteriores continue sendo lido. Um texto que não é Base64, um número fora de 0..255 ou qualquer outro valor gera uma exceção com o nome do campo: dados binários nunca são adivinhados.
+
+Para escrever o array de números (para um cliente que o espera): `TJsonSettings.Default.BytesAsBase64(False)`.
+
+### Atributos de Formato
+Quatro atributos mudam a forma como um membro é escrito, em propriedades de classes e campos de records, e o mesmo membro é lido de volta nessa forma:
+
+| atributo | em | escrito como | lido |
+|---|---|---|---|
+| `[JsonFormat('dd/mm/yyyy')]` | `TDateTime`, `TDate`, `TTime` | o formato, com as configurações invariantes (`/` e `:` como escritos, qualquer que seja o locale) | o formato; também uma data padrão |
+| `[JsonString]` | inteiros, floats, `Currency`, `Boolean` | uma string: `"9007199254740993"`, `"12.5"`, `"true"` | uma string ou o valor normal |
+| `[JsonNumber]` | `string` | um número; texto vazio é `null`, texto que não é número continua texto | um número ou uma string |
+| `[JsonBoolean]` | inteiros | `true`/`false` (0 é `false`) | um Boolean ou um número |
+
+```pascal
+type
+  TOrder = class
+  public
+    [JsonString]  // além de 2^53 um número JavaScript perde dígitos
+    property Id: Int64 read FId write FId;
+    [JsonFormat('yyyymmdd')]
+    property Day: TDate read FDay write FDay;
+  end;
+
+// {"Id":"9007199254740993","Day":"20260715"}
+```
+
+`[JsonFormat]` lê de volta formatos feitos de `yyyy yy mm m dd d hh h nn n ss s zzz z` e texto fixo (`TJsonUtils.TryParseDateWithFormat`). Um formato que não pode ser lido de volta (nomes de meses, `am/pm`), dois desses atributos no mesmo membro, ou um atributo num tipo que ele não pode mudar geram `EDextJsonException` na primeira serialização da classe ou do record: um atributo que não faz nada nunca fica em silêncio.
 
 > [!TIP]
 > Use o **Dext DOM** para o desenvolvimento diário de suas APIs. Mude para o **Dext UTF-8** apenas quando o consumo de memória se tornar um gargalo ou quando estiver processando fluxos massivos de dados.

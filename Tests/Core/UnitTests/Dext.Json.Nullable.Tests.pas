@@ -8,6 +8,7 @@ uses
   Dext.Assertions,
   Dext.Json,
   Dext.Json.Types,
+  Dext.Core.DateUtils,
   Dext.Types.Nullable;
 
 type
@@ -139,7 +140,7 @@ begin
     Should(Json).Contain('"Name":"x"');
     Should(Json).Contain('"Amount":1.5');
     Should(Json).Contain('"Active":true');
-    Should(Json).Contain('"When":"2026-10-08T13:45:00.000"');
+    Should(Json).Contain('"When":"' + FormatJsonDateTime(EncodeDate(2026, 10, 8) + EncodeTime(13, 45, 0, 0)) + '"');
   finally
     R.Free;
   end;

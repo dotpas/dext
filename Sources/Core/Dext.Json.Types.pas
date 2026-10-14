@@ -128,6 +128,7 @@ type
     FSmartRecordMapping: Boolean;
     FZeroDateAsNull: Boolean;
     FKeepDefaultEnums: Boolean;
+    FBytesAsBase64: Boolean;
     Formatting: TJsonFormatting;
     IgnoreDefaultValues: Boolean;
     DateFormat: string;
@@ -159,6 +160,13 @@ type
     ///   "Active") that a consumer must see. A False Boolean is still dropped.
     /// </summary>
     function KeepDefaultEnums(AValue: Boolean = True): TJsonSettings;
+    /// <summary>
+    ///   A byte array (TBytes, or any dynamic array of Byte) is written as a
+    ///   Base64 string on one line, with padding (RFC 4648, OpenAPI
+    ///   "format: byte"). It is the default; False writes it as an array of
+    ///   numbers, as before. Reading accepts both, whatever this setting.
+    /// </summary>
+    function BytesAsBase64(AValue: Boolean = True): TJsonSettings;
     function ISODateFormat: TJsonSettings;
     function UnixTimestamp: TJsonSettings;
     function CustomDateFormat(const Format: string): TJsonSettings;
@@ -209,6 +217,7 @@ begin
   Result.FSmartRecordMapping := True; // Default is True
   Result.FZeroDateAsNull := False;
   Result.FKeepDefaultEnums := False;
+  Result.FBytesAsBase64 := True;
 end;
 
 function TJsonSettings.EnumAsNumber: TJsonSettings;
@@ -264,6 +273,12 @@ function TJsonSettings.KeepDefaultEnums(AValue: Boolean): TJsonSettings;
 begin
   Result := Self;
   Result.FKeepDefaultEnums := AValue;
+end;
+
+function TJsonSettings.BytesAsBase64(AValue: Boolean): TJsonSettings;
+begin
+  Result := Self;
+  Result.FBytesAsBase64 := AValue;
 end;
 
 function TJsonSettings.ZeroDateAsNull(AValue: Boolean): TJsonSettings;

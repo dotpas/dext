@@ -1625,45 +1625,52 @@ begin
 end;
 {$ENDIF MSWINDOWS}
 
+// Minutes from the start of Delphi's calendar, whole. The offset is the
+// difference of two of these: a TDateTime difference is not exact (two hours
+// came out as 01:59:59.999, written "+01:59"), and before 1899-12-31 a
+// TDateTime is negative with a fraction that counts forward, so the
+// difference of two such values is not the time between them ("+23:00" for
+// 1899-12-30 00:00, every TIME column).
+function DateTimeMinutes(Year, Month, Day, Hour, Minute: Word): Int64;
+begin
+  Result := Int64(Trunc(EncodeDate(Year, Month, Day))) * 1440 + Hour * 60 + Minute;
+end;
+
+function AppendUtcOffset(const S: string; OffsetMinutes: Int64): string;
+begin
+  if OffsetMinutes < 0 then
+    Result := Format('%s-%.2d:%.2d', [S, -OffsetMinutes div 60, -OffsetMinutes mod 60])
+  else if OffsetMinutes > 0 then
+    Result := Format('%s+%.2d:%.2d', [S, OffsetMinutes div 60, OffsetMinutes mod 60])
+  else
+    Result := S + 'Z';
+end;
+
 function DateTimeToISO8601(Value: TDateTime): string;
 {$IFDEF MSWINDOWS}
 var
   LocalTime, UtcTime: TSystemTime;
-  Offset: TDateTime;
-  Hour, Min, Sec, MSec: Word;
 begin
   DateTimeToSystemTime(Value, LocalTime);
   Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.3d',
     [LocalTime.wYear, LocalTime.wMonth, LocalTime.wDay,
      LocalTime.wHour, LocalTime.wMinute, LocalTime.wSecond, LocalTime.wMilliseconds]);
   if TzSpecificLocalTimeToSystemTime(nil, LocalTime, UtcTime) then
-  begin
-    Offset := Value - SystemTimeToDateTime(UtcTime);
-    DecodeTime(Offset, Hour, Min, Sec, MSec);
-    if Offset < 0 then
-      Result := Format('%s-%.2d:%.2d', [Result, Hour, Min])
-    else if Offset > 0 then
-      Result := Format('%s+%.2d:%.2d', [Result, Hour, Min])
-    else
-      Result := Result + 'Z';
-  end;
+    Result := AppendUtcOffset(Result,
+      DateTimeMinutes(LocalTime.wYear, LocalTime.wMonth, LocalTime.wDay, LocalTime.wHour, LocalTime.wMinute) -
+      DateTimeMinutes(UtcTime.wYear, UtcTime.wMonth, UtcTime.wDay, UtcTime.wHour, UtcTime.wMinute));
 end;
 {$ELSE}
 var
-  Offset: TDateTime;
   Year, Month, Day, Hour, Minute, Second, Milliseconds: Word;
+  UYear, UMonth, UDay, UHour, UMinute, USecond, UMilliseconds: Word;
 begin
   DecodeDate(Value, Year, Month, Day);
   DecodeTime(Value, Hour, Minute, Second, MilliSeconds);
   Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.3d', [Year, Month, Day, Hour, Minute, Second, Milliseconds]);
-  Offset := Value - TTimeZone.Local.ToUniversalTime(Value);
-  DecodeTime(Offset, Hour, Minute, Second, MilliSeconds);
-  if Offset < 0 then
-    Result := Format('%s-%.2d:%.2d', [Result, Hour, Minute])
-  else if Offset > 0 then
-    Result := Format('%s+%.2d:%.2d', [Result, Hour, Minute])
-  else
-    Result := Result + 'Z';
+  DecodeDateTime(TTimeZone.Local.ToUniversalTime(Value), UYear, UMonth, UDay, UHour, UMinute, USecond, UMilliseconds);
+  Result := AppendUtcOffset(Result,
+    DateTimeMinutes(Year, Month, Day, Hour, Minute) - DateTimeMinutes(UYear, UMonth, UDay, UHour, UMinute));
 end;
 {$ENDIF MSWINDOWS}
 

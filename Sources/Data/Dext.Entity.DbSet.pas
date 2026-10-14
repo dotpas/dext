@@ -417,6 +417,7 @@ implementation
 
 uses
   System.JSON,
+  Dext.Core.DateUtils,
   Dext.Entity.ProxyFactory,
   Dext.Logging.Telemetry,
   Dext.Utils;
@@ -3904,9 +3905,14 @@ begin
           Data.DB.ftSingle, Data.DB.ftFloat, Data.DB.ftCurrency,
           Data.DB.ftBCD, Data.DB.ftFMTBcd:
             Writer.WriteNumber(Reader.GetDouble(i));
-          Data.DB.ftDate, Data.DB.ftTime, Data.DB.ftDateTime,
-          Data.DB.ftTimeStamp:
-            Writer.WriteString(DateToISO8601(Reader.GetDateTime(i), False));
+          // The JSON forms of Dext.Json: a date, a time of day, a local
+          // date and time with its offset
+          Data.DB.ftDate:
+            Writer.WriteString(FormatJsonDate(Reader.GetDateTime(i)));
+          Data.DB.ftTime:
+            Writer.WriteString(FormatJsonTime(Reader.GetDateTime(i)));
+          Data.DB.ftDateTime, Data.DB.ftTimeStamp:
+            Writer.WriteString(FormatJsonDateTime(Reader.GetDateTime(i)));
           Data.DB.ftGuid:
             Writer.WriteString(Reader.GetString(i));
         else

@@ -7,7 +7,8 @@ uses
   Dext.Testing.Attributes,
   Dext.Assertions,
   Dext.Json,
-  Dext.Json.Types;
+  Dext.Json.Types,
+  Dext.Core.DateUtils;
 
 type
   /// A plain class: public properties, no attributes.
@@ -176,7 +177,7 @@ begin
     Should(Json).Contain('"Big":9007199254740993');
     Should(Json).Contain('"Amount":1.5');
     Should(Json).Contain('"Active":true');
-    Should(Json).Contain('"When":"2026-10-06T13:45:00.000"');
+    Should(Json).Contain('"When":"' + FormatJsonDateTime(EncodeDate(2026, 10, 6) + EncodeTime(13, 45, 0, 0)) + '"');
   finally
     R.Free;
   end;
@@ -193,7 +194,7 @@ begin
     Should(Json).Contain('"When":null');
     Should(Json).Contain('"Day":null');
     // 0 is midnight for a TTime, not "no date"
-    Should(Json).Contain('"Time":"1899-12-30T00:00:00.000"');
+    Should(Json).Contain('"Time":"00:00:00.000"');
     // the other defaults are untouched
     Should(Json).Contain('"Count":0');
   finally
@@ -225,8 +226,8 @@ begin
   R := FullRow;
   try
     Json := TDextJson.Serialize(R, TJsonSettings.Default.ZeroDateAsNull);
-    Should(Json).Contain('"When":"2026-10-06T13:45:00.000"');
-    Should(Json).Contain('"Day":"2026-10-06T00:00:00.000"');
+    Should(Json).Contain('"When":"' + FormatJsonDateTime(EncodeDate(2026, 10, 6) + EncodeTime(13, 45, 0, 0)) + '"');
+    Should(Json).Contain('"Day":"2026-10-06"');
   finally
     R.Free;
   end;
@@ -238,8 +239,9 @@ var
 begin
   R := EmptyRow;
   try
-    Should(TDextJson.Serialize(R)).Be('{"Name":"","When":"1899-12-30T00:00:00.000",' +
-      '"Day":"1899-12-30T00:00:00.000","Time":"1899-12-30T00:00:00.000",' +
+    // A TDateTime with its UTC offset, a TDate the day, a TTime the clock
+    Should(TDextJson.Serialize(R)).Be('{"Name":"","When":"' + FormatJsonDateTime(0) + '",' +
+      '"Day":"1899-12-30","Time":"00:00:00.000",' +
       '"Count":0,"Big":0,"Amount":0,"Active":false}');
   finally
     R.Free;
@@ -313,7 +315,7 @@ begin
   Should(Json).Contain('"Name":"x"');
   Should(Json).Contain('"Count":7');
   Should(Json).Contain('"Amount":1.5');
-  Should(Json).Contain('"When":"2026-10-06T13:45:00.000"');
+  Should(Json).Contain('"When":"' + FormatJsonDateTime(EncodeDate(2026, 10, 6) + EncodeTime(13, 45, 0, 0)) + '"');
   Should(Json).Contain('"Active":true');
   Should(Json).Contain('"Status":"jdsClosed"');
 end;
@@ -321,7 +323,7 @@ end;
 procedure TJsonDefaultsTests.Default_Record_Unchanged;
 begin
   Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord))).Be(
-    '{"Name":"","Count":0,"Amount":0,"When":"1899-12-30T00:00:00.000",' +
+    '{"Name":"","Count":0,"Amount":0,"When":"' + FormatJsonDateTime(0) + '",' +
     '"Active":false,"Status":"jdsDraft"}');
 end;
 

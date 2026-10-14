@@ -85,6 +85,7 @@ type
     class function GetRecordInfo(AType: PTypeInfo): TJsonRecordInfo; static;
     class procedure DeserializeRecord(var AReader: TUtf8JsonReader; AType: PTypeInfo; AInstance: Pointer); static;
     class procedure DeserializeFieldDirect(var AReader: TUtf8JsonReader; const FieldInfo: TJsonFieldInfo; Instance: Pointer); static;
+    class procedure ReadBytes(var AReader: TUtf8JsonReader; const FieldInfo: TJsonFieldInfo; P: Pointer); static;
   public
     class function Deserialize<T>(const AData: TByteSpan): T; static;
   end;
@@ -240,7 +241,8 @@ begin
          (FieldInfo.TypeInfo = TypeInfo(TTime)) then
       begin
          DateStr := AReader.GetString;
-         if TryParseCommonDate(DateStr, Dt) then
+         // The standard forms first: a zone is converted to local time
+         if TJsonUtils.TryJsonTextToDate(DateStr, FieldInfo.TypeInfo, Dt) then
            PDateTime(P)^ := Dt
          else
            PDateTime(P)^ := 0;
@@ -322,10 +324,62 @@ begin
           AReader.Skip;
         end;
       end;
+
+    tkDynArray:
+      if TJsonUtils.IsBytesType(FieldInfo.TypeInfo) then
+        ReadBytes(AReader, FieldInfo, P)
+      else
+        AReader.Skip;
       
     else
       AReader.Skip;
   end;
+end;
+
+class procedure TUtf8JsonSerializer.ReadBytes(var AReader: TUtf8JsonReader;
+  const FieldInfo: TJsonFieldInfo; P: Pointer);
+
+  procedure Refuse(const AWhy: string);
+  begin
+    raise EUtf8SerializationException.CreateFmt('Field "%s": %s',
+      [TEncoding.UTF8.GetString(FieldInfo.NameBytes), AWhy]);
+  end;
+
+var
+  Bytes: TBytes;
+  Count: Integer;
+  N: Int64;
+begin
+  // A byte array: a Base64 string, or an array of numbers from 0 to 255 (as
+  // Dext.Json reads it). null leaves the field as it is.
+  case AReader.TokenType of
+    TJsonTokenType.NullValue:
+      Exit;
+    TJsonTokenType.StringValue:
+      if not TJsonUtils.TryBase64ToBytes(AReader.GetString, Bytes) then
+        Refuse('the text is not Base64');
+    TJsonTokenType.StartArray:
+      begin
+        Count := 0;
+        while AReader.Read and (AReader.TokenType <> TJsonTokenType.EndArray) do
+        begin
+          if (AReader.TokenType <> TJsonTokenType.Number) or
+             not TryStrToInt64(AReader.ValueSpan.ToString, N) or (N < 0) or (N > 255) then
+            Refuse(Format('item %d is not a number from 0 to 255', [Count]));
+          if Count = Length(Bytes) then
+            SetLength(Bytes, Count * 2 + 16);
+          Bytes[Count] := Byte(N);
+          Inc(Count);
+        end;
+        if AReader.TokenType <> TJsonTokenType.EndArray then
+          raise EUtf8SerializationException.Create('Unexpected end of JSON while reading an array');
+        SetLength(Bytes, Count);
+      end;
+  else
+    Refuse('binary data must be a Base64 string or an array of numbers from 0 to 255');
+  end;
+  // Any dynamic array of Byte has the layout of TBytes
+  TBytes(P^) := Bytes;
 end;
 
 end.

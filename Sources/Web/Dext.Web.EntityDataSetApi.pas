@@ -115,6 +115,7 @@ implementation
 uses
   System.TypInfo,
   System.DateUtils,
+  Dext.Core.DateUtils,
   Dext.Core.Reflection;
 
 /// <summary>
@@ -199,9 +200,11 @@ begin
       if (ATypeInfo = TypeInfo(TDateTime)) or (ATypeInfo = TypeInfo(TDate)) or
         (ATypeInfo = TypeInfo(TTime)) then
       begin
-        // AReturnUTC = True keeps the value as written: with False a string
-        // without an offset would be shifted to local time.
-        if TryISO8601ToDate(S, D, True) then
+        // The JSON forms (Dext.Core.DateUtils): no zone is local time, a 'Z'
+        // or an offset is converted to local time; a TTime is a time of day.
+        if (ATypeInfo = TypeInfo(TTime)) and TryParseJsonTime(S, D) then
+          Result := VarFromDateTime(D)
+        else if (ATypeInfo <> TypeInfo(TTime)) and TryParseJsonDateTime(S, D) then
           Result := VarFromDateTime(D)
         else if TryStrToFloat(S, F, TFormatSettings.Invariant) then
           Result := VarFromDateTime(F)

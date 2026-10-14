@@ -144,9 +144,12 @@
         <DCCReference Include="Dext.Json.Defaults.Tests.pas"/>
         <DCCReference Include="Dext.Json.EnumStyle.Tests.pas"/>
         <DCCReference Include="Dext.Json.Ignore.Tests.pas"/>
+        <DCCReference Include="Dext.Json.CaseStyle.Tests.pas"/>
         <DCCReference Include="Dext.Json.NotMapped.Tests.pas"/>
+        <DCCReference Include="Dext.Json.Bytes.Tests.pas"/>
         <DCCReference Include="Dext.MM.Tests.pas"/>
         <DCCReference Include="Dext.Json.Nullable.Tests.pas"/>
+        <DCCReference Include="Dext.Json.Dates.Tests.pas"/>
         <DCCReference Include="Dext.Json.RecordProperties.Tests.pas"/>
         <DCCReference Include="Dext.Resilience.Tests.pas"/>
         <DCCReference Include="Dext.Validation.Fluent.Tests.pas"/>

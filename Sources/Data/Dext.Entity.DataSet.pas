@@ -1016,9 +1016,15 @@ begin
                       PCurrency(PValue)^ := Reader.GetDouble;
                     ftBoolean:
                       PBoolean(PValue)^ := Reader.GetBoolean;
-                    ftDateTime, ftDate, ftTime:
+                    ftDateTime, ftDate:
                     begin
                       if TryParseISODateTime(Reader.GetString, DateValue) then
+                        PDateTime(PValue)^ := DateValue;
+                    end;
+                    ftTime:
+                    begin
+                      // A time of day ("10:30:00.000") or a whole date and time
+                      if TryParseJsonTime(Reader.GetString, DateValue) then
                         PDateTime(PValue)^ := DateValue;
                     end;
                   end;
@@ -1114,7 +1120,8 @@ begin
                       end
                       else if RttiProp.PropertyType.Handle = TypeInfo(TTime) then
                       begin
-                        if TryParseISODateTime(Reader.GetString, DateValue) then
+                        // A time of day ("10:30:00.000") or a whole date and time
+                        if TryParseJsonTime(Reader.GetString, DateValue) then
                           RttiProp.SetValue(CurrentObj, Frac(DateValue));
                       end
                       else

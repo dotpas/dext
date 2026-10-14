@@ -1190,9 +1190,11 @@ begin
   Result := TValue.FromOrdinal(AType, V);
 end;
 
-// The ISO forms CastFromString reads ('yyyy-mm-dd', optionally followed by
-// 'T' or a space and 'hh:nn[:ss]', the rest ignored), checked instead of
-// defaulted; anything else goes to TryParseCommonDate.
+// The JSON forms first (TryParseJsonDateTime: milliseconds, and a 'Z' or
+// an offset converted to local time). Then the ISO forms CastFromString
+// reads ('yyyy-mm-dd', optionally followed by 'T' or a space and
+// 'hh:nn[:ss]', the rest ignored), checked instead of defaulted; anything
+// else goes to TryParseCommonDate.
 function TryStrictDateTime(const AText: string; out ADate: TDateTime): Boolean;
 var
   S: string;
@@ -1200,6 +1202,8 @@ var
   T: TDateTime;
 begin
   S := AText.Trim;
+  if TryParseJsonDateTime(S, ADate) then
+    Exit(True);
   if (Length(S) >= 10) and (S[5] = '-') and (S[8] = '-') then
   begin
     Result := False;
