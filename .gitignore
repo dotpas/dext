@@ -49,3 +49,4 @@ dext-symbols.*
 /Benchmarks/*.db-wal
 *.lst
 /Tests/Core/UnitTests/.dext/testing/suite_history.json
+/Tests/Web/.dext/testing/suite_history.json

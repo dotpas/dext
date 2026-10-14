@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Package</AppType>
@@ -97,6 +97,7 @@
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.AST.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Gutter.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.Runner.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

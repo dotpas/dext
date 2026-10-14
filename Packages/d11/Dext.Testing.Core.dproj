@@ -99,6 +99,8 @@
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.History.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Report.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Runner.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Dext.Testing.StackTrace.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Dext.Testing.CodeCoverage.Tool.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Listeners.Telemetry.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Host.pas"/>
