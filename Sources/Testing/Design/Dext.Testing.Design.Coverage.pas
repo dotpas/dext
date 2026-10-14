@@ -52,6 +52,8 @@ type
     function GetFileSummaries: TArray<TCoverageFileSummary>;
     function FirstLineOfInterest(const AFileName: string; PreferUncovered: Boolean = True): Integer;
     function LoadedFileCount: Integer;
+    /// <summary>Drop in-memory coverage and refresh editor gutters (failed/empty load).</summary>
+    procedure Clear;
     procedure RegisterView(const AView: IOTAEditView);
     procedure UnregisterView(const AView: IOTAEditView);
     procedure RefreshActiveViews;
@@ -157,6 +159,8 @@ var
 constructor TPopupMenuHelper.CreateHelper(AOwner: TComponent; const ATestName: string);
 begin
   inherited Create(AOwner);
+  // Avoid auto-name collisions ("_1 already exists") when many helpers share an owner.
+  Name := '';
   FTestName := ATestName;
 end;
 
@@ -270,6 +274,13 @@ end;
 function TCoverageManager.LoadedFileCount: Integer;
 begin
   Result := FFileCoverage.Count;
+end;
+
+procedure TCoverageManager.Clear;
+begin
+  ClearCoverage;
+  FLastLoadedPath := '';
+  RefreshActiveViews;
 end;
 
 function TCoverageManager.GetFileSummaries: TArray<TCoverageFileSummary>;
@@ -896,10 +907,13 @@ procedure TEditorViewNotifier.PaintLine(const View: IOTAEditView; LineNumber: In
   const LineText: PAnsiChar; const TextWidth: Word;
   const LineAttributes: TOTAAttributeArray; const Canvas: TCanvas;
   const TextRect: TRect; const LineRect: TRect; const CellSize: TSize);
+const
+  StripeW = 4;
 var
   FileName: string;
   State: TCoverageLineState;
   GutterRect: TRect;
+  GutterW, InsetFromText: Integer;
   OldBrushColor: TColor;
   OldBrushStyle: TBrushStyle;
   OldPenStyle: TPenStyle;
@@ -916,11 +930,26 @@ begin
   if State = clsNone then
     Exit;
 
-  // Fallback: 4px stripe, 1px left of the code edge (never into TextRect).
-  GutterRect.Right := TextRect.Left - 1;
-  GutterRect.Left := GutterRect.Right - 4;
-  if GutterRect.Left < LineRect.Left then
-    GutterRect.Left := LineRect.Left;
+  // PaintLine gutter width = code origin − line origin (varies by IDE/version/DPI).
+  GutterW := TextRect.Left - LineRect.Left;
+  if GutterW < StripeW + 2 then
+    Exit; // rects unreliable — do not paint into the editor
+
+  // Version-specific inset: 10.4 TextRect sits flush on the divider (2px still looks
+  // "in the editor"); 11+ PaintLine fallback only needs a hairline inset.
+  // Never stretch Left to LineRect (that painted over line numbers).
+{$IFDEF DEXT_DELPHI11_UP}
+  InsetFromText := 2;
+{$ELSE}
+  // 10.4 and older: ~1 cell into the gutter, capped so we stay near the code edge.
+  InsetFromText := Max(4, CellSize.cx);
+  if InsetFromText + StripeW + 2 > GutterW then
+    InsetFromText := Max(2, GutterW - StripeW - 2);
+{$ENDIF}
+  GutterRect.Right := TextRect.Left - InsetFromText;
+  GutterRect.Left := GutterRect.Right - StripeW;
+  if (GutterRect.Left < LineRect.Left) or (GutterRect.Right > TextRect.Left) then
+    Exit;
   GutterRect.Top := LineRect.Top;
   GutterRect.Bottom := LineRect.Bottom + 1; // FillRect bottom exclusive
   if TCoverageManager.GetInstance.GetLineState(FileName, LineNumber - 1) = State then
@@ -1183,15 +1212,18 @@ begin
   if (ColRect.Right <= ColRect.Left) or (ColRect.Bottom <= ColRect.Top) then
     Exit;
 
-  // 4px bar, 1px left of the code edge.
-  Stripe := ColRect;
-  Stripe.Right := ColRect.Right - 1;
+  // Anchor to the code left edge (not ColRect.Left) so we never paint over line numbers
+  // if GetGutterColumnRect is wider/misaligned on some IDE builds.
+  Stripe.Top := ColRect.Top;
+  Stripe.Bottom := ColRect.Bottom + 1; // FillRect bottom exclusive
+  Stripe.Right := Context.EditorState.CodeLeftEdge - 2;
+  if Stripe.Right > ColRect.Right then
+    Stripe.Right := ColRect.Right - 1;
+  if Stripe.Right > Context.EditorState.CodeLeftEdge then
+    Stripe.Right := Context.EditorState.CodeLeftEdge - 2;
   Stripe.Left := Stripe.Right - 4;
   if Stripe.Left < ColRect.Left then
-    Stripe.Left := ColRect.Left;
-
-  // FillRect bottom is exclusive — include the last pixel of this line.
-  Inc(Stripe.Bottom);
+    Exit; // reserved column too far left / too narrow — skip rather than cover numbers
 
   // Bridge only to neighbouring lines that also paint (not through blank/var/procedure).
   Bridge := Max(2, Context.CellSize.cy div 4);

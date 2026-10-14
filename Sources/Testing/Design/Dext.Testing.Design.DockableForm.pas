@@ -7,7 +7,7 @@
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
+  Winapi.Windows, Winapi.Messages, Winapi.ShellAPI, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ComCtrls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.Buttons, Vcl.Clipbrd, DockForm, ToolsAPI, Dext.Testing.Design.Server, Dext.Testing.Design.AST,
   System.JSON, System.Generics.Collections, System.IOUtils, System.Threading,
@@ -195,9 +195,13 @@ type
     FScanGeneration: Integer;
     FHoverNode: TTreeNode;
     FCoverageCheckBox: TCheckBox;
+    FGenerateHtmlCheckBox: TCheckBox;
     FCollectCoverageMenuItem: TMenuItem;
+    FGenerateHtmlMenuItem: TMenuItem;
     FInstallCoverageMenuItem: TMenuItem;
     FReloadCoverageMenuItem: TMenuItem;
+    FOpenCoverageHtmlMenuItem: TMenuItem;
+    FClearCoverageArtifactsMenuItem: TMenuItem;
     FLastCoverageReportDir: string;
     FLastCoverageSourceRoot: string;
     FCoverageWrapActive: Boolean;
@@ -352,8 +356,18 @@ type
     procedure TestsTreeViewMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure TestsTreeViewMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ToggleEnabledClick(Sender: TObject);
-    procedure TryLoadCoverage;
+    procedure TryLoadCoverage(AReportExpected: Boolean = False);
     procedure RefreshCoverageReportTab;
+    /// <summary>Explicit Coverage-tab failure (tab mark + amber summary); clears stale list/gutter.</summary>
+    procedure SetCoverageProblem(const AMessage: string);
+    procedure ClearCoverageProblemStyle;
+    procedure EnsureCoverageListColumns;
+    function FormatCoveragePercentBar(APercent: Double): string;
+    function FindCoverageHtmlReport: string;
+    function CoverageArtifactsPresent: Boolean;
+    procedure OpenCoverageHtmlClick(Sender: TObject);
+    procedure ClearCoverageArtifactsClick(Sender: TObject);
+    procedure GenerateHtmlMenuClick(Sender: TObject);
     procedure CoverageListViewDblClick(Sender: TObject);
     procedure OpenSourceFileAtLine(const AFileName: string; ALine: Integer);
     procedure UpdateGroupSummary(const ATestName, AStatus: string; ADurationMs: Double);
@@ -367,6 +381,9 @@ type
     procedure ApplyDpiScaling;
     function ScalePx(ADesignPx: Integer): Integer;
     procedure ClearFilterButtonClick(Sender: TObject);
+    /// <summary>Drop AutoSave/desktop debris named _1, _2, … before recreating runtime UI.</summary>
+    procedure FreeDesktopNameCollisions;
+    function IsDfmNonVisual(AComponent: TComponent): Boolean;
 
     // Process handling
     function GetProjectByFileName(const AFileName: string): IOTAProject;
@@ -380,6 +397,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
+    procedure GetChildren(Proc: TGetChildProc; Root: TComponent); override;
     procedure HandleFileSaved(const AFileName: string);
     procedure RunActiveProjectTests(const TestFilter: string = ''; AutoSave: Boolean = True);
     procedure RunImpactedTests(const ATests: TArray<string>);
@@ -683,6 +701,7 @@ begin
   TestLocations := TList<TTestLocation>.Create;
 
   TabSheet := TTabSheet.Create(APageControl.Owner);
+  TabSheet.Name := ''; // avoid "_1 already exists" after desktop layout restore
   TabSheet.PageControl := APageControl;
   TabSheet.Caption := AName;
 
@@ -691,12 +710,14 @@ begin
     PPI := TFormDextTestRunner(APageControl.Owner).CurrentPPI;
 
   FilterPanel := TPanel.Create(TabSheet);
+  FilterPanel.Name := '';
   FilterPanel.Parent := TabSheet;
   FilterPanel.Align := alTop;
   FilterPanel.Height := MulDiv(28, PPI, 96);
   FilterPanel.BevelOuter := bvNone;
 
   ClearFilterButton := TSpeedButton.Create(TabSheet);
+  ClearFilterButton.Name := '';
   ClearFilterButton.Parent := FilterPanel;
   ClearFilterButton.Align := alRight;
   ClearFilterButton.Width := MulDiv(22, PPI, 96);
@@ -709,6 +730,7 @@ begin
     ClearFilterButton.OnClick := TFormDextTestRunner(APageControl.Owner).ClearFilterButtonClick;
 
   FilterEdit := TEdit.Create(TabSheet);
+  FilterEdit.Name := '';
   FilterEdit.Parent := FilterPanel;
   FilterEdit.Align := alClient;
   FilterEdit.AlignWithMargins := True;
@@ -721,6 +743,7 @@ begin
     FilterEdit.OnChange := TFormDextTestRunner(APageControl.Owner).FilterEditChange;
 
   TreeView := TTreeView.Create(TabSheet);
+  TreeView.Name := '';
   TreeView.Parent := TabSheet;
   TreeView.Align := alClient;
   TreeView.ReadOnly := True;
@@ -749,12 +772,14 @@ begin
     PPI := TFormDextTestRunner(ATabSheet.Owner).CurrentPPI;
 
   FilterPanel := TPanel.Create(ATabSheet);
+  FilterPanel.Name := '';
   FilterPanel.Parent := ATabSheet;
   FilterPanel.Align := alTop;
   FilterPanel.Height := MulDiv(28, PPI, 96);
   FilterPanel.BevelOuter := bvNone;
 
   ClearFilterButton := TSpeedButton.Create(ATabSheet);
+  ClearFilterButton.Name := '';
   ClearFilterButton.Parent := FilterPanel;
   ClearFilterButton.Align := alRight;
   ClearFilterButton.Width := MulDiv(22, PPI, 96);
@@ -767,6 +792,7 @@ begin
     ClearFilterButton.OnClick := TFormDextTestRunner(ATabSheet.Owner).ClearFilterButtonClick;
 
   FilterEdit := TEdit.Create(ATabSheet);
+  FilterEdit.Name := '';
   FilterEdit.Parent := FilterPanel;
   FilterEdit.Align := alClient;
   FilterEdit.AlignWithMargins := True;
@@ -832,6 +858,7 @@ begin
     BgColor := clWindow;
 
   ImageList := TImageList.Create(Self);
+  ImageList.Name := '';
   ImageList.Width := 16;
   ImageList.Height := 16;
 
@@ -901,6 +928,8 @@ var
   IniFile: string;
   LayoutMode: Integer;
   MenuItem: TMenuItem;
+  Page: TTabSheet;
+  PageIdx: Integer;
   PopupMenu: TPopupMenu;
   RunAllItem1, RunAllItem2, RunAllItem3: TMenuItem;
   RunAllMenu: TPopupMenu;
@@ -921,6 +950,9 @@ begin
   AutoSave := True;
   SaveStateNecessary := True;
 
+  // 10.4 AutoSave can resurrect runtime controls as "_1". Scrub before Create again.
+  FreeDesktopNameCollisions;
+
   // Set button captions with elegant symbols and hints
   RefreshButton.Caption := #$21BB + ' Refresh';
   RefreshButton.Hint := 'Scan project files and discover tests';
@@ -931,6 +963,7 @@ begin
   RunAllButton.ShowHint := True;
 
   RunAllMenu := TPopupMenu.Create(Self);
+  RunAllMenu.Name := '';
   RunAllItem1 := TMenuItem.Create(RunAllMenu);
   RunAllItem1.Caption := 'Run Selected Project';
   RunAllItem1.OnClick := RunAllButtonClick;
@@ -959,33 +992,59 @@ begin
 
   RebuildStatusImages;
 
-  // E1.7: structured console log list view — replaces the color-coded RichEdit dump.
-  // DetailsMemo stays in the .dfm (ApplyLayout still reparents/sizes it) but is hidden.
-  FConsoleListView := TListView.Create(Self);
+  // E1.7 / E1.8: stable names so desktop restore is idempotent (empty Name became "_1" on 10.4).
+  FConsoleListView := FindComponent('DextConsoleListView') as TListView;
+  if not Assigned(FConsoleListView) then
+  begin
+    FConsoleListView := TListView.Create(Self);
+    FConsoleListView.Name := 'DextConsoleListView';
+    FConsoleListView.Parent := ConsoleTab;
+    FConsoleListView.Align := alClient;
+    FConsoleListView.ViewStyle := vsReport;
+    FConsoleListView.ReadOnly := True;
+    FConsoleListView.RowSelect := True;
+    FConsoleListView.MultiSelect := True;
+    FConsoleListView.GridLines := False;
+    FConsoleListView.HideSelection := False;
+    FConsoleListView.Columns.Add.Caption := 'Time';
+    FConsoleListView.Columns[0].Width := 70;
+    FConsoleListView.Columns.Add.Caption := 'Kind';
+    FConsoleListView.Columns[1].Width := 55;
+    FConsoleListView.Columns.Add.Caption := 'Message';
+    FConsoleListView.Columns[2].Width := 420;
+  end;
   FConsoleListView.Parent := ConsoleTab;
-  FConsoleListView.Align := alClient;
-  FConsoleListView.ViewStyle := vsReport;
-  FConsoleListView.ReadOnly := True;
-  FConsoleListView.RowSelect := True;
-  FConsoleListView.MultiSelect := True;
-  FConsoleListView.GridLines := False;
-  FConsoleListView.HideSelection := False;
-  FConsoleListView.Columns.Add.Caption := 'Time';
-  FConsoleListView.Columns[0].Width := 70;
-  FConsoleListView.Columns.Add.Caption := 'Kind';
-  FConsoleListView.Columns[1].Width := 55;
-  FConsoleListView.Columns.Add.Caption := 'Message';
-  FConsoleListView.Columns[2].Width := 420;
   FConsoleListView.SmallImages := TestsTreeView.Images;
   FConsoleListView.OnDblClick := ConsoleListViewDblClick;
   SetupListViewClipboard(FConsoleListView);
 
-  // Coverage report tab (ReSharper-style file list → navigate + gutter)
-  FCoverageTab := TTabSheet.Create(DetailsPageControl);
-  FCoverageTab.PageControl := DetailsPageControl;
-  FCoverageTab.Caption := 'Coverage';
+  FCoverageTab := FindComponent('DextCoverageTab') as TTabSheet;
+  if not Assigned(FCoverageTab) then
+  begin
+    for PageIdx := DetailsPageControl.PageCount - 1 downto 0 do
+    begin
+      Page := DetailsPageControl.Pages[PageIdx];
+      if (Page <> InspectorTab) and (Page <> ConfigTab) and (Page <> ConsoleTab) and
+         (SameText(Page.Caption, 'Coverage') or
+          ((Length(Page.Name) >= 2) and (Page.Name[1] = '_') and
+           CharInSet(Page.Name[2], ['0'..'9']))) then
+        Page.Free;
+    end;
 
-  FCoverageSummaryLabel := TLabel.Create(FCoverageTab);
+    FCoverageTab := TTabSheet.Create(Self);
+    FCoverageTab.Name := 'DextCoverageTab';
+    FCoverageTab.PageControl := DetailsPageControl;
+    FCoverageTab.Caption := 'Coverage';
+  end
+  else if FCoverageTab.PageControl = nil then
+    FCoverageTab.PageControl := DetailsPageControl;
+
+  FCoverageSummaryLabel := FindComponent('DextCoverageSummary') as TLabel;
+  if not Assigned(FCoverageSummaryLabel) then
+  begin
+    FCoverageSummaryLabel := TLabel.Create(Self);
+    FCoverageSummaryLabel.Name := 'DextCoverageSummary';
+  end;
   FCoverageSummaryLabel.Parent := FCoverageTab;
   FCoverageSummaryLabel.Align := alTop;
   FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.';
@@ -995,7 +1054,12 @@ begin
   FCoverageSummaryLabel.Margins.Right := 6;
   FCoverageSummaryLabel.Margins.Bottom := 2;
 
-  FCoverageListView := TListView.Create(FCoverageTab);
+  FCoverageListView := FindComponent('DextCoverageListView') as TListView;
+  if not Assigned(FCoverageListView) then
+  begin
+    FCoverageListView := TListView.Create(Self);
+    FCoverageListView.Name := 'DextCoverageListView';
+  end;
   FCoverageListView.Parent := FCoverageTab;
   FCoverageListView.Align := alClient;
   FCoverageListView.ViewStyle := vsReport;
@@ -1003,15 +1067,8 @@ begin
   FCoverageListView.RowSelect := True;
   FCoverageListView.MultiSelect := True;
   FCoverageListView.HideSelection := False;
-  FCoverageListView.Columns.Add.Caption := '%';
-  FCoverageListView.Columns[0].Width := 45;
-  FCoverageListView.Columns.Add.Caption := 'Covered';
-  FCoverageListView.Columns[1].Width := 60;
-  FCoverageListView.Columns.Add.Caption := 'Instr.';
-  FCoverageListView.Columns[2].Width := 50;
-  FCoverageListView.Columns.Add.Caption := 'File';
-  FCoverageListView.Columns[3].Width := 360;
   FCoverageListView.OnDblClick := CoverageListViewDblClick;
+  EnsureCoverageListColumns;
   SetupListViewClipboard(FCoverageListView);
 
   DetailsMemo.Visible := False;
@@ -1030,6 +1087,7 @@ begin
 
   // Build context menu for TreeView
   PopupMenu := TPopupMenu.Create(Self);
+  PopupMenu.Name := '';
   MenuItem := TMenuItem.Create(PopupMenu);
   MenuItem.Caption := #$25B6 + ' Run';
   MenuItem.OnClick := RunSelectedButtonClick;
@@ -1126,9 +1184,30 @@ begin
   FReloadCoverageMenuItem.OnClick := ReloadCoverageClick;
   ActionsPopupMenu.Items.Add(FReloadCoverageMenuItem);
 
-  FCoverageCheckBox := TCheckBox.Create(Self);
+  FGenerateHtmlMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FGenerateHtmlMenuItem.Caption := 'Generate Coverage HTML Report on Run';
+  FGenerateHtmlMenuItem.AutoCheck := True;
+  FGenerateHtmlMenuItem.Checked := False;
+  FGenerateHtmlMenuItem.OnClick := GenerateHtmlMenuClick;
+  ActionsPopupMenu.Items.Add(FGenerateHtmlMenuItem);
+
+  FOpenCoverageHtmlMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FOpenCoverageHtmlMenuItem.Caption := 'Open Coverage HTML Report';
+  FOpenCoverageHtmlMenuItem.OnClick := OpenCoverageHtmlClick;
+  ActionsPopupMenu.Items.Add(FOpenCoverageHtmlMenuItem);
+
+  FClearCoverageArtifactsMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FClearCoverageArtifactsMenuItem.Caption := 'Clear Generated Coverage Files…';
+  FClearCoverageArtifactsMenuItem.OnClick := ClearCoverageArtifactsClick;
+  ActionsPopupMenu.Items.Add(FClearCoverageArtifactsMenuItem);
+
+  FCoverageCheckBox := FindComponent('DextCoverageCheckBox') as TCheckBox;
+  if not Assigned(FCoverageCheckBox) then
+  begin
+    FCoverageCheckBox := TCheckBox.Create(Self);
+    FCoverageCheckBox.Name := 'DextCoverageCheckBox';
+  end;
   FCoverageCheckBox.Parent := ConfigScroll;
-  FCoverageCheckBox.Name := 'CoverageCheckBox';
   FCoverageCheckBox.Caption := 'Collect code coverage on Run All / Selected';
   FCoverageCheckBox.Hint := 'Wraps the test exe with Delphi Code Coverage (⋯ Actions). Requires MAP (Debug Trace) and CodeCoverage.exe.';
   FCoverageCheckBox.ShowHint := True;
@@ -1138,6 +1217,24 @@ begin
   FCoverageCheckBox.Height := 17;
   FCoverageCheckBox.TabOrder := 4;
   FCoverageCheckBox.OnClick := ConfigChangeHandler;
+
+  FGenerateHtmlCheckBox := FindComponent('DextGenerateHtmlCheckBox') as TCheckBox;
+  if not Assigned(FGenerateHtmlCheckBox) then
+  begin
+    FGenerateHtmlCheckBox := TCheckBox.Create(Self);
+    FGenerateHtmlCheckBox.Name := 'DextGenerateHtmlCheckBox';
+  end;
+  FGenerateHtmlCheckBox.Parent := ConfigScroll;
+  FGenerateHtmlCheckBox.Caption := 'Also generate HTML report (CodeCoverage_Summary.html)';
+  FGenerateHtmlCheckBox.Hint := 'Optional. Adds -html to the coverage wrap. Open via Actions → Open Coverage HTML Report.';
+  FGenerateHtmlCheckBox.ShowHint := True;
+  FGenerateHtmlCheckBox.Left := EnabledCheckBox.Left;
+  FGenerateHtmlCheckBox.Top := FCoverageCheckBox.Top + 25;
+  FGenerateHtmlCheckBox.Width := 360;
+  FGenerateHtmlCheckBox.Height := 17;
+  FGenerateHtmlCheckBox.TabOrder := 5;
+  FGenerateHtmlCheckBox.Checked := False;
+  FGenerateHtmlCheckBox.OnClick := ConfigChangeHandler;
 
   if Supports(BorlandIDEServices, IOTAIDEThemingServices, ThemingServices) then
   begin
@@ -1185,7 +1282,12 @@ begin
   GroupbyTestStatusMenuItem.OnClick := GroupingMenuClick;
   GroupbyTestStatusMenuItem.Checked := False;
 
-  FInspectorSplitter := TSplitter.Create(Self);
+  FInspectorSplitter := FindComponent('DextInspectorSplitter') as TSplitter;
+  if not Assigned(FInspectorSplitter) then
+  begin
+    FInspectorSplitter := TSplitter.Create(Self);
+    FInspectorSplitter.Name := 'DextInspectorSplitter';
+  end;
   FInspectorSplitter.Parent := DetailsPanel;
   FInspectorSplitter.Visible := False;
   FCurrentLayout := telCompact;
@@ -1194,7 +1296,12 @@ begin
   // between Error label and ErrorMemo when alTop children re-order.
   FStackFrameNavs := TObjectList<TObject>.Create(True);
 
-  FStackPanel := TPanel.Create(Self);
+  FStackPanel := FindComponent('DextStackPanel') as TPanel;
+  if not Assigned(FStackPanel) then
+  begin
+    FStackPanel := TPanel.Create(Self);
+    FStackPanel.Name := 'DextStackPanel';
+  end;
   FStackPanel.Parent := InspectorScroll;
   FStackPanel.BevelOuter := bvNone;
   FStackPanel.Caption := '';
@@ -1202,7 +1309,12 @@ begin
   FStackPanel.Align := alClient;
   FStackPanel.Visible := False;
 
-  FStackHintLabel := TLabel.Create(Self);
+  FStackHintLabel := FindComponent('DextStackHint') as TLabel;
+  if not Assigned(FStackHintLabel) then
+  begin
+    FStackHintLabel := TLabel.Create(Self);
+    FStackHintLabel.Name := 'DextStackHint';
+  end;
   FStackHintLabel.Parent := FStackPanel;
   FStackHintLabel.Align := alTop;
   FStackHintLabel.Caption := 'Stack Trace — double-click a frame to open source';
@@ -1212,7 +1324,18 @@ begin
   FStackHintLabel.Margins.Top := ScalePx(4);
   FStackHintLabel.Margins.Bottom := 0;
 
-  FStackFramesListView := TListView.Create(Self);
+  FStackFramesListView := FindComponent('DextStackFramesListView') as TListView;
+  if not Assigned(FStackFramesListView) then
+  begin
+    FStackFramesListView := TListView.Create(Self);
+    FStackFramesListView.Name := 'DextStackFramesListView';
+    FStackFramesListView.Columns.Add.Caption := '#';
+    FStackFramesListView.Columns[0].Width := ScalePx(30);
+    FStackFramesListView.Columns.Add.Caption := 'Method';
+    FStackFramesListView.Columns[1].Width := ScalePx(260);
+    FStackFramesListView.Columns.Add.Caption := 'Location';
+    FStackFramesListView.Columns[2].Width := ScalePx(180);
+  end;
   FStackFramesListView.Parent := FStackPanel;
   FStackFramesListView.Align := alClient;
   FStackFramesListView.ViewStyle := vsReport;
@@ -1222,18 +1345,17 @@ begin
   FStackFramesListView.GridLines := False;
   FStackFramesListView.HideSelection := False;
   FStackFramesListView.HotTrack := True;
-  FStackFramesListView.Columns.Add.Caption := '#';
-  FStackFramesListView.Columns[0].Width := ScalePx(30);
-  FStackFramesListView.Columns.Add.Caption := 'Method';
-  FStackFramesListView.Columns[1].Width := ScalePx(260);
-  FStackFramesListView.Columns.Add.Caption := 'Location';
-  FStackFramesListView.Columns[2].Width := ScalePx(180);
   FStackFramesListView.OnDblClick := StackFramesListViewDblClick;
   FStackFramesListView.OnKeyDown := StackFramesListViewKeyDown;
   SetupListViewClipboard(FStackFramesListView);
 
   // Disabled overlay banner/panel
-  FDisabledPanel := TPanel.Create(Self);
+  FDisabledPanel := FindComponent('DextDisabledPanel') as TPanel;
+  if not Assigned(FDisabledPanel) then
+  begin
+    FDisabledPanel := TPanel.Create(Self);
+    FDisabledPanel.Name := 'DextDisabledPanel';
+  end;
   FDisabledPanel.Parent := Self;
   FDisabledPanel.Align := alClient;
   FDisabledPanel.BevelOuter := bvNone;
@@ -1241,14 +1363,24 @@ begin
   FDisabledPanel.Color := clWindow;
   FDisabledPanel.ParentBackground := False;
 
-  FDisabledContainer := TPanel.Create(Self);
+  FDisabledContainer := FindComponent('DextDisabledContainer') as TPanel;
+  if not Assigned(FDisabledContainer) then
+  begin
+    FDisabledContainer := TPanel.Create(Self);
+    FDisabledContainer.Name := 'DextDisabledContainer';
+  end;
   FDisabledContainer.Parent := FDisabledPanel;
   FDisabledContainer.Width := 300;
   FDisabledContainer.Height := 100;
   FDisabledContainer.BevelOuter := bvNone;
   FDisabledContainer.ParentBackground := True;
 
-  DisabledMsgLabel := TLabel.Create(Self);
+  DisabledMsgLabel := FindComponent('DextDisabledMsg') as TLabel;
+  if not Assigned(DisabledMsgLabel) then
+  begin
+    DisabledMsgLabel := TLabel.Create(Self);
+    DisabledMsgLabel.Name := 'DextDisabledMsg';
+  end;
   DisabledMsgLabel.Parent := FDisabledContainer;
   DisabledMsgLabel.Align := alTop;
   DisabledMsgLabel.Alignment := taCenter;
@@ -1256,7 +1388,12 @@ begin
   DisabledMsgLabel.Font.Size := 10;
   DisabledMsgLabel.Height := 40;
 
-  EnableButton := TButton.Create(Self);
+  EnableButton := FindComponent('DextEnableButton') as TButton;
+  if not Assigned(EnableButton) then
+  begin
+    EnableButton := TButton.Create(Self);
+    EnableButton.Name := 'DextEnableButton';
+  end;
   EnableButton.Parent := FDisabledContainer;
   EnableButton.Left := (FDisabledContainer.Width - 120) div 2;
   EnableButton.Top := 50;
@@ -1268,13 +1405,23 @@ begin
   EnableDisableTestExplorerMenuItem.Visible := True;
 
   // Initialize Idle Timer
-  FIdleTimer := TTimer.Create(Self);
+  FIdleTimer := FindComponent('DextIdleTimer') as TTimer;
+  if not Assigned(FIdleTimer) then
+  begin
+    FIdleTimer := TTimer.Create(Self);
+    FIdleTimer.Name := 'DextIdleTimer';
+  end;
   FIdleTimer.Interval := 2500; // 2.5 seconds debounce
   FIdleTimer.Enabled := False;
   FIdleTimer.OnTimer := IdleTimerTimer;
 
   // Initialize Save Timer and list
-  FSaveTimer := TTimer.Create(Self);
+  FSaveTimer := FindComponent('DextSaveTimer') as TTimer;
+  if not Assigned(FSaveTimer) then
+  begin
+    FSaveTimer := TTimer.Create(Self);
+    FSaveTimer.Name := 'DextSaveTimer';
+  end;
   FSaveTimer.Interval := 250; // 250ms debounce
   FSaveTimer.Enabled := False;
   FSaveTimer.OnTimer := SaveTimerTimer;
@@ -1303,6 +1450,8 @@ begin
       RunOnIdleCheckBox.Checked := Ini.ReadBool('General', 'RunOnIdle', False);
       if Assigned(FCoverageCheckBox) then
         FCoverageCheckBox.Checked := Ini.ReadBool('Coverage', 'Enabled', False);
+      if Assigned(FGenerateHtmlCheckBox) then
+        FGenerateHtmlCheckBox.Checked := Ini.ReadBool('Coverage', 'GenerateHtml', False);
     finally
       Ini.Free;
     end;
@@ -1496,6 +1645,54 @@ begin
     LayoutInspectorDetails(True, IfThen(Assigned(FStackFramesListView), FStackFramesListView.Items.Count, 0))
   else if Assigned(FStackPanel) and FStackPanel.Visible then
     LayoutInspectorDetails(False, IfThen(Assigned(FStackFramesListView), FStackFramesListView.Items.Count, 0));
+end;
+
+function TFormDextTestRunner.IsDfmNonVisual(AComponent: TComponent): Boolean;
+begin
+  // ActionsPopupMenu owns its TMenuItems; writing the menu streams the items.
+  Result := AComponent = ActionsPopupMenu;
+end;
+
+procedure TFormDextTestRunner.FreeDesktopNameCollisions;
+var
+  I: Integer;
+  Comp: TComponent;
+  CompName: string;
+begin
+  for I := ComponentCount - 1 downto 0 do
+  begin
+    Comp := Components[I];
+    CompName := Comp.Name;
+    // ReadRootComponent FindUniqueName('') → "_1"; old Coverage Create(PageControl) debris.
+    if (Length(CompName) >= 2) and (CompName[1] = '_') and CharInSet(CompName[2], ['0'..'9']) then
+      Comp.Free;
+  end;
+end;
+
+procedure TFormDextTestRunner.GetChildren(Proc: TGetChildProc; Root: TComponent);
+var
+  I: Integer;
+  Comp: TComponent;
+begin
+  // Visual children only (TWinControl). Do not stream runtime timers/menus/dynamic
+  // helpers — 10.4 AutoSave resurrected them as "_1 already exists".
+  for I := 0 to ControlCount - 1 do
+    if Controls[I].Owner = Root then
+      Proc(Controls[I]);
+
+  if Root <> Self then
+    Exit;
+
+  for I := 0 to ComponentCount - 1 do
+  begin
+    Comp := Components[I];
+    if Comp.HasParent then
+      Continue;
+    if Comp is TControl then
+      Continue;
+    if IsDfmNonVisual(Comp) then
+      Proc(Comp);
+  end;
 end;
 
 procedure TFormDextTestRunner.DoShow;
@@ -2049,7 +2246,7 @@ begin
   else
     Exit;
 
-  SaveDialog := TSaveDialog.Create(Self);
+  SaveDialog := TSaveDialog.Create(nil);
   try
     SaveDialog.DefaultExt := DefaultExtension;
     SaveDialog.Filter := Filter;
@@ -2286,6 +2483,8 @@ begin
     Ini.WriteBool('General', 'RunOnIdle', RunOnIdleCheckBox.Checked);
     if Assigned(FCoverageCheckBox) then
       Ini.WriteBool('Coverage', 'Enabled', FCoverageCheckBox.Checked and FCoverageCheckBox.Enabled);
+    if Assigned(FGenerateHtmlCheckBox) then
+      Ini.WriteBool('Coverage', 'GenerateHtml', FGenerateHtmlCheckBox.Checked);
     Ini.UpdateFile;
   finally
     Ini.Free;
@@ -2293,6 +2492,10 @@ begin
 
   if Assigned(FCollectCoverageMenuItem) and Assigned(FCoverageCheckBox) then
     FCollectCoverageMenuItem.Checked := FCoverageCheckBox.Checked and FCoverageCheckBox.Enabled;
+  if Assigned(FGenerateHtmlMenuItem) and Assigned(FGenerateHtmlCheckBox) then
+    FGenerateHtmlMenuItem.Checked := FGenerateHtmlCheckBox.Checked;
+
+  UpdateCoverageUiState;
 
   if Assigned(FIdleTimer) then
     FIdleTimer.Enabled := RunOnIdleCheckBox.Checked;
@@ -3173,9 +3376,13 @@ begin
     end;
     CollapseSuccessAndFocusFailures;
     if FCoverageWrapActive then
+    begin
       LogMsg('Coverage: CodeCoverage.exe exited — loading report…');
-    FCoverageWrapActive := False;
-    TryLoadCoverage;
+      FCoverageWrapActive := False;
+      TryLoadCoverage(True);
+    end
+    else
+      TryLoadCoverage(False);
   end;
 end;
 
@@ -3633,6 +3840,7 @@ var
   CmdLine: string;
   Config: string;
   Configs: IOTAProjectOptionsConfigurations;
+  CoverageFailHint: string;
   CoveragePrep: TCoverageRunPrep;
   CustomParams: string;
   ExeFile: string;
@@ -3648,6 +3856,7 @@ var
   SI: TStartupInfo;
   UseCoverage: Boolean;
 begin
+  CoverageFailHint := '';
   IsPackage := False;
   Output := '';
   PlatformVal := 'Win32';
@@ -3728,21 +3937,27 @@ begin
       begin
         LogMsg(AMsg);
       end,
-      CoveragePrep) then
+      CoveragePrep, CoverageFailHint) then
     begin
       FLastCoverageReportDir := CoveragePrep.ReportDir;
       FLastCoverageSourceRoot := CoveragePrep.SourceRoot;
       FCoverageWrapActive := True;
-      CmdLine := TDextCoverageRunner.BuildWrappedCommandLine(CoveragePrep, ExeFile, Params);
+      CmdLine := TDextCoverageRunner.BuildWrappedCommandLine(CoveragePrep, ExeFile, Params,
+        Assigned(FGenerateHtmlCheckBox) and FGenerateHtmlCheckBox.Checked);
       LogMsg('Coverage wrap: ' + CmdLine);
       LogMsg('Coverage: report dir = ' + CoveragePrep.ReportDir);
+      if Assigned(FGenerateHtmlCheckBox) and FGenerateHtmlCheckBox.Checked then
+        LogMsg('Coverage: HTML report enabled (-html).')
+      else
+        LogMsg('Coverage: HTML report off (enable in Configurations or Actions).');
     end
     else
     begin
-      // Never block the suite: fall back to a normal run if coverage prep fails.
-      // FCoverageWrapActive stays False (set above) — that flag, not UseCoverage,
-      // gates waiting for CodeCoverage.exe / TryLoadCoverage after the process exits.
-      LogMsg('Coverage: setup failed — running tests without coverage wrap.');
+      // Never block compile/suite: soft-fail coverage (log + Coverage tab), keep running tests.
+      // FCoverageWrapActive stays False — gates CodeCoverage wait / TryLoadCoverage after exit.
+      if CoverageFailHint = '' then
+        CoverageFailHint := 'Coverage skipped for this run — see Console. Tests continue without wrap.';
+      SetCoverageProblem(CoverageFailHint);
       CmdLine := Format('"%s" %s', [ExeFile, Params]);
     end;
   end
@@ -6006,15 +6221,20 @@ begin
     PageControl.ActivePage := PageControl.Pages[TabIndex];
     SessionsPageControlChange(PageControl);
 
-    Menu := TPopupMenu.Create(Self);
-    Item := TMenuItem.Create(Menu);
-    Item.Caption := 'Close Session';
-    Item.OnClick := CloseActiveSessionClick;
-    Menu.Items.Add(Item);
+    // nil owner: do not accumulate PopupMenus on the dock form (10.4 "_1" / leaks).
+    Menu := TPopupMenu.Create(nil);
+    try
+      Item := TMenuItem.Create(Menu);
+      Item.Caption := 'Close Session';
+      Item.OnClick := CloseActiveSessionClick;
+      Menu.Items.Add(Item);
 
-    Pos := PageControl.ClientToScreen(Pos);
-    Menu.Popup(Pos.X, Pos.Y);
-    Handled := True;
+      Pos := PageControl.ClientToScreen(Pos);
+      Menu.Popup(Pos.X, Pos.Y);
+      Handled := True;
+    finally
+      Menu.Free;
+    end;
   end;
 end;
 
@@ -6258,7 +6478,7 @@ begin
   end;
 end;
 
-procedure TFormDextTestRunner.TryLoadCoverage;
+procedure TFormDextTestRunner.TryLoadCoverage(AReportExpected: Boolean);
 var
   CovPath: string;
   Candidates: TArray<string>;
@@ -6382,9 +6602,11 @@ begin
           LoadedCount: Integer;
           LocalPath: string;
           LocalRoot: string;
+          ExpectReport: Boolean;
         begin
           LocalPath := CovPath;
           LocalRoot := SourceRoot;
+          ExpectReport := AReportExpected;
           if IsTestingDesignShuttingDown then
             Exit;
           if not Assigned(FormDextTestRunner) or (csDestroying in FormDextTestRunner.ComponentState) then
@@ -6393,7 +6615,19 @@ begin
           LoadedCount := TCoverageManager.GetInstance.LoadedFileCount;
           FormDextTestRunner.LogMsg(Format('Coverage loaded: %s (%d file(s))', [LocalPath, LoadedCount]));
           if LoadedCount = 0 then
-            FormDextTestRunner.LogMsg('WARN: Coverage XML had no file entries — check the report path/format.')
+          begin
+            // LoadCoverageFromXML already wiped memory; never leave the old grid on screen.
+            if ExpectReport then
+              FormDextTestRunner.SetCoverageProblem(
+                'Coverage unavailable: report XML has no file entries. ' +
+                'Often Release without Detailed MAP — use Debug + Actions → Apply Debug Trace Options, rebuild, Run All.')
+            else
+            begin
+              FormDextTestRunner.RefreshCoverageReportTab;
+              FormDextTestRunner.LogMsg(
+                'Coverage XML had no file entries — check the report path/format.', dckWarn);
+            end;
+          end
           else
           begin
             FormDextTestRunner.LogMsg(
@@ -6405,12 +6639,233 @@ begin
           end;
         end));
   end
-  else
+  else if AReportExpected then
   begin
-    LogMsg('No code coverage report found.');
+    SetCoverageProblem(
+      'Coverage unavailable: no report found after the run. ' +
+      'Check Collect Code Coverage, Detailed MAP (Debug Trace), then rebuild and Run All.');
     if FLastCoverageReportDir <> '' then
-      LogMsg('Coverage: looked in ' + FLastCoverageReportDir);
+      LogMsg('Coverage: looked in ' + FLastCoverageReportDir, dckWarn);
   end;
+end;
+
+procedure TFormDextTestRunner.SetCoverageProblem(const AMessage: string);
+begin
+  // Empty/failed load already cleared the manager via LoadCoverageFromXML; prep-fail has not.
+  if TCoverageManager.GetInstance.LoadedFileCount > 0 then
+    TCoverageManager.GetInstance.Clear
+  else
+    TCoverageManager.GetInstance.RefreshActiveViews;
+
+  if Assigned(FCoverageListView) then
+    FCoverageListView.Items.Clear;
+
+  if Assigned(FCoverageSummaryLabel) then
+  begin
+    // Keep amber readable under IDE theming.
+    FCoverageSummaryLabel.StyleElements := FCoverageSummaryLabel.StyleElements - [seFont];
+    FCoverageSummaryLabel.Font.Color := $00008CFF; // amber (BGR)
+    FCoverageSummaryLabel.Font.Style := [fsBold];
+    FCoverageSummaryLabel.Caption := AMessage;
+  end;
+
+  if Assigned(FCoverageTab) then
+  begin
+    FCoverageTab.Caption := 'Coverage (!)';
+    if Assigned(DetailsPageControl) then
+      DetailsPageControl.ActivePage := FCoverageTab;
+  end;
+
+  LogMsg(AMessage, dckWarn);
+end;
+
+procedure TFormDextTestRunner.ClearCoverageProblemStyle;
+begin
+  if Assigned(FCoverageTab) and (FCoverageTab.Caption <> 'Coverage') then
+    FCoverageTab.Caption := 'Coverage';
+
+  if Assigned(FCoverageSummaryLabel) then
+  begin
+    FCoverageSummaryLabel.Font.Style := [];
+    FCoverageSummaryLabel.StyleElements := FCoverageSummaryLabel.StyleElements + [seFont];
+    FCoverageSummaryLabel.Font.Color := clWindowText;
+  end;
+end;
+
+procedure TFormDextTestRunner.EnsureCoverageListColumns;
+begin
+  if not Assigned(FCoverageListView) then
+    Exit;
+  // Recreate when upgrading from older abbreviated / 4-column layouts.
+  if (FCoverageListView.Columns.Count = 5) and
+     SameText(FCoverageListView.Columns[2].Caption, 'Not covered') and
+     SameText(FCoverageListView.Columns[3].Caption, 'Instrumented') then
+  begin
+    FCoverageListView.Columns[0].Width := ScalePx(50);
+    Exit;
+  end;
+
+  FCoverageListView.Columns.BeginUpdate;
+  try
+    FCoverageListView.Columns.Clear;
+    FCoverageListView.Columns.Add.Caption := '%';
+    FCoverageListView.Columns[0].Width := ScalePx(50);
+    FCoverageListView.Columns.Add.Caption := 'Covered';
+    FCoverageListView.Columns[1].Width := ScalePx(70);
+    FCoverageListView.Columns.Add.Caption := 'Not covered';
+    FCoverageListView.Columns[2].Width := ScalePx(90);
+    FCoverageListView.Columns.Add.Caption := 'Instrumented';
+    FCoverageListView.Columns[3].Width := ScalePx(90);
+    FCoverageListView.Columns.Add.Caption := 'File';
+    FCoverageListView.Columns[4].Width := ScalePx(240);
+  finally
+    FCoverageListView.Columns.EndUpdate;
+  end;
+end;
+
+function TFormDextTestRunner.FormatCoveragePercentBar(APercent: Double): string;
+begin
+  // Numeric only until owner-draw progress (E1.9a); ASCII bars were unreadable.
+  Result := Format('%.0f%%', [APercent]);
+end;
+
+function TFormDextTestRunner.FindCoverageHtmlReport: string;
+var
+  Candidates: TArray<string>;
+  Candidate: string;
+  WorkDir: string;
+begin
+  Result := '';
+  Candidates := [
+    TPath.Combine(FLastCoverageReportDir, 'CodeCoverage_Summary.html'),
+    TPath.Combine(FLastCoverageReportDir, 'CodeCoverage_summary.html'),
+    TPath.Combine(FLastCoverageReportDir, 'codecoverage_summary.html')
+  ];
+  for Candidate in Candidates do
+    if (Candidate <> '') and FileExists(Candidate) then
+      Exit(Candidate);
+
+  if FActiveProjectFile <> '' then
+  begin
+    WorkDir := TPath.Combine(TDextCoverageRunner.CoverageWorkDir(FActiveProjectFile), 'report');
+    Candidate := TPath.Combine(WorkDir, 'CodeCoverage_Summary.html');
+    if FileExists(Candidate) then
+      Exit(Candidate);
+  end;
+end;
+
+function TFormDextTestRunner.CoverageArtifactsPresent: Boolean;
+var
+  WorkDir: string;
+  Files: TArray<string>;
+begin
+  Result := FindCoverageHtmlReport <> '';
+  if Result then
+    Exit;
+
+  if (FLastCoverageReportDir <> '') and TDirectory.Exists(FLastCoverageReportDir) then
+  try
+    Files := TDirectory.GetFiles(FLastCoverageReportDir, '*.*', TSearchOption.soAllDirectories);
+    if Length(Files) > 0 then
+      Exit(True);
+  except
+  end;
+
+  if FActiveProjectFile <> '' then
+  begin
+    WorkDir := TDextCoverageRunner.CoverageWorkDir(FActiveProjectFile);
+    if TDirectory.Exists(WorkDir) then
+    try
+      Files := TDirectory.GetFiles(WorkDir, '*.*', TSearchOption.soAllDirectories);
+      Exit(Length(Files) > 0);
+    except
+    end;
+  end;
+end;
+
+procedure TFormDextTestRunner.OpenCoverageHtmlClick(Sender: TObject);
+var
+  HtmlPath: string;
+begin
+  HtmlPath := FindCoverageHtmlReport;
+  if HtmlPath = '' then
+  begin
+    LogMsg(
+      'Coverage HTML not found. Enable Collect + Generate HTML, Run All, then try again.',
+      dckWarn);
+    Exit;
+  end;
+  LogMsg('Opening coverage HTML: ' + HtmlPath);
+  ShellExecute(Handle, 'open', PChar(HtmlPath), nil, nil, SW_SHOWNORMAL);
+end;
+
+procedure TFormDextTestRunner.GenerateHtmlMenuClick(Sender: TObject);
+begin
+  if not Assigned(FGenerateHtmlMenuItem) or not Assigned(FGenerateHtmlCheckBox) then
+    Exit;
+  FGenerateHtmlCheckBox.OnClick := nil;
+  try
+    FGenerateHtmlCheckBox.Checked := FGenerateHtmlMenuItem.Checked;
+  finally
+    FGenerateHtmlCheckBox.OnClick := ConfigChangeHandler;
+  end;
+  ConfigChangeHandler(FGenerateHtmlCheckBox);
+  if FGenerateHtmlCheckBox.Checked then
+    LogMsg('Coverage: HTML report ON for next Run All (with Collect coverage).')
+  else
+    LogMsg('Coverage: HTML report OFF.');
+end;
+
+procedure TFormDextTestRunner.ClearCoverageArtifactsClick(Sender: TObject);
+var
+  Removed: Integer;
+
+  procedure TryDeleteTree(const ADir: string);
+  begin
+    if (ADir = '') or not TDirectory.Exists(ADir) then
+      Exit;
+    try
+      TDirectory.Delete(ADir, True);
+      Inc(Removed);
+      LogMsg('Coverage: deleted ' + ADir);
+    except
+      on E: Exception do
+        LogMsg('Coverage: could not delete ' + ADir + ' — ' + E.Message, dckWarn);
+    end;
+  end;
+
+begin
+  if not CoverageArtifactsPresent then
+  begin
+    LogMsg('Coverage: nothing to clear.', dckWarn);
+    Exit;
+  end;
+
+  if MessageDlg(
+    'Delete generated coverage files (XML, HTML, unit lists) for the active project?' + sLineBreak +
+    'In-memory coverage and gutter will be cleared too.',
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+
+  Removed := 0;
+  // Report may sit next to the exe (…\report) and/or under .dext\testing\coverage.
+  TryDeleteTree(FLastCoverageReportDir);
+  if FActiveProjectFile <> '' then
+    TryDeleteTree(TDextCoverageRunner.CoverageWorkDir(FActiveProjectFile));
+
+  FLastCoverageReportDir := '';
+  FLastCoverageSourceRoot := '';
+  TCoverageManager.GetInstance.Clear;
+  if Assigned(FCoverageListView) then
+    FCoverageListView.Items.Clear;
+  ClearCoverageProblemStyle;
+  if Assigned(FCoverageSummaryLabel) then
+    FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.';
+  if Assigned(FCoverageTab) then
+    FCoverageTab.Caption := 'Coverage';
+
+  LogMsg(Format('Coverage: cleared artifacts (%d folder(s)).', [Removed]));
+  UpdateCoverageUiState;
 end;
 
 procedure TFormDextTestRunner.RefreshCoverageReportTab;
@@ -6418,12 +6873,13 @@ var
   Summaries: TArray<TCoverageFileSummary>;
   Summary: TCoverageFileSummary;
   Item: TListItem;
-  TotalCovered, TotalLines: Integer;
+  TotalCovered, TotalNotCovered, TotalLines: Integer;
   DisplayName: string;
 begin
   if not Assigned(FCoverageListView) then
     Exit;
 
+  EnsureCoverageListColumns;
   Summaries := TCoverageManager.GetInstance.GetFileSummaries;
   TotalCovered := 0;
   TotalLines := 0;
@@ -6439,8 +6895,9 @@ begin
       if DisplayName = '' then
         DisplayName := Summary.FilePath;
       Item := FCoverageListView.Items.Add;
-      Item.Caption := Format('%.0f%%', [Summary.Percent]);
+      Item.Caption := FormatCoveragePercentBar(Summary.Percent);
       Item.SubItems.Add(IntToStr(Summary.CoveredLines));
+      Item.SubItems.Add(IntToStr(Max(0, Summary.TotalLines - Summary.CoveredLines)));
       Item.SubItems.Add(IntToStr(Summary.TotalLines));
       Item.SubItems.Add(DisplayName);
       Item.SubItems.Add(Summary.FilePath); // full path for open (no column)
@@ -6449,15 +6906,37 @@ begin
     FCoverageListView.Items.EndUpdate;
   end;
 
-  if Assigned(FCoverageSummaryLabel) then
+  TotalNotCovered := Max(0, TotalLines - TotalCovered);
+
+  if Length(Summaries) = 0 then
   begin
-    if Length(Summaries) = 0 then
-      FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.'
-    else
-      FCoverageSummaryLabel.Caption := Format(
-        '%d file(s) · %d/%d instrumented lines (%.1f%%) · Totals are MAP hits, not every source line · double-click to open',
-        [Length(Summaries), TotalCovered, TotalLines, (TotalCovered / Max(TotalLines, 1)) * 100.0]);
+    // Idle empty state (not a failed run) — keep neutral caption unless already marked.
+    if Assigned(FCoverageSummaryLabel) and
+       ((FCoverageTab = nil) or (FCoverageTab.Caption = 'Coverage')) then
+    begin
+      ClearCoverageProblemStyle;
+      FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.';
+    end;
+  end
+  else
+  begin
+    ClearCoverageProblemStyle;
+    if Assigned(FCoverageSummaryLabel) then
+      if FindCoverageHtmlReport <> '' then
+        FCoverageSummaryLabel.Caption := Format(
+          '%d file(s) · %d covered · %d not covered · %d instrumented (%.1f%%) · ' +
+          'MAP hits · double-click file · Actions → Open HTML report',
+          [Length(Summaries), TotalCovered, TotalNotCovered, TotalLines,
+           (TotalCovered / Max(TotalLines, 1)) * 100.0])
+      else
+        FCoverageSummaryLabel.Caption := Format(
+          '%d file(s) · %d covered · %d not covered · %d instrumented (%.1f%%) · ' +
+          'MAP hits · double-click file · (HTML off — enable Generate HTML to produce report)',
+          [Length(Summaries), TotalCovered, TotalNotCovered, TotalLines,
+           (TotalCovered / Max(TotalLines, 1)) * 100.0]);
   end;
+
+  UpdateCoverageUiState;
 end;
 
 procedure TFormDextTestRunner.CoverageListViewDblClick(Sender: TObject);
@@ -6465,21 +6944,23 @@ var
   Item: TListItem;
   FilePath: string;
   Line: Integer;
+  DisplayName: string;
 begin
   if not Assigned(FCoverageListView) then
     Exit;
   Item := FCoverageListView.Selected;
-  if not Assigned(Item) or (Item.SubItems.Count < 3) then
+  if not Assigned(Item) or (Item.SubItems.Count < 4) then
     Exit;
 
   FilePath := '';
-  if Item.SubItems.Count >= 4 then
-    FilePath := Item.SubItems[3];
+  if Item.SubItems.Count >= 5 then
+    FilePath := Item.SubItems[4];
+  DisplayName := Item.SubItems[3];
   if (FilePath = '') or not FileExists(FilePath) then
-    FilePath := FindUnitFileByName(Item.SubItems[2]);
+    FilePath := FindUnitFileByName(DisplayName);
   if FilePath = '' then
   begin
-    LogMsg('Coverage: could not locate ' + Item.SubItems[2]);
+    LogMsg('Coverage: could not locate ' + DisplayName);
     Exit;
   end;
 
@@ -6543,8 +7024,12 @@ procedure TFormDextTestRunner.UpdateCoverageUiState;
 var
   ToolPath: string;
   Available: Boolean;
+  HasHtml: Boolean;
+  HasArtifacts: Boolean;
 begin
   Available := IsCodeCoverageToolAvailable(ToolPath);
+  HasHtml := FindCoverageHtmlReport <> '';
+  HasArtifacts := CoverageArtifactsPresent;
 
   if Assigned(FInstallCoverageMenuItem) then
   begin
@@ -6564,14 +7049,34 @@ begin
       FCollectCoverageMenuItem.Checked := False;
   end;
 
+  if Assigned(FGenerateHtmlMenuItem) then
+  begin
+    FGenerateHtmlMenuItem.Enabled := Available;
+    if Assigned(FGenerateHtmlCheckBox) then
+      FGenerateHtmlMenuItem.Checked := FGenerateHtmlCheckBox.Checked;
+  end;
+
   if Assigned(FReloadCoverageMenuItem) then
     FReloadCoverageMenuItem.Enabled := Available;
+
+  if Assigned(FOpenCoverageHtmlMenuItem) then
+    FOpenCoverageHtmlMenuItem.Enabled := HasHtml;
+
+  if Assigned(FClearCoverageArtifactsMenuItem) then
+    FClearCoverageArtifactsMenuItem.Enabled := HasArtifacts;
 
   if Assigned(FCoverageCheckBox) then
   begin
     FCoverageCheckBox.Enabled := Available;
     if not Available then
       FCoverageCheckBox.Checked := False;
+  end;
+
+  if Assigned(FGenerateHtmlCheckBox) then
+  begin
+    FGenerateHtmlCheckBox.Enabled := Available;
+    if not Available then
+      FGenerateHtmlCheckBox.Checked := False;
   end;
 end;
 
@@ -6635,7 +7140,7 @@ end;
 procedure TFormDextTestRunner.ReloadCoverageClick(Sender: TObject);
 begin
   LogMsg('Reloading code coverage report...');
-  TryLoadCoverage;
+  TryLoadCoverage(True);
 end;
 
 procedure TFormDextTestRunner.RunImpactedTests(const ATests: TArray<string>);

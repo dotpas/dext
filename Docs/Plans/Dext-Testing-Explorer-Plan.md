@@ -55,7 +55,7 @@ Specs de origem:
 - [x] Coverage gutter polish + Reload Coverage — E1.6  
 - [x] **E1.8 Coverage run** — Find/Install `CodeCoverage.exe` (shared `Dext.Testing.CodeCoverage.Tool`), opt-in *Collect code coverage*, wrap Run All sob DCC (`-xml -xmllines -ife -tec -twd`), parser dual Sonar + `linehits`, discovery sem path hardcoded  
 - [x] **E1.8b Coverage UX v1** — aba **Coverage** (file/%/Instr.), dbl-click → open; gutter via `RequestGutterColumn` (D13); cores BGR; só linhas instrumentadas (sem var/procedure/blank)  
-
+- [x] **E1.8c Coverage UX v1.1** — soft-fail MAP (log + aba `Coverage (!)` âmbar, sem modal); limpa grid/gutter em falha; header agregado Covered/Not covered/Total; coluna Not cov.; barra textual de %; **HTML opt-in** (`GenerateHtml` default false; `-html` só se marcado); Open HTML / Clear artifacts desabilitados sem arquivos
 
 ### 1.2 Console Log visual (JetBrains / VS)
 
@@ -100,7 +100,7 @@ Substituir `TRichEdit` dump por um **structured output pane**:
 | Presenter async | Existe, **não wired** ao form Run All |
 | Suite trends | Feito |
 | Coverage gutter | Feito (E1.6 + coluna D13) |
-| Coverage run (tool + wrap + load + aba) | Feito v1 (E1.8 / E1.8b) |
+| Coverage run (tool + wrap + load + aba) | Feito v1.1 (E1.8 / E1.8b / E1.8c) |
 | C++ | Planned (package Design.Cpp esboço) |
 
 ---
@@ -115,28 +115,49 @@ Substituir `TRichEdit` dump por um **structured output pane**:
 
 ### P0 — agora
 1. Responsividade Run All — **código feito**; validação humana  
-2. Coverage gutter + run — **E1.6/E1.8 feito**; demo: Enable Collect → MAP → Run All → gutter  
+2. Coverage gutter + run — **E1.6/E1.8/E1.8c feito**; demo: Enable Collect → MAP → Run All → gutter / HTML  
 
 ### P1
 3. Console Log estruturado — **E1.7 feito**  
 4. Wire Presenter / migrar paths restantes  
 5. Cap. 18b reprodutível  
-6. Coverage: `tests=` / Show Covering Tests com dados reais (DCC não emite) — futuro  
+6. Coverage backlog E1.9 (abaixo) — próximo ciclo  
 
 ### Demo E1.8 (checklist)
 1. Configurations → *Collect code coverage* (ou Actions → Install / Locate CodeCoverage).  
 2. Actions → Apply Debug Trace Options → rebuild (MAP detalhado).  
 3. Run All → console: `Coverage: using …` + wrap; ao fim `Coverage loaded: N file(s)`.  
-4. Aba **Coverage** → lista Instr.; double-click abre unit → gutter só em linhas do relatório.  
-5. Coverage off → Run All sem wrap (comportamento anterior).  
-6. Reload Coverage após `dext test --coverage` externo.
+4. Aba **Coverage** → header agregado + Not cov. + barra %; double-click abre unit → gutter.  
+5. Configurations → *Also generate HTML* (off por default) → Run All → Actions → **Open Coverage HTML Report**; **Clear Generated Coverage Files** quando houver artefatos.  
+6. Release / sem MAP → aba `Coverage (!)` âmbar (sem modal); testes seguem.  
+7. Coverage off → Run All sem wrap.  
+8. Reload Coverage após `dext test --coverage` externo.
 
 ### P2
 6. AST Play icons · C++ · UIA · Sidecar tabs extras  
-7. Coverage: mais units/linhas no XML DCC (hoje o relatório pode ser muito esparso)  
+7. Coverage: densidade do XML DCC (hoje pode ser esparso)  
 
 ### Checkpoint
-Branch de trabalho: `feature/testing-explorer-coverage` (2026-10) — Explorer E1 + stack E2 + coverage v1 + docs/plans.
+Branch de trabalho: `feature/testing-explorer-coverage` (2026-10) — Explorer E1 + stack E2 + coverage v1.1 + docs/plans.
+
+---
+
+## 4.1 Coverage — backlog futuro (E1.9+)
+
+Mesma fonte que o [delphi-code-coverage-wizard-plus](https://github.com/MHumm/delphi-code-coverage-wizard-plus): `CodeCoverage.exe`. O Wizard mostra o HTML; nós integramos XML + gutter na IDE. **Não** recriar o viewer HTML — abrir o do DCC (E1.8c). Inspiração .NET: dotCover / VS Coverage / Coverlet+ReportGenerator.
+
+| # | Ideia | Esforço | Nota |
+|---|--------|---------|------|
+| E1.9a | Owner-draw barra de % colorida (verde) na grid | M | Hoje: só `NN%` (ASCII bar removida) |
+| E1.9b | Prev/Next uncovered no editor ativo | M | Como widget do HTML DCC / dotCover |
+| E1.9c | Filtro lista (&lt;80%, busca nome) | M | |
+| E1.9d | “Stale coverage” se relatório ≠ esta run / config | M | Evita confusão Debug→Release |
+| E1.9e | Diff coverage (só linhas do git diff) | G | Alto valor pitch; precisa git + line map |
+| E1.9f | Exclude gerado/terceiros melhor no `units.lst` | M | |
+| E1.9g | Export Cobertura/LCOV p/ CI + badge | M | Pipeline; ReportGenerator |
+| E1.9h | Branch / partial coverage rico | G | Limite do DCC |
+| E1.9i | `tests=` / Show Covering Tests com dados reais | G | DCC hoje não emite bem |
+| E1.9j | Full-line highlight no editor (opcional) | G | HTML já faz; gutter IDE é o default |
 
 ---
 

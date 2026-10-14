@@ -50,3 +50,4 @@ dext-symbols.*
 *.lst
 /Tests/Core/UnitTests/.dext/testing/suite_history.json
 /Tests/Web/.dext/testing/suite_history.json
+suite_history.json

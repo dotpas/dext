@@ -31,7 +31,9 @@ Docs satélites (detalhe):
 | E1.6 | Coverage gutter polish (demo Embarcadero) | Feito | Path match; Reload Coverage; `LoadedFileCount` |
 | E1.7 | Console Log estruturado (ListView/ícones) | Feito | `FConsoleListView` Time/Kind/Message; dbl-click FAIL→Inspector |
 | E1.8 | Coverage run + aba Coverage + gutter column | Feito (v1) | Collect → DCC wrap; dual XML; aba file list; `RequestGutterColumn` (D13); só linhas instrumentadas |
-| E1.9 | Passive View: migrar paths restantes → Presenter | Débito | Contínuo, não bloqueia pitch |
+| E1.8c | Coverage UX v1.1 (agregado, Not cov., HTML opt-in, soft-fail, clear) | Feito | HTML default off; Open/Clear só com artefatos; backlog §4.1 |
+| E1.9 | Coverage backlog (Prev/Next, filtro, diff, CI export…) | Planejado | Explorer-Plan §4.1 |
+| E1.10 | Passive View: migrar paths restantes → Presenter | Débito | Contínuo, não bloqueia pitch |
 
 **Package:** `Packages/d13/Dext.Testing.Design.dproj` — build verificado (Core → Net → Testing.Core → Testing.Design).
 
@@ -82,7 +84,9 @@ Sprint A:  E1.5 Apply Debug Trace → E1.6 Coverage polish     ✅
 Sprint B:  E2.1–E2.2 provider/coleta → E1.7 console          ✅
 Sprint C:  E2.3 frames clicáveis → E3.1–E3.3 Sidecar         ✅
 Sprint D:  E1.8 Coverage run/tab/gutter v1                   ✅ (checkpoint)
+Sprint D2: E1.8c Coverage UX v1.1 (HTML + agregado + soft-fail) ✅
 Sprint E:  QA manual E4.1 + Cap. 18b; C++ discovery paralelo  ← agora
+Sprint F:  E1.9 Coverage backlog (escolher fatias)            depois
 ```
 
 ---

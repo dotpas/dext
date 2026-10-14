@@ -29,9 +29,9 @@ type
     class function GenerateLists(const ProjectFile, SourceRoot: string;
       out UnitsList, SourcesList: string; ALog: TProc<string>): Boolean;
     class function PrepareRun(const ProjectFile, TestExe, PlatformName: string;
-      ALog: TProc<string>; out Prep: TCoverageRunPrep): Boolean;
+      ALog: TProc<string>; out Prep: TCoverageRunPrep; out AFailureHint: string): Boolean;
     class function BuildWrappedCommandLine(const Prep: TCoverageRunPrep;
-      const TestExe, RunnerArgs: string): string;
+      const TestExe, RunnerArgs: string; AGenerateHtml: Boolean = False): string;
   end;
 
 implementation
@@ -212,26 +212,32 @@ begin
 end;
 
 class function TDextCoverageRunner.PrepareRun(const ProjectFile, TestExe, PlatformName: string;
-  ALog: TProc<string>; out Prep: TCoverageRunPrep): Boolean;
+  ALog: TProc<string>; out Prep: TCoverageRunPrep; out AFailureHint: string): Boolean;
 var
   MapFile: string;
   ExeDir: string;
 begin
   Result := False;
+  AFailureHint := '';
   FillChar(Prep, SizeOf(Prep), 0);
   if not EnsureTool(PlatformName, Prep.ToolExe, ALog) then
+  begin
+    AFailureHint :=
+      'Coverage skipped: CodeCoverage.exe not available. Use Actions → Install CodeCoverage…';
     Exit;
+  end;
 
   MapFile := ChangeFileExt(TestExe, '.map');
   if not FileExists(MapFile) then
   begin
+    // Soft fail only — never modal. Suite must keep running without wrap.
+    AFailureHint :=
+      'Coverage skipped: Detailed MAP not found after build. ' +
+      'Actions → Apply Debug Trace Options, rebuild, then Run All again.';
     if Assigned(ALog) then
       ALog('Coverage: MAP missing at ' + MapFile +
-        '. Use Actions → Apply Debug Trace Options, then rebuild.');
-    MessageDlg(
-      'Detailed MAP file not found:' + sLineBreak + MapFile + sLineBreak + sLineBreak +
-      'Apply Debug Trace Options to the active project, rebuild, then run again.',
-      mtWarning, [mbOK], 0);
+        ' — running tests without coverage wrap. ' +
+        'Apply Debug Trace Options, rebuild, Run All again.');
     Exit;
   end;
   Prep.MapFile := MapFile;
@@ -239,7 +245,11 @@ begin
   if Assigned(ALog) then
     ALog('Coverage: source root = ' + Prep.SourceRoot);
   if not GenerateLists(ProjectFile, Prep.SourceRoot, Prep.UnitsList, Prep.SourcesList, ALog) then
+  begin
+    AFailureHint :=
+      'Coverage skipped: no instrumentable units under Sources. Check the project layout.';
     Exit;
+  end;
 
   ExeDir := ExtractFilePath(TestExe);
   Prep.ReportDir := TPath.Combine(CoverageWorkDir(ProjectFile), 'report');
@@ -251,16 +261,22 @@ begin
 end;
 
 class function TDextCoverageRunner.BuildWrappedCommandLine(const Prep: TCoverageRunPrep;
-  const TestExe, RunnerArgs: string): string;
+  const TestExe, RunnerArgs: string; AGenerateHtml: Boolean): string;
 var
   EscapedArgs: string;
+  HtmlSwitch: string;
 begin
   // Quote runner args and escape " for CodeCoverage's -a parser (^"…^").
   EscapedArgs := '^"' + RunnerArgs.Replace('"', '', [rfReplaceAll]) + '^"';
+  // -html is opt-in (default off): CodeCoverage_Summary.html + per-unit HTML.
+  if AGenerateHtml then
+    HtmlSwitch := ' -html'
+  else
+    HtmlSwitch := '';
   Result := Format(
-    '"%s" -e "%s" -m "%s" -uf "%s" -spf "%s" -od "%s" -xml -xmllines -ife -tec -twd -a %s',
+    '"%s" -e "%s" -m "%s" -uf "%s" -spf "%s" -od "%s" -xml -xmllines%s -ife -tec -twd -a %s',
     [Prep.ToolExe, TestExe, Prep.MapFile, Prep.UnitsList, Prep.SourcesList,
-     Prep.ReportDir, EscapedArgs]);
+     Prep.ReportDir, HtmlSwitch, EscapedArgs]);
 end;
 
 end.
