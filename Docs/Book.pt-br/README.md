@@ -81,6 +81,7 @@
 - [Mocking](08-testes/mocking.md) - `Mock<T>` e verificação
 - [Assertions](08-testes/assertions.md) - Sintaxe fluente `Should()`
 - [Snapshots](08-testes/snapshots.md) - Teste de snapshot JSON
+- [Projetos não-Dext](08-testes/projetos-nao-dext.md) - DUnit* no Explorer sem reescrever
 
 #### [9. Ferramenta CLI](09-cli/README.md)
 
@@ -88,7 +89,7 @@
 - [Migrations](09-cli/migrations.md) - `migrate:up`, `migrate:down`
 - [Scaffolding](09-cli/scaffolding.md) - `dext scaffold`
 - [Testes](09-cli/testes.md) - `dext test --coverage`
-- [Dashboard](09-cli/dashboard.md) - `dext ui`
+- [Dashboard](09-cli/dashboard.md) - DextSidecar
 
 #### [10. Tópicos Avançados](10-avancado/README.md)
 

@@ -119,25 +119,40 @@ Evolução da `Fluent Tasks API` para suportar cenários complexos de orquestra�
 
 ## 🧪 Testing Ecosystem & Quality Assurance (Dext.Testing)
 
-### 1. Dext.Mock (AST-Based)
+> Catálogo: [Dext-Testing-Features-Catalog.md](../Dext-Testing-Features-Catalog.md).  
+> Contato Embarcadero: [Embarcadero-Roadmap](../Plans/Dext-Testing-Embarcadero-Roadmap.md).  
+> Framework + coverage CLI = Stable · Explorer = Evolving (#1) · Sidecar essentials // · C++ / UIA / mutation / contracts = Planned.
 
-Motor de Mocks construído sobre a engine `Dext.Expressions`.
+### 1. Framework (shipped — Stable)
 
-- [ ] **AST Evolution (Core)**: Implementar `IMethodCallExpression` (para representar a chamada) e `TArgExpression` (para representar o argumento sendo validado) na engine de expressões.
-- [ ] **Interceptor**: Uso de `TVirtualInterface` conectado à AST para gravar as chamadas no `MethodCallExpression`.
-- [ ] **Argument Matchers DSL**: Record `It` para definição de regras (`It.IsAny<int>`, `It.Matches(Arg > 10)`).
-- [ ] **Async Mocking**: Suporte nativo a `ReturnsAsync` (fabricação de Tasks completadas para evitar boilerplate em testes).
+- [x] Attribute runner, Fluent Assertions (`Should`), Mocks + Arg/Times, Snapshots, multi-format reports.
+- [x] DUnit / DUnitX / DUnit2 adapters → Test Explorer.
+- [x] `dext test --coverage` (HTML/XML/Sonar).
+- [ ] **Async Mocking**: `ReturnsAsync` helpers (roadmap).
+- [ ] Contract tests / mutation / WireMock-like (roadmap P2).
 
-### 2. Fluent Assertions
+### 2. IDE Test Explorer (S36 — Evolving) — prioridade #1
 
-- [ ] **Fluent API**: Sintaxe `Expect(Value).Should.Be(10)`.
-- [ ] **Helpers**: Extension methods para tipos nativos (`String`, `Integer`, `TObject`).
+> Backlog detalhado: [Dext-Testing-Explorer-Plan.md](../Plans/Dext-Testing-Explorer-Plan.md) · package `Packages/d13/Dext.Testing.Design.dproj`.
 
-### 3. Test Runner & Coverage (Separated Process)
+- [x] MVP Presenter, async compile/run, Winsock shutdown with client close.
+- [x] Coverage gutter re-enabled with OTA lifetime management.
+- [x] Suite-total history in Explorer (`suite_history.json`, S75 F-10).
+- [x] Tagged console log + RichEdit color polish.
+- [ ] Coverage **visual** polish for demos / daily use.
+- [ ] Further Passive View migration of remaining DockableForm paths.
+- [x] Book Cap. 18b non-Dext / legacy (`dext-developer-bookshelf/dext-testing-book-pt`).
 
-- [ ] **Runner Service**: Executável separado para rodar testes (evita crash da IDE).
-- [ ] **IPC Protocol**: Comunicação JSON/WebSocket entre Runner e IDE Plugin.
-- [ ] **AST Instrumentation Coverage**: Code Coverage preciso via injeção de contadores na AST (suporte real a Generics e Anonymous Methods).
+### 3. Sidecar (essentials in parallel)
+
+- [x] http.sys + SignalR/SSE; `dext ui` removed.
+- [ ] Companion AutoAttach + session (see [Sidecar LongTerm](../Plans/Dext-Sidecar-LongTerm.md) S0.5) — **não bloqueia livro**.
+- [ ] Testcontainers-like + aba Sidecar ← evolve `infra/tests` (later).
+
+### 4. C++Builder & UI Automation (Planned — strategic)
+
+- [ ] Expert como DLL/OTA + instalador (após [discovery](../Plans/Dext-Testing-Cpp-Discovery.md)).
+- [ ] Spike UI Automation (Delphi 13 VCL UIA).
 
 ---
 

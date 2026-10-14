@@ -1,6 +1,8 @@
 # Analysis of Dext Test Runner Implementation
 
-## Current State
+> **Update 2026-10:** Stale. `TTestRunner.ExecuteProcess` is fire-and-forget with stdout pipe capture and `BroadcastSSE`/`DashboardEvent` fan-out. Prefer `Docs/Plans/Dext-Testing-Phase4-Backlog.md` for current status.
+
+## Current State (historical)
 
 The current implementation of the Test Runner in Dext Dashboard suffers from several critical issues preventing real-time feedback and causing UI freezes.
 

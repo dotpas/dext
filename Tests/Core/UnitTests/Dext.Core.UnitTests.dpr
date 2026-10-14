@@ -1,8 +1,9 @@
-program Dext.Core.UnitTests;
+﻿program Dext.Core.UnitTests;
 
 {$APPTYPE CONSOLE}
 
 uses
+
   Dext.MM,
   Dext.Core.Debug,
   System.SysUtils,

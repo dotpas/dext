@@ -96,9 +96,8 @@
 {$DEFINE DEXT_ENABLE_ENTITY}
 
 // Enable/Disable the IDE Sidecar Expert (project monitoring, unit test sync,
-// and the "Dext Sidecar" menu in the IDE). Disabled by default until the
-// feature is stable. Uncomment to activate.
-{.$DEFINE DEXT_ENABLE_SIDECAR_EXPERT}
+// and the "Dext Sidecar" menu in the IDE).
+{$DEFINE DEXT_ENABLE_SIDECAR_EXPERT}
 
 //---------------------------------------------------------------------------
 // Database Drivers

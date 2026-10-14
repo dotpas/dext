@@ -2,7 +2,7 @@ object FormDextTestRunner: TFormDextTestRunner
   Left = 0
   Top = 0
   Caption = 'Dext Test Explorer'
-  ClientHeight = 730
+  ClientHeight = 650
   ClientWidth = 571
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -13,7 +13,7 @@ object FormDextTestRunner: TFormDextTestRunner
   TextHeight = 13
   object NameSplitter: TSplitter
     Left = 0
-    Top = 507
+    Top = 330
     Width = 571
     Height = 3
     Cursor = crVSplit
@@ -25,7 +25,7 @@ object FormDextTestRunner: TFormDextTestRunner
     Left = 0
     Top = 84
     Width = 571
-    Height = 423
+    Height = 246
     ActivePage = DefaultSessionTabSheet
     Align = alClient
     TabOrder = 0
@@ -35,7 +35,7 @@ object FormDextTestRunner: TFormDextTestRunner
         Left = 0
         Top = 0
         Width = 563
-        Height = 395
+        Height = 218
         Align = alClient
         Indent = 19
         ReadOnly = True
@@ -46,17 +46,17 @@ object FormDextTestRunner: TFormDextTestRunner
   end
   object DetailsPanel: TPanel
     Left = 0
-    Top = 510
+    Top = 333
     Width = 571
-    Height = 220
+    Height = 317
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 1
     object DetailsPageControl: TPageControl
       Left = 0
-      Top = 30
+      Top = 32
       Width = 571
-      Height = 190
+      Height = 285
       ActivePage = ConsoleTab
       Align = alClient
       TabOrder = 0
@@ -65,15 +65,16 @@ object FormDextTestRunner: TFormDextTestRunner
         object InspectorScroll: TScrollBox
           Left = 0
           Top = 0
-          Width = 551
-          Height = 143
+          Width = 563
+          Height = 257
           Align = alClient
           BorderStyle = bsNone
           TabOrder = 0
+          ExplicitHeight = 162
           object InfoPanel: TPanel
             Left = 0
             Top = 0
-            Width = 551
+            Width = 563
             Height = 98
             Align = alTop
             BevelOuter = bvNone
@@ -130,9 +131,9 @@ object FormDextTestRunner: TFormDextTestRunner
           object ErrorMemo: TMemo
             Left = 0
             Top = 98
-            Width = 551
+            Width = 563
             Height = 45
-            Align = alClient
+            Align = alTop
             ReadOnly = True
             ScrollBars = ssBoth
             TabOrder = 1
@@ -145,11 +146,12 @@ object FormDextTestRunner: TFormDextTestRunner
         object ConfigScroll: TScrollBox
           Left = 0
           Top = 0
-          Width = 551
-          Height = 143
+          Width = 563
+          Height = 257
           Align = alClient
           BorderStyle = bsNone
           TabOrder = 0
+          ExplicitHeight = 162
           object CustomParamsLabel: TLabel
             Left = 10
             Top = 10
@@ -193,12 +195,18 @@ object FormDextTestRunner: TFormDextTestRunner
       object ConsoleTab: TTabSheet
         Caption = 'Console Log'
         ImageIndex = 2
-        object DetailsMemo: TMemo
+        object DetailsMemo: TRichEdit
           Left = 0
           Top = 0
           Width = 563
-          Height = 162
+          Height = 257
           Align = alClient
+          Font.Charset = ANSI_CHARSET
+          Font.Color = clWindowText
+          Font.Height = -12
+          Font.Name = 'Consolas'
+          Font.Style = []
+          ParentFont = False
           ReadOnly = True
           ScrollBars = ssBoth
           TabOrder = 0
@@ -206,10 +214,15 @@ object FormDextTestRunner: TFormDextTestRunner
       end
     end
     object SummaryPanel: TPanel
-      Left = 0
-      Top = 0
-      Width = 571
+      AlignWithMargins = True
+      Left = 1
+      Top = 1
+      Width = 569
       Height = 30
+      Margins.Left = 1
+      Margins.Top = 1
+      Margins.Right = 1
+      Margins.Bottom = 1
       Align = alTop
       BevelOuter = bvNone
       TabOrder = 1
@@ -218,7 +231,7 @@ object FormDextTestRunner: TFormDextTestRunner
         Left = 3
         Top = 6
         Width = 55
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -229,14 +242,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Name = 'Segoe UI'
         Font.Style = [fsBold]
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummarySelectedLabel: TLabel
         AlignWithMargins = True
         Left = 64
         Top = 6
         Width = 73
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -247,14 +259,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Name = 'Segoe UI'
         Font.Style = []
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummarySuccessLabel: TLabel
         AlignWithMargins = True
         Left = 143
         Top = 6
         Width = 66
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -267,14 +278,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Style = [fsBold]
         ParentColor = False
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummaryFailedLabel: TLabel
         AlignWithMargins = True
         Left = 215
         Top = 6
         Width = 61
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -287,14 +297,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Style = [fsBold]
         ParentColor = False
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummarySkippedLabel: TLabel
         AlignWithMargins = True
         Left = 282
         Top = 6
         Width = 72
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -305,14 +314,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Name = 'Segoe UI'
         Font.Style = []
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummaryTimeLabel: TLabel
         AlignWithMargins = True
         Left = 360
         Top = 6
         Width = 87
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -323,14 +331,13 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Name = 'Segoe UI'
         Font.Style = [fsBold]
         ParentFont = False
-        ExplicitHeight = 13
       end
       object SummaryTotalTimeLabel: TLabel
         AlignWithMargins = True
         Left = 453
         Top = 6
         Width = 112
-        Height = 18
+        Height = 13
         Margins.Top = 6
         Margins.Bottom = 6
         Align = alLeft
@@ -341,7 +348,6 @@ object FormDextTestRunner: TFormDextTestRunner
         Font.Name = 'Segoe UI'
         Font.Style = []
         ParentFont = False
-        ExplicitHeight = 13
       end
     end
   end
@@ -424,6 +430,7 @@ object FormDextTestRunner: TFormDextTestRunner
     Style = csDropDownList
     TabOrder = 3
     OnChange = ProjectsComboBoxChange
+    ExplicitWidth = 618
   end
   object ProgressPanel: TPanel
     Left = 0
@@ -438,7 +445,7 @@ object FormDextTestRunner: TFormDextTestRunner
       Left = 0
       Top = 0
       Width = 2
-      Height = 18
+      Height = 12
       Align = alLeft
       Alignment = taCenter
       Font.Charset = DEFAULT_CHARSET
@@ -448,7 +455,6 @@ object FormDextTestRunner: TFormDextTestRunner
       Font.Style = []
       ParentFont = False
       Layout = tlCenter
-      ExplicitHeight = 12
     end
     object ProgressBar: TProgressBar
       Left = 2
@@ -487,25 +493,20 @@ object FormDextTestRunner: TFormDextTestRunner
       RadioItem = True
     end
     object LayoutSeparator: TMenuItem
-      AutoCheck = True
       Caption = '-'
       GroupIndex = 10
-      RadioItem = True
     end
     object SplitBottomLayoutMenuItem: TMenuItem
-      AutoCheck = True
       Caption = 'Split Bottom Layout'
       GroupIndex = 20
       RadioItem = True
     end
     object SplitRightLayoutMenuItem: TMenuItem
-      AutoCheck = True
       Caption = 'Split Right Layout'
       GroupIndex = 20
       RadioItem = True
     end
     object TabbedLayoutMenuItem: TMenuItem
-      AutoCheck = True
       Caption = 'Tabbed Layout'
       GroupIndex = 20
       Hint = 'Tabbed Layout at Bottom'

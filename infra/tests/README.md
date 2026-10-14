@@ -20,14 +20,20 @@ This directory contains Docker infrastructure for running ORM integration tests 
 
 ## Supported Databases
 
-| Database | Container | Port | Status |
-|----------|-----------|------|--------|
+ORM drivers in Dext are **Stable** for: PostgreSQL, SQL Server, MySQL, SQLite, Oracle, Firebird, and **InterBase**.
+
+This folder is the **Docker integration-test harness** (Preview → evolve toward a Testcontainers-like DX; optional Sidecar tab later). Status below is for **containers in this compose**, not driver maturity.
+
+| Database | Container | Port | Container harness |
+|----------|-----------|------|-------------------|
 | PostgreSQL 15 | `dext_postgres` | 5432 | ✅ Stable |
 | SQL Server 2022 | `dext_sqlserver` | 1433 | ✅ Stable |
-| MySQL 8.0 | `dext_mysql` | 3306 | 🟡 Beta |
+| MySQL 8.0 | `dext_mysql` | 3306 | ✅ Stable |
 | Firebird 4.0 | `dext_firebird` | 3050 | ✅ Stable |
-| Oracle 23c Free | `dext_oracle` | 1521 | 🟡 Beta |
-| Redis | `dext_redis` | 6379 | 🔮 Future |
+| Oracle 23c Free | `dext_oracle` | 1521 | ✅ Stable |
+| InterBase | — | — | Host/native (no image in this compose yet) |
+| SQLite | — | — | File DB (no container) |
+| Redis | `dext_redis` | 6379 | 🔮 Cache / future tests |
 
 ## Connection Strings
 

@@ -51,12 +51,15 @@ type
     FTestLocations: TList<TTestLocation>;
     FActiveProjectFile: string;
     FRunningProcessHandle: THandle;
+    FCancelRequested: Boolean;
     function GetProjectTargetInfo(const AProjFile: string; out AIsPackage: Boolean; out AOutput: string; const APlatform: string = 'Win32'; const AConfig: string = 'Debug'): Boolean;
     function ResolveExePath(const AProjFile, AOutput: string; const APlatform: string = 'Win32'; const AConfig: string = 'Debug'): string;
     function ExtractTagValue(const AContent, ATagName: string): string;
     function GetDelphiProductVersion: string;
     function ExecuteAndCapture(const ACommandLine, AWorkDir: string; out AOutput: string): Boolean;
     function CompileProjectDirect(const AProjFile: string; AOnConsole: TProc<string>): Boolean;
+    procedure SafeConsole(const AOnConsole: TProc<string>; const AMsg: string);
+    function ResolveActivePlatformConfig(const AProjFile: string; out APlatform, AConfig: string): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -66,6 +69,7 @@ type
     property ActiveProjectFile: string read FActiveProjectFile write FActiveProjectFile;
     property Server: TTestRunnerServer read FServer;
     property TestLocations: TList<TTestLocation> read FTestLocations;
+    property CancelRequested: Boolean read FCancelRequested;
   end;
 
   TTestExplorerPresenter = class
@@ -114,6 +118,57 @@ begin
   inherited Create;
   FTestLocations := TList<TTestLocation>.Create;
   FServer := TTestRunnerServer.Create(8102);
+  FCancelRequested := False;
+  FRunningProcessHandle := 0;
+end;
+
+procedure TTestExplorerModel.SafeConsole(const AOnConsole: TProc<string>; const AMsg: string);
+begin
+  if IsTestingDesignShuttingDown or not Assigned(AOnConsole) then
+    Exit;
+  // Always marshal UI console updates to the main thread.
+  TThread.Queue(nil, TThreadProcedure(procedure
+    begin
+      if IsTestingDesignShuttingDown then
+        Exit;
+      AOnConsole(AMsg);
+    end));
+end;
+
+function TTestExplorerModel.ResolveActivePlatformConfig(const AProjFile: string; out APlatform, AConfig: string): Boolean;
+var
+  ModuleServices: IOTAModuleServices;
+  Group: IOTAProjectGroup;
+  Proj: IOTAProject;
+  Configs: IOTAProjectOptionsConfigurations;
+  I: Integer;
+begin
+  Result := False;
+  APlatform := 'Win32';
+  AConfig := 'Debug';
+  Proj := nil;
+  if not Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
+    Exit;
+  Group := ModuleServices.MainProjectGroup;
+  if not Assigned(Group) then
+    Exit;
+  for I := 0 to Group.ProjectCount - 1 do
+  begin
+    if SameText(Group.Projects[I].FileName, AProjFile) then
+    begin
+      Proj := Group.Projects[I];
+      Break;
+    end;
+  end;
+  if not Assigned(Proj) then
+    Exit;
+  if Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+  begin
+    APlatform := Configs.ActivePlatformName;
+    if Assigned(Configs.ActiveConfiguration) then
+      AConfig := Configs.ActiveConfiguration.Name;
+    Result := True;
+  end;
 end;
 
 function TTestExplorerModel.GetDelphiProductVersion: string;
@@ -244,20 +299,14 @@ begin
 
   if not FileExists(DprFile) then
   begin
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        AOnConsole('Error: DPR/DPK file not found: ' + DprFile);
-      end));
+    SafeConsole(AOnConsole, 'Error: DPR/DPK file not found: ' + DprFile);
     Exit;
   end;
 
   DccExe := ExtractFilePath(ParamStr(0)) + 'dcc32.exe';
   if not FileExists(DccExe) then
   begin
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        AOnConsole('Error: Compiler not found: ' + DccExe);
-      end));
+    SafeConsole(AOnConsole, 'Error: Compiler not found: ' + DccExe);
     Exit;
   end;
 
@@ -266,10 +315,7 @@ begin
   except
     on E: Exception do
     begin
-      TThread.Queue(nil, TThreadProcedure(procedure
-        begin
-          AOnConsole('Error reading project file: ' + E.Message);
-        end));
+      SafeConsole(AOnConsole, 'Error reading project file: ' + E.Message);
       Exit;
     end;
   end;
@@ -332,27 +378,18 @@ begin
   if ExeOutput <> '' then CmdLine := CmdLine + ' -E"' + ExeOutput + '"';
   CmdLine := CmdLine + ' "' + DprFile + '"';
 
-  TThread.Queue(nil, TThreadProcedure(procedure
-    begin
-      AOnConsole('DCC Command: ' + CmdLine);
-    end));
+  SafeConsole(AOnConsole, 'DCC Command: ' + CmdLine);
 
   if ExecuteAndCapture(CmdLine, WorkDir, Output) then
   begin
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        AOnConsole(Output);
-        AOnConsole('Direct compilation successful.');
-      end));
+    SafeConsole(AOnConsole, Output);
+    SafeConsole(AOnConsole, 'Direct compilation successful.');
     Result := True;
   end
   else
   begin
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        AOnConsole(Output);
-        AOnConsole('Direct compilation failed.');
-      end));
+    SafeConsole(AOnConsole, Output);
+    SafeConsole(AOnConsole, 'Direct compilation failed.');
   end;
 end;
 
@@ -498,6 +535,11 @@ begin
       finally
         TThread.Queue(nil, TThreadProcedure(procedure
           begin
+            if IsTestingDesignShuttingDown then
+            begin
+              List.Free;
+              Exit;
+            end;
             AOnScanFinished(List);
           end));
       end;
@@ -505,7 +547,14 @@ begin
 end;
 
 procedure TTestExplorerModel.CompileAndRunTests(const AProjFile: string; const ATestFilter: string; ACheckedTests: TArray<string>; AOnStart: TProc; AOnFinished: TProc; AOnConsole: TProc<string>);
+var
+  PlatformVal: string;
+  Config: string;
 begin
+  FCancelRequested := False;
+  // Resolve OTA project options on the UI thread before background work.
+  ResolveActivePlatformConfig(AProjFile, PlatformVal, Config);
+
   TTask.Run(TProc(procedure
     var
       IsPackage: Boolean;
@@ -517,60 +566,69 @@ begin
       Idx: Integer;
       SI: Winapi.Windows.TStartupInfo;
       PI: Winapi.Windows.TProcessInformation;
-      PlatformVal: string;
-      Config: string;
-      ModuleServices: IOTAModuleServices;
-      Group: IOTAProjectGroup;
-      Proj: IOTAProject;
-      Configs: IOTAProjectOptionsConfigurations;
-      I: Integer;
+      WaitResult: DWORD;
+      SafePlatform: string;
+      SafeConfig: string;
     begin
-      TThread.Queue(nil, TThreadProcedure(AOnStart));
+      SafePlatform := PlatformVal;
+      SafeConfig := Config;
+      if not IsTestingDesignShuttingDown then
+        TThread.Queue(nil, TThreadProcedure(procedure
+          begin
+            if not IsTestingDesignShuttingDown and Assigned(AOnStart) then
+              AOnStart();
+          end));
 
-      if not CompileProjectDirect(AProjFile, AOnConsole) then
+      if FCancelRequested or IsTestingDesignShuttingDown then
       begin
-        TThread.Queue(nil, TThreadProcedure(AOnFinished));
+        if not IsTestingDesignShuttingDown then
+          TThread.Queue(nil, TThreadProcedure(procedure
+            begin
+              if not IsTestingDesignShuttingDown and Assigned(AOnFinished) then
+                AOnFinished();
+            end));
         Exit;
       end;
 
-      PlatformVal := 'Win32';
-      Config := 'Debug';
-      Proj := nil;
-      if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
-      begin
-        Group := ModuleServices.MainProjectGroup;
-        if Assigned(Group) then
+      if not CompileProjectDirect(AProjFile,
+        procedure(AMsg: string)
         begin
-          for I := 0 to Group.ProjectCount - 1 do
-          begin
-            if SameText(Group.Projects[I].FileName, AProjFile) then
+          SafeConsole(AOnConsole, AMsg);
+        end) then
+      begin
+        SafeConsole(AOnConsole, 'Compilation failed or was cancelled.');
+        if not IsTestingDesignShuttingDown then
+          TThread.Queue(nil, TThreadProcedure(procedure
             begin
-              Proj := Group.Projects[I];
-              Break;
-            end;
-          end;
-        end;
-      end;
-      if Assigned(Proj) then
-      begin
-        if Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
-        begin
-          PlatformVal := Configs.ActivePlatformName;
-          if Assigned(Configs.ActiveConfiguration) then
-            Config := Configs.ActiveConfiguration.Name;
-        end;
+              if not IsTestingDesignShuttingDown and Assigned(AOnFinished) then
+                AOnFinished();
+            end));
+        Exit;
       end;
 
-      GetProjectTargetInfo(AProjFile, IsPackage, Output, PlatformVal, Config);
-      ExeFile := ResolveExePath(AProjFile, Output, PlatformVal, Config);
+      if FCancelRequested or IsTestingDesignShuttingDown then
+      begin
+        if not IsTestingDesignShuttingDown then
+          TThread.Queue(nil, TThreadProcedure(procedure
+            begin
+              if not IsTestingDesignShuttingDown and Assigned(AOnFinished) then
+                AOnFinished();
+            end));
+        Exit;
+      end;
+
+      GetProjectTargetInfo(AProjFile, IsPackage, Output, SafePlatform, SafeConfig);
+      ExeFile := ResolveExePath(AProjFile, Output, SafePlatform, SafeConfig);
 
       if not FileExists(ExeFile) then
       begin
-        TThread.Queue(nil, TThreadProcedure(procedure
-          begin
-            AOnConsole('Error: Executable not found at ' + ExeFile);
-            AOnFinished();
-          end));
+        SafeConsole(AOnConsole, 'Error: Executable not found at ' + ExeFile);
+        if not IsTestingDesignShuttingDown then
+          TThread.Queue(nil, TThreadProcedure(procedure
+            begin
+              if not IsTestingDesignShuttingDown and Assigned(AOnFinished) then
+                AOnFinished();
+            end));
         Exit;
       end;
 
@@ -592,10 +650,7 @@ begin
 
       Params := Format('--port %d -no-wait', [FServer.Port]);
       CmdLine := Format('"%s" %s', [ExeFile, Params]);
-      TThread.Queue(nil, TThreadProcedure(procedure
-        begin
-          AOnConsole('Executing: ' + CmdLine);
-        end));
+      SafeConsole(AOnConsole, 'Executing: ' + CmdLine);
 
       ZeroMemory(@SI, SizeOf(SI));
       SI.cb := SizeOf(SI);
@@ -605,24 +660,30 @@ begin
       begin
         FRunningProcessHandle := PI.hProcess;
         CloseHandle(PI.hThread);
-        WaitForSingleObject(PI.hProcess, 120000);
+        // Poll so StopTests / cancel can interrupt without blocking the UI forever.
+        repeat
+          WaitResult := WaitForSingleObject(PI.hProcess, 250);
+        until (WaitResult <> WAIT_TIMEOUT) or FCancelRequested;
+        if FCancelRequested and (WaitResult = WAIT_TIMEOUT) then
+          TerminateProcess(PI.hProcess, 1);
         CloseHandle(PI.hProcess);
         FRunningProcessHandle := 0;
       end
       else
-      begin
+        SafeConsole(AOnConsole, 'Failed to start test process.');
+
+      if not IsTestingDesignShuttingDown then
         TThread.Queue(nil, TThreadProcedure(procedure
           begin
-            AOnConsole('Failed to start test process.');
+            if not IsTestingDesignShuttingDown and Assigned(AOnFinished) then
+              AOnFinished();
           end));
-      end;
-
-      TThread.Queue(nil, TThreadProcedure(AOnFinished));
     end));
 end;
 
 procedure TTestExplorerModel.StopTests;
 begin
+  FCancelRequested := True;
   if FRunningProcessHandle <> 0 then
   begin
     TerminateProcess(FRunningProcessHandle, 0);
@@ -774,8 +835,15 @@ begin
         if LObj.TryGetValue<TJSONObject>('error', LErrObj) and (LErrObj <> nil) then
         begin
           LErrMsg := LErrObj.GetValue<string>('message');
-          if LErrObj.TryGetValue<TJSONObject>('stackTrace', LErrObj) and (LErrObj <> nil) then
-            LStackTrace := LErrObj.ToJSON;
+          if not LErrObj.TryGetValue<string>('stackTrace', LStackTrace) then
+          begin
+            if LErrObj.TryGetValue<TJSONObject>('stackTrace', LErrObj) and (LErrObj <> nil) then
+            begin
+              if not LErrObj.TryGetValue<string>('raw', LStackTrace) then
+                LStackTrace := '';
+            end;
+          end;
+          LStackTrace := LStackTrace.Replace('\r\n', sLineBreak).Replace('\n', sLineBreak).Replace('\r', sLineBreak);
         end;
 
         Inc(FCompletedTests);

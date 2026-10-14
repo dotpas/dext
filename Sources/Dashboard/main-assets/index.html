@@ -592,6 +592,9 @@ Content-Type: application/json
     // -----------------------------------------------------------------------
     const DEXT_SSE_MODE = 's23'; // 'legacy' | 's23'
 
+    // Exposed for main.js hub() SignalR fallback
+    window.DextSSE = null;
+
     const DextSSE = {
       _source: null,
       _sessionId: null,
@@ -635,13 +638,17 @@ Content-Type: application/json
     };
 
 
-    // Auto-connect on page load
+    window.DextSSE = DextSSE;
+
+    // Auto-connect only if SignalR hub() did not take over (legacy pages / no main.js hub).
     document.addEventListener('DOMContentLoaded', () => {
-      DextSSE.connect((eventName, data) => {
-        // Dispatch to the existing main.js handlers if they exist
-        if (typeof window.handleSseEvent === 'function')
-          window.handleSseEvent(eventName, data);
-      });
+      setTimeout(() => {
+        if (window.__dextHub) return; // SignalR already connected
+        DextSSE.connect((eventName, data) => {
+          if (typeof window.handleSseEvent === 'function')
+            window.handleSseEvent(eventName, data);
+        });
+      }, 800);
     });
     </script>
 

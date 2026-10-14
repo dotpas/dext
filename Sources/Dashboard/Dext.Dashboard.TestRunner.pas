@@ -6,6 +6,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.IOUtils,
+  System.JSON,
   Dext.Json,
   Dext.Json.Types,
   Dext.Hosting.CLI.Config,
@@ -23,14 +24,80 @@ type
   private
     class function FindExecutable(const AProjectPath: string): string;
     class function ExecuteProcess(const AExePath, AParams: string): Boolean;
-
+    {$IFDEF MSWINDOWS}
+    class procedure CaptureStdoutAsync(AProcess, AReadPipe: THandle);
+    {$ENDIF}
   public
     class function RunProject(const AProjectPath: string; ACoverage: Boolean = False): IDextJsonObject;
   end;
 
 implementation
 
+uses
+  Dext.Dashboard.Routes;
+
+function JsonQuote(const S: string): string;
+var
+  J: TJSONString;
+begin
+  J := TJSONString.Create(S);
+  try
+    Result := J.ToJSON;
+  finally
+    J.Free;
+  end;
+end;
+
 { TTestRunner }
+
+{$IFDEF MSWINDOWS}
+class procedure TTestRunner.CaptureStdoutAsync(AProcess, AReadPipe: THandle);
+begin
+  // Fire-and-forget reader: pipe stdout/stderr lines into dashboard live events.
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Buffer: array[0..4095] of AnsiChar;
+      BytesRead: DWORD;
+      Chunk, Pending, Line: string;
+      P: Integer;
+      WaitResult: DWORD;
+    begin
+      Pending := '';
+      try
+        repeat
+          BytesRead := 0;
+          if not ReadFile(AReadPipe, Buffer[0], SizeOf(Buffer) - 1, BytesRead, nil) then
+            Break;
+          if BytesRead = 0 then
+            Break;
+          Buffer[BytesRead] := #0;
+          Chunk := string(AnsiString(PAnsiChar(@Buffer[0])));
+          Pending := Pending + Chunk;
+          while True do
+          begin
+            P := Pos(#10, Pending);
+            if P = 0 then
+              Break;
+            Line := Copy(Pending, 1, P - 1).Trim([#13, #10, ' ']);
+            Delete(Pending, 1, P);
+            if Line <> '' then
+              TDashboardRoutes.BroadcastSSE('log',
+                Format('{"lvl":"Info","msg":%s,"app":"TestRunner"}', [JsonQuote(Line)]));
+          end;
+          WaitResult := WaitForSingleObject(AProcess, 0);
+        until WaitResult <> WAIT_TIMEOUT;
+
+        if Pending.Trim <> '' then
+          TDashboardRoutes.BroadcastSSE('log',
+            Format('{"lvl":"Info","msg":%s,"app":"TestRunner"}', [JsonQuote(Pending.Trim)]));
+      finally
+        CloseHandle(AReadPipe);
+        CloseHandle(AProcess);
+      end;
+    end).Start;
+end;
+{$ENDIF}
 
 class function TTestRunner.ExecuteProcess(const AExePath, AParams: string): Boolean;
 {$IFDEF MSWINDOWS}
@@ -38,30 +105,50 @@ var
   SI: TStartupInfo;
   PI: TProcessInformation;
   CmdLine: string;
+  Sa: TSecurityAttributes;
+  ReadPipe, WritePipe: THandle;
 begin
   Result := False;
+  Sa.nLength := SizeOf(TSecurityAttributes);
+  Sa.bInheritHandle := True;
+  Sa.lpSecurityDescriptor := nil;
+  ReadPipe := 0;
+  WritePipe := 0;
+  if not CreatePipe(ReadPipe, WritePipe, @Sa, 0) then
+    Exit;
+  SetHandleInformation(ReadPipe, HANDLE_FLAG_INHERIT, 0);
+
   FillChar(SI, SizeOf(SI), 0);
   SI.cb := SizeOf(SI);
-  SI.dwFlags := STARTF_USESHOWWINDOW;
-  SI.wShowWindow := SW_HIDE; 
-  
-  // We use -no-wait argument to tell the runner not to pause at the end
+  SI.dwFlags := STARTF_USESHOWWINDOW or STARTF_USESTDHANDLES;
+  SI.wShowWindow := SW_HIDE;
+  SI.hStdOutput := WritePipe;
+  SI.hStdError := WritePipe;
+  SI.hStdInput := GetStdHandle(STD_INPUT_HANDLE);
+
   CmdLine := Format('"%s" %s', [AExePath, AParams]);
   UniqueString(CmdLine);
 
-  if CreateProcess(nil, PChar(CmdLine), nil, nil, False, 0, nil, PChar(TPath.GetDirectoryName(AExePath)), SI, PI) then
+  if CreateProcess(nil, PChar(CmdLine), nil, nil, True, CREATE_NO_WINDOW, nil,
+    PChar(TPath.GetDirectoryName(AExePath)), SI, PI) then
   begin
-    // We do NOT wait for completion. Fire and forget.
-    // The runner will report back via Telemetry.
-    CloseHandle(PI.hProcess);
+    CloseHandle(WritePipe);
     CloseHandle(PI.hThread);
+    // Do NOT wait on the request thread — capture stdout asynchronously.
+    CaptureStdoutAsync(PI.hProcess, ReadPipe);
+    TDashboardRoutes.BroadcastSSE('run_start',
+      Format('{"event":"RunStart","exe":%s}', [JsonQuote(AExePath)]));
     Result := True;
+  end
+  else
+  begin
+    CloseHandle(WritePipe);
+    CloseHandle(ReadPipe);
   end;
 end;
 {$ELSE}
 begin
   {$IFDEF POSIX}
-  // Fire and forget in background on Linux
   Result := _system(PAnsiChar(AnsiString(AExePath + ' ' + AParams + ' &'))) = 0;
   {$ELSE}
   Result := False;
@@ -85,16 +172,12 @@ begin
   ExeExt := '';
   {$ENDIF}
   
-  // Potential locations
   Candidates := [
     TPath.Combine(ProjectDir, BaseName + ExeExt),
     TPath.Combine(TPath.Combine(ProjectDir, 'TestOutput'), BaseName + ExeExt),
     TPath.Combine(TPath.Combine(ProjectDir, 'Output'), BaseName + ExeExt),
-    // Repo Root Output (approximate)
     TPath.Combine(TPath.GetFullPath(TPath.Combine(ProjectDir, '..\..\Output')), BaseName + ExeExt),
-    // Common Win32 Debug output
     TPath.Combine(TPath.Combine(ProjectDir, 'Win32\Debug'), BaseName + ExeExt),
-    // Tests/Output (Relative to Tests/Testing)
     TPath.Combine(TPath.Combine(ProjectDir, '..\Output'), BaseName + ExeExt)
   ];
   
@@ -121,14 +204,11 @@ begin
     Exit;
   end;
   
-  // Delete previous results...
   ResultsFile := TPath.Combine(TPath.GetDirectoryName(ExePath), 'test-results.json');
   if FileExists(ResultsFile) then TFile.Delete(ResultsFile);
   
   if ACoverage then
   begin
-     // Locate DelphiCodeCoverage.exe
-     // Note: Direct uses of CLI Config unit is safe inside dashboard package
      Config := TDextGlobalConfig.Create;
      try
        Config.Load;
@@ -139,8 +219,6 @@ begin
 
      if (CoverageExe <> '') and FileExists(CoverageExe) then
      begin
-       // Construct standard coverage parameters
-       // Example: CodeCoverage.exe -e MyTests.exe -o report -v -html -xml
        CoverageParams := Format('-e "%s" -o "TestOutput\report" -v -html -xml -x "%s"', [ExePath, ExePath]);
        if ExecuteProcess(CoverageExe, CoverageParams) then
        begin
@@ -152,7 +230,6 @@ begin
      end;
   end;
 
-  // Launch Standard Async
   if ExecuteProcess(ExePath, '-no-wait') then
   begin
       Result := TDextJson.Provider.CreateObject;

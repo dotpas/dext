@@ -77,12 +77,12 @@ Opções:
 - `-f, --format` - Formato do mapa de símbolos: `markdown` (padrão), `json` ou `csv`.
 - `-x, --exclude` - Lista de pastas ou units a serem ignoradas separadas por vírgula (ex: `External,__recovery`).
  
-## Dashboard (`ui`)
+## Dashboard
 
-Inicia o Dashboard administrativo web do Dext.
+Use o **DextSidecar** (bandeja). O comando `dext ui` foi removido do CLI.
 
-```bash
-dext ui --port 3000
+```text
+DextSidecar.exe   →  http://localhost:3030
 ```
 
 ## Gerenciamento de Certificados SSL (`dev-certs`)

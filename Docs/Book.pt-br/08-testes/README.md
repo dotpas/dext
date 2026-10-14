@@ -7,6 +7,7 @@ O Dext inclui um framework de testes poderoso inspirado no NUnit/xUnit, com mock
 1. [Mocking](mocking.md) - `Mock<T>` para interfaces
 2. [Assertions](assertions.md) - Sintaxe fluente `Should()`
 3. [Snapshots](snapshots.md) - Testes de snapshot JSON
+4. [Projetos não-Dext](projetos-nao-dext.md) - DUnit / DUnitX / DUnit2 no Explorer sem reescrever
 
 ## Estrutura do Projeto de Testes (.dpr)
 
@@ -256,7 +257,7 @@ dext test --coverage
 Isso gerará relatórios consolidados em formatos compatíveis com analisadores de qualidade de código do mercado (como o SonarQube) e relatórios visuais estáticos (HTML).
 
 > [!TIP]
-> **Integração IDE**: O Dext Test Explorer receberá em breve suporte a execução e visualização da cobertura de código diretamente na IDE, colorindo as linhas executadas e não executadas no próprio editor de código do RAD Studio.
+> **Integração IDE**: O gutter de coverage no editor já existe no Test Explorer (`Design.Coverage`). O motor CLI (`dext test --coverage`) está **Stable**; o trabalho em curso é **polir a experiência visual** na IDE para demos e uso diário.
 
 ---
 

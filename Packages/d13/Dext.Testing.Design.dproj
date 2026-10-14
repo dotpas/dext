@@ -54,7 +54,7 @@
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <BT_BuildType>Debug</BT_BuildType>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UsePackage>rtl;designide;vcl;Dext.Core;Dext.Net;Dext.Testing;Dext.Testing.Core;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_UsePackage>rtl;designide;vcl;Dext.Core;Dext.Net;Dext.Testing.Core;$(DCC_UsePackage)</DCC_UsePackage>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
@@ -62,7 +62,7 @@
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
         <BT_BuildType>Debug</BT_BuildType>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UsePackage>rtl;designide;vcl;Dext.Core;Dext.Net;Dext.Testing;Dext.Testing.Core;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_UsePackage>rtl;designide;vcl;Dext.Core;Dext.Net;Dext.Testing.Core;$(DCC_UsePackage)</DCC_UsePackage>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
@@ -97,6 +97,7 @@
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.AST.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Gutter.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.Runner.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

@@ -739,21 +739,22 @@ API fluente baseada no padrão `Should(Value)`.
 - **Native DUnit2 Integration** (`Dext.Testing.DUnit2`) — Adaptador de runner desacoplado usando interfaces proxy para trafegar resultados em tempo real e hierarquia de suites do DUnit2 para o Dext Test Explorer.
 - **Test Context Injection** — `ITestContext` injetável via parâmetro para `WriteLine`, `AttachFile` (screenshots) e metadados de execução.
 - **Histórico por método no Test Explorer** (`TTelemetryTracker` em `Dext.Testing.Design.DockableForm`) — Arquivo `{projeto}\.dext\testing\history.json` (até 1000 linhas). O painel Details marca teste flaky e regressão de duração. Não é o JSON de totais da suíte.
-- **`TTestHistoryManager`** (`Dext.Testing.History`, `dext_test_history.json`) — Totais por **run** (passed/failed/skipped/duration, últimas 50). Hoje só o dashboard sidecar consome. O Explorer ainda não mostra essa série — backlog S75 F-10.
+- **Histórico de totais da suíte no Explorer (S75 F-10)** — `{project}\.dext\testing\suite_history.json` (últimas 50 runs). O Explorer grava e imprime a tendência após cada corrida.
+- **`TTestHistoryManager`** (`Dext.Testing.History`, `dext_test_history.json`) — Totais por **run** para o caminho do dashboard sidecar (formato paralelo).
 - **Telemetria de Testes OpenTelemetry** (`Dext.Testing.Listeners.Telemetry`) — Listener integrado de telemetria enviando métricas de execução de testes (`test_duration_ms`, `test_count_passed`, `test_count_failed`) para coletores OpenTelemetry.
 
 ### 7.7 RAD Studio Expert & IDE Integration (`Dext.Testing.Design.*`)
-- **Dext Test Explorer Dockable Window** (`Dext.Testing.Design.DockableForm`) — Janela ancorável nativa no RAD Studio exibindo árvore interativa de suítes, filtros por status e busca. Histórico **por método** no Details (flaky / duração). Totais da suíte ao longo das runs: S75 F-10.
+- **Dext Test Explorer Dockable Window** (`Dext.Testing.Design.DockableForm`) — Janela ancorável nativa no RAD Studio exibindo árvore interativa de suítes, filtros por status e busca. Histórico **por método** no Details (flaky / duração) e totais da suíte (`suite_history.json`, S75 F-10).
 - **Gutter Margin Icons** (`Dext.Testing.Design.Gutter`) — Marcas visuais interativas na margem esquerda do editor de código do RAD Studio (verdes para sucesso, vermelhas para falhas).
 - **Servidor HTTP/SSE Local da IDE** (`Dext.Testing.Design.Server`) — Servidor de comunicação em tempo real embutido no Expert que recebe o fluxo de execução dos testes sem BPLs intermediárias.
-- **Visualizador de Cobertura de Código** (`Dext.Testing.Design.Coverage`) — Destaque direto no editor das linhas de código cobridas por testes via parsing AST (`Dext.Testing.Design.AST`).
+- **Visualizador de Cobertura de Código** (`Dext.Testing.Design.Coverage`) — Gutter no editor (coberto/não coberto/parcial) com notifiers OTA e lifetime limpo; Ctrl+Alt+C lista testes que cobrem a linha.
 
 ### 7.8 Escala e rigor
 O Dext é validado continuamente por uma infraestrutura de testes massiva para garantir a integridade entre seus subsistemas:
 
 - **Estatísticas de Engenharia** — O projeto ultrapassa **200.000 linhas de código Pascal puro** (excluindo templates e documentação), refletindo um investimento massivo em estabilidade e abstrações de alto nível.
 - **Cobertura Massiva** — Centenas de suítes de testes com milhares de asserções individuais validando desde o Core (Memory, Collections) até integrações complexas de Web e ORM.
-- **Matriz Multi-DB (ORM)** — O motor de persistência é testado exaustivamente em uma matriz real de 5 bancos de dados: PostgreSQL, SQL Server, MySQL, SQLite e Firebird.
+- **Matriz Multi-DB (ORM)** — Drivers **Stable**: PostgreSQL, SQL Server, MySQL, SQLite, Oracle, Firebird e **InterBase**. Harness Docker de integração: `infra/tests` (Preview). Coverage de suíte: **`dext test --coverage`** (Stable); gutter na IDE em Evolving (polish).
 - **Stress & Concurrency Testing** — Validação de coleções concorrentes, canais e async tasks sob alta carga para garantir ausência de Race Conditions.
 - **Evidências de Campo** — Framework validado em projetos reais com deploy em **AWS e Azure**, e sistemas de gestão fiscal processando picos de **~800.000 requisições diárias**.
 - **CI/CD** — Relatórios JUnit / xUnit / TRX / HTML / JSON e cobertura SonarQube (`dext_coverage.xml`) para pipelines Azure DevOps e GitHub Actions.

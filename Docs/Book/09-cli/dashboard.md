@@ -1,75 +1,39 @@
-# CLI Dashboard
+# Dext Dashboard (Sidecar)
 
-Monitor your application with the web-based dashboard.
-
-## Starting the Dashboard
+The **real** web dashboard is the tray sidecar:
 
 ```bash
-dext ui
+# build output — name may vary by config
+DextSidecar.exe
 ```
 
-Open `http://localhost:3000` in your browser.
+Default URL: `http://localhost:3030`
 
-### Custom Port
+It hosts live logs, tracing, test runner UI, coverage summaries, and project tools. On Windows it prefers **http.sys** so SignalR can use WebSockets (SSE remains the automatic fallback). To force Indy:
 
 ```bash
-dext ui --port 8080
+set DEXT_SIDECAR_INDY=1
+DextSidecar.exe
 ```
 
-## Features
+## Relationship to the IDE Test Explorer
 
-### Overview Dashboard
+| Surface | Role |
+|---------|------|
+| **Dext Test Explorer** | Day-to-day suite host inside RAD Studio (compile/run tree, gutter, history) |
+| **DextSidecar** | Observability / project dashboard (logs, telemetry, optional test run UI) |
 
-- **Code Coverage**: Current test coverage percentage
-- **Environments**: Detected Delphi versions
-- **Projects**: Registered project list
-- **Recent Activity**: Latest operations
+## Removed: `dext ui`
 
-### Test Reports
+`dext ui` was an early CLI-only experiment and has been **removed** from `dext.exe`. Use `DextSidecar.exe` only.
 
-View HTML test reports at `/reports`:
-- Code coverage summary
-- Test results by module
-- Coverage trends
+## Features (Sidecar)
 
-### Real-Time Logs
-
-Live log streaming via SignalR:
-- Migration output
-- Test execution
-- Error messages
+- Code coverage summaries and project registry
+- Real-time logs / telemetry (SignalR preferred, SSE fallback)
+- Test discover/run APIs (`/api/tests/...`)
+- Streamable sessions (`/sidecar/session`, `/sidecar/events`)
 
 ## Theme Toggle
 
-Click the sun/moon icon in the header to switch between dark and light themes. Your preference is saved in localStorage.
-
-## API Endpoints
-
-The dashboard exposes REST APIs:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/config` | Global configuration |
-| `GET /api/projects` | Project registry |
-| `GET /api/test/summary` | Coverage summary |
-| `POST /api/env/scan` | Scan for Delphi environments |
-
-## Integration
-
-Embed dashboard in your application:
-
-```pascal
-uses
-  Dext.Hosting.CLI.Commands.UI;
-
-var
-  UICommand: TUICommand;
-begin
-  UICommand := TUICommand.Create;
-  UICommand.Execute(Args);
-end;
-```
-
----
-
-[← Scaffolding](scaffolding.md) | [Next: Advanced Topics →](../10-advanced/README.md)
+Click the sun/moon icon in the header to switch between dark and light themes. Preference is saved in localStorage.

@@ -24,8 +24,11 @@ type
     FClientSockets: TList<TSocket>;
     FLock: TCriticalSection;
     FFinished: Boolean;
+    FPendingJson: TStringList;
+    FFlushQueued: Boolean;
     procedure TriggerTestResult(const AData: string);
     procedure QueueResult(const AJSON: string);
+    procedure DrainPendingToUi;
   protected
     procedure Execute; override;
   public
@@ -52,6 +55,14 @@ type
     property SelectedTestsJSON: string read FSelectedTestsJSON write FSelectedTestsJSON;
   end;
 
+/// <summary>
+///   Call before unloading the Design package / freeing the Explorer form.
+///   Sets a flag so queued UI callbacks exit without touching freed code.
+///   Does not call RemoveQueuedEvents(nil) — that can hard-kill the IDE mid-build.
+/// </summary>
+procedure BeginTestingDesignShutdown;
+function IsTestingDesignShuttingDown: Boolean;
+
 implementation
 
 uses
@@ -59,6 +70,20 @@ uses
 
 var
   LServerLogLock: TObject = nil;
+  GTestingDesignShuttingDown: Boolean = False;
+
+procedure BeginTestingDesignShutdown;
+begin
+  // Flag only. Do NOT call TThread.RemoveQueuedEvents(nil): that clears the IDE's
+  // entire main-thread queue and can hard-kill bds.exe mid-build with no dialog.
+  // Queued Dext callbacks must bail via IsTestingDesignShuttingDown / FormDextTestRunner checks.
+  GTestingDesignShuttingDown := True;
+end;
+
+function IsTestingDesignShuttingDown: Boolean;
+begin
+  Result := GTestingDesignShuttingDown;
+end;
 
 procedure LogServerDebug(const AMsg: string);
 var
@@ -95,6 +120,8 @@ begin
   FSocket := INVALID_SOCKET;
   FClientSockets := TList<TSocket>.Create;
   FLock := TCriticalSection.Create;
+  FPendingJson := TStringList.Create;
+  FFlushQueued := False;
   FFinished := False;
   FreeOnTerminate := False;
 end;
@@ -107,6 +134,7 @@ begin
     closesocket(FSocket);
   end;
   FClientSockets.Free;
+  FPendingJson.Free;
   FLock.Free;
   inherited;
 end;
@@ -129,16 +157,70 @@ end;
 
 procedure TTestRunnerServerThread.TriggerTestResult(const AData: string);
 begin
+  if IsTestingDesignShuttingDown or Terminated then
+    Exit;
   if Assigned(FOnTestResult) then
     FOnTestResult(AData);
 end;
 
-procedure TTestRunnerServerThread.QueueResult(const AJSON: string);
+procedure TTestRunnerServerThread.DrainPendingToUi;
+var
+  Batch: TStringList;
+  i: Integer;
 begin
-  TThread.Queue(nil, TThreadProcedure(procedure
-    begin
-      TriggerTestResult(AJSON);
-    end));
+  if IsTestingDesignShuttingDown or Terminated then
+  begin
+    FLock.Enter;
+    try
+      FPendingJson.Clear;
+      FFlushQueued := False;
+    finally
+      FLock.Leave;
+    end;
+    Exit;
+  end;
+
+  Batch := TStringList.Create;
+  try
+    FLock.Enter;
+    try
+      Batch.Assign(FPendingJson);
+      FPendingJson.Clear;
+      FFlushQueued := False;
+    finally
+      FLock.Leave;
+    end;
+    // One UI turn delivers the whole burst; the form time-slices painting.
+    for i := 0 to Batch.Count - 1 do
+      TriggerTestResult(Batch[i]);
+  finally
+    Batch.Free;
+  end;
+end;
+
+procedure TTestRunnerServerThread.QueueResult(const AJSON: string);
+var
+  ShouldQueue: Boolean;
+begin
+  if IsTestingDesignShuttingDown or Terminated then
+    Exit;
+
+  // Coalesce: avoid posting one TThread.Queue message per test (starves the IDE).
+  FLock.Enter;
+  try
+    FPendingJson.Add(AJSON);
+    ShouldQueue := not FFlushQueued;
+    if ShouldQueue then
+      FFlushQueued := True;
+  finally
+    FLock.Leave;
+  end;
+  if ShouldQueue then
+    TThread.Queue(nil, TThreadProcedure(procedure
+      begin
+        if not IsTestingDesignShuttingDown then
+          DrainPendingToUi;
+      end));
 end;
 
 procedure TTestRunnerServerThread.Execute;
@@ -411,27 +493,25 @@ procedure TTestRunnerServer.Stop;
 var
   LStart: DWORD;
 begin
+  FOnTestResult := nil;
   if Assigned(FThread) then
   begin
+    FThread.FOnTestResult := nil;
+    FThread.FOnGetSelectedTests := nil;
     FThread.Terminate;
     FThread.CloseAllClientSockets;
     // Close listening socket to unblock accept()
     if FThread.FSocket <> INVALID_SOCKET then
       closesocket(FThread.FSocket);
-    
-    // Safety check: wait up to 150ms for thread to exit normally
+
+    // Prefer a clean exit: a live server thread after BPL unload = hard IDE death.
     LStart := GetTickCount;
-    while not FThread.Finished and (GetTickCount - LStart < 150) do
-    begin
-      Sleep(10);
-    end;
-    
-    // If still not finished, force terminate it to avoid IDE uninstallation freeze
+    while not FThread.Finished and (GetTickCount - LStart < 2000) do
+      Sleep(20);
+
     if not FThread.Finished then
-    begin
       TerminateThread(FThread.Handle, 0);
-    end;
-    
+
     FreeAndNil(FThread);
   end;
 end;

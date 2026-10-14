@@ -9,9 +9,10 @@ interface
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ComCtrls, Vcl.StdCtrls,
-  Vcl.ExtCtrls, Vcl.Buttons, DockForm, ToolsAPI, Dext.Testing.Design.Server, Dext.Testing.Design.AST,
+  Vcl.ExtCtrls, Vcl.Buttons, Vcl.Clipbrd, DockForm, ToolsAPI, Dext.Testing.Design.Server, Dext.Testing.Design.AST,
   System.JSON, System.Generics.Collections, System.IOUtils, System.Threading,
-  System.ImageList, Vcl.ImgList, Vcl.Menus, System.Math, System.Diagnostics, System.TimeSpan;
+  System.ImageList, Vcl.ImgList, Vcl.Menus, System.Math, System.Diagnostics, System.TimeSpan,
+  System.DateUtils;
 
 type
   TFormDextTestRunner = class;
@@ -69,6 +70,9 @@ type
   end;
 
   TTestSession = class
+  private
+    FOwnsTabSheet: Boolean;
+    FOwnsTestLocations: Boolean;
   public
     TabSheet: TTabSheet;
     TreeView: TTreeView;
@@ -89,14 +93,30 @@ type
     destructor Destroy; override;
   end;
 
+  TPendingTestResult = record
+    ProjectFile: string;
+    TestName: string;
+    Status: string;
+    DurationMs: Integer;
+  end;
+
   TTelemetryTracker = class
+  private
+    class var FPendingResults: TList<TPendingTestResult>;
+    class procedure EnsurePending;
+    class procedure FlushPendingResults;
   public
     class procedure RecordTestResult(const AProjectFile, ATestName, AStatus: string; ADurationMs: Integer);
-    class procedure AnalyzeHistory(const AProjectFile: string; AMemo: TMemo);
+    class procedure AnalyzeHistory(const AProjectFile: string; ALines: TStrings);
+    /// <summary>S75 F-10: persist suite-total run history (passed/failed/skipped/duration).</summary>
+    class procedure RecordSuiteRun(const AProjectFile: string; APassed, AFailed, ASkipped, ATotal: Integer; ADurationMs: Double);
+    class procedure AnalyzeSuiteHistory(const AProjectFile: string; ALines: TStrings);
   end;
 
   TTestExplorerLayout = (telCompact, telSplitBottom, telSplitRight);
   TTestGroupingMode = (tgmCodeStructure, tgmStatus);
+  /// <summary>Console Kind column. dckAuto only for live runner messages; analytics must pass explicit kind.</summary>
+  TDextConsoleKind = (dckAuto, dckLog, dckPass, dckFail, dckSkip, dckWarn);
 
   TFormDextTestRunner = class(TDockableForm)
     ActionsButton: TButton;
@@ -111,7 +131,7 @@ type
     CustomParamsEdit: TEdit;
     CustomParamsLabel: TLabel;
     DefaultSessionTabSheet: TTabSheet;
-    DetailsMemo: TMemo;
+    DetailsMemo: TRichEdit;
     DetailsPageControl: TPageControl;
     DetailsPanel: TPanel;
     DurationLabel: TLabel;
@@ -170,9 +190,17 @@ type
   private
     FServer: TTestRunnerServer;
     FTestLocations: TList<TTestLocation>;
+    FFormOwnedTestLocations: TList<TTestLocation>;
     FActiveProjectFile: string;
     FScanGeneration: Integer;
     FHoverNode: TTreeNode;
+    FCoverageCheckBox: TCheckBox;
+    FCollectCoverageMenuItem: TMenuItem;
+    FInstallCoverageMenuItem: TMenuItem;
+    FReloadCoverageMenuItem: TMenuItem;
+    FLastCoverageReportDir: string;
+    FLastCoverageSourceRoot: string;
+    FCoverageWrapActive: Boolean;
 
     // Process handling
     FRunningProcessHandle: THandle;
@@ -223,6 +251,23 @@ type
     // File scan AST cache (thread-safe performance optimization)
     FScanCache: TObjectDictionary<string, TFileScanCache>;
 
+    // UI responsiveness during suite run: coalesce + time-slice painting
+    FPendingResultJson: TStringList;
+    FUiFlushScheduled: Boolean;
+    FNodeByName: TDictionary<string, TTreeNode>;
+    FBatchingUi: Boolean;
+
+    // E1.7: structured console log (replaces color-coded RichEdit dump)
+    FConsoleListView: TListView;
+    FCoverageTab: TTabSheet;
+    FCoverageListView: TListView;
+    FCoverageSummaryLabel: TLabel;
+    // E2.3: clickable stack frames under the Test Inspector
+    FStackPanel: TPanel;
+    FStackFramesListView: TListView;
+    FStackFrameNavs: TObjectList<TObject>;
+    FStackHintLabel: TLabel;
+
     function ActiveFilterEdit: TEdit;
     function CompileProjectDirect(const AProjFile: string): Boolean;
     function FindMethodImplementationLine(const AFileName, AClassName, AMethodName: string; ADefaultLine: Integer): Integer;
@@ -236,6 +281,28 @@ type
     procedure ApplyLayout(ALayout: TTestExplorerLayout);
     procedure ClearLogsClick(Sender: TObject);
     procedure ClearTestStatus;
+    procedure ConsoleListViewDblClick(Sender: TObject);
+    procedure StackFramesListViewDblClick(Sender: TObject);
+    procedure StackFramesListViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure OpenStackFrame(const AMethodName, AFileName: string; ALine: Integer);
+    procedure LayoutInspectorDetails(AHasErrorMemo: Boolean; AFrameCount: Integer);
+    function ResolveStackFrameFile(const AMethodName, AFileName: string): string;
+    function FindUnitFileByName(const AUnitFileName: string): string;
+    function IsUnreliableMapLocation(const AFileName: string): Boolean;
+    function UnitHintFromMethodName(const AMethodName: string): string;
+    procedure ClearStackFrameNavs;
+    procedure LogAnalyticsLines(ALines: TStrings);
+    procedure ReloadCoverageClick(Sender: TObject);
+    procedure EnsureCoverageToolClick(Sender: TObject);
+    procedure CollectCoverageMenuClick(Sender: TObject);
+    procedure UpdateCoverageUiState;
+    function IsCodeCoverageToolAvailable(out AToolPath: string): Boolean;
+    procedure SetupListViewClipboard(AListView: TListView);
+    procedure ListViewCopySelectedClick(Sender: TObject);
+    procedure ListViewCopyAllClick(Sender: TObject);
+    procedure ListViewClipboardKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    function FormatListViewRow(AItem: TListItem): string;
+    function CopyListViewLines(AListView: TListView; ASelectedOnly: Boolean): string;
     procedure CloseActiveSessionClick(Sender: TObject);
     procedure CloseSession(ASession: TTestSession);
     procedure CollapseSuccessAndFocusFailures;
@@ -246,6 +313,8 @@ type
     procedure ExpandTestsTreeView;
     procedure ExportMenuClick(Sender: TObject);
     procedure ExportResults(const ExportFormat, FileName: string);
+    procedure ApplyDebugTraceOptionsClick(Sender: TObject);
+    function ApplyDebugTraceOptionsToProject(const AProject: IOTAProject; out AConfigName: string): Boolean;
     procedure FilterEditChange(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure GroupingMenuClick(Sender: TObject);
@@ -254,10 +323,18 @@ type
     procedure InvalidateGroupNode(const ATestName: string);
     procedure LaunchTestExe(const ATestFilter: string);
     procedure LayoutMenuClick(Sender: TObject);
-    procedure LogMsg(const AMsg: string);
+    procedure LogMsg(const AMsg: string; AKind: TDextConsoleKind = dckAuto);
     procedure LogPerformance(const AMessage: string);
     procedure NotifyProcessExited;
     procedure OnTestResultReceived(const AJSONData: string);
+    procedure ScheduleUiResultFlush;
+    procedure FlushPendingResultsUi;
+    procedure ProcessResultPayload(const AJSONData: string);
+    procedure BuildNodeIndex;
+    procedure ClearNodeIndex;
+    procedure SyncProgressAndSummaryLabels;
+    function NormalizeStackTraceText(const ARaw: string): string;
+    function ExtractStackTraceFromErrorJson(ErrorObj: TJSONObject): string;
     procedure RebuildStatusImages;
     procedure RefreshTreeView;
     procedure RunAllProjectsClick(Sender: TObject);
@@ -276,6 +353,9 @@ type
     procedure TestsTreeViewMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ToggleEnabledClick(Sender: TObject);
     procedure TryLoadCoverage;
+    procedure RefreshCoverageReportTab;
+    procedure CoverageListViewDblClick(Sender: TObject);
+    procedure OpenSourceFileAtLine(const AFileName: string; ALine: Integer);
     procedure UpdateGroupSummary(const ATestName, AStatus: string; ADurationMs: Double);
     procedure UpdateNodeResultCache(const ATestName, AStatus: string; ADurationMs: Double);
     procedure UpdateSummaryCounts;
@@ -285,6 +365,7 @@ type
     procedure UpdateTimingLabels;
     procedure UpdateTotalTimeLabel;
     procedure ApplyDpiScaling;
+    function ScalePx(ADesignPx: Integer): Integer;
     procedure ClearFilterButtonClick(Sender: TObject);
 
     // Process handling
@@ -322,8 +403,31 @@ implementation
 {.$DEFINE DEXT_TEST_EXPLORER_PERF_LOG}
 
 uses
-  DeskUtil, Dext.Utils, System.Actions, Vcl.ActnList, Dext.Testing.Design.Coverage, System.IniFiles,
-  Winapi.CommCtrl, Dext.Testing.Report, Dext.Testing.Runner, Dext.Testing.Integration;
+  DeskUtil, Dext.Utils, System.Actions, Vcl.ActnList, Dext.Testing.Design.Coverage,
+  Dext.Testing.Design.Coverage.Runner, Dext.Testing.CodeCoverage.Tool, System.IniFiles,
+  Winapi.CommCtrl, Dext.Testing.Report, Dext.Testing.Runner, Dext.Testing.Integration,
+  Dext.Testing.StackTrace;
+
+type
+  /// <summary>Navigation payload stored in stack-frame ListItem.Data.</summary>
+  TStackFrameNav = class
+  public
+    FileName: string;
+    MethodName: string;
+    Line: Integer;
+  end;
+
+function CleanStackMethodName(const AMethodName: string): string;
+var
+  PlusAt: Integer;
+begin
+  // Local helper (Design often resolves a stale Testing.Core DCU under Output\37.0).
+  // Strips MAP offsets: "Unit.Method + $4BE" → "Unit.Method"
+  Result := Trim(AMethodName);
+  PlusAt := Pos(' + $', Result);
+  if PlusAt > 0 then
+    Result := Trim(Copy(Result, 1, PlusAt - 1));
+end;
 
 {$IFDEF DEXT_TEST_EXPLORER_PERF_LOG}
 var
@@ -421,13 +525,15 @@ end;
 
 procedure TDextThemeNotifier.ChangedTheme;
 begin
-  if Assigned(FForm) then
-  begin
-    TThread.ForceQueue(nil, TThreadProcedure(procedure
-      begin
-        FForm.ApplyIDETheme;
-      end));
-  end;
+  if IsTestingDesignShuttingDown or not Assigned(FForm) then
+    Exit;
+  TThread.ForceQueue(nil, TThreadProcedure(procedure
+    begin
+      if IsTestingDesignShuttingDown then
+        Exit;
+      if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+        FormDextTestRunner.ApplyIDETheme;
+    end));
 end;
 
 procedure ShowDextTestExplorer;
@@ -450,13 +556,21 @@ begin
 end;
 
 procedure UnregisterDockableForm;
+var
+  Form: TFormDextTestRunner;
 begin
+  BeginTestingDesignShutdown;
   if @UnRegisterFieldAddress <> nil then
+  try
     UnRegisterFieldAddress(@FormDextTestRunner);
-  if Assigned(FormDextTestRunner) then
-  begin
-    FormDextTestRunner.Free;
-    FormDextTestRunner := nil;
+  except
+  end;
+  Form := FormDextTestRunner;
+  FormDextTestRunner := nil;
+  if Assigned(Form) then
+  try
+    Form.Free;
+  except
   end;
 end;
 
@@ -528,26 +642,28 @@ end;
 
 procedure TDextProjectNotifier.ModuleAdded(const AFileName: string);
 begin
-  if Assigned(FForm) then
-  begin
-    TThread.ForceQueue(nil, TThreadProcedure(procedure
-      begin
-        if Assigned(FormDextTestRunner) then
-          FormDextTestRunner.RefreshActiveProjectTestsList;
-      end));
-  end;
+  if IsTestingDesignShuttingDown or not Assigned(FForm) then
+    Exit;
+  TThread.ForceQueue(nil, TThreadProcedure(procedure
+    begin
+      if IsTestingDesignShuttingDown then
+        Exit;
+      if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+        FormDextTestRunner.RefreshActiveProjectTestsList;
+    end));
 end;
 
 procedure TDextProjectNotifier.ModuleRemoved(const AFileName: string);
 begin
-  if Assigned(FForm) then
-  begin
-    TThread.ForceQueue(nil, TThreadProcedure(procedure
-      begin
-        if Assigned(FormDextTestRunner) then
-          FormDextTestRunner.RefreshActiveProjectTestsList;
-      end));
-  end;
+  if IsTestingDesignShuttingDown or not Assigned(FForm) then
+    Exit;
+  TThread.ForceQueue(nil, TThreadProcedure(procedure
+    begin
+      if IsTestingDesignShuttingDown then
+        Exit;
+      if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+        FormDextTestRunner.RefreshActiveProjectTestsList;
+    end));
 end;
 
 procedure TDextProjectNotifier.ModuleRenamed(const AOldFileName, ANewFileName: string);
@@ -562,6 +678,8 @@ var
   FilterPanel: TPanel;
 begin
   inherited Create;
+  FOwnsTabSheet := True;
+  FOwnsTestLocations := True;
   TestLocations := TList<TTestLocation>.Create;
 
   TabSheet := TTabSheet.Create(APageControl.Owner);
@@ -618,6 +736,9 @@ var
   PPI: Integer;
 begin
   inherited Create;
+  // Form owns the DFM tab / tree / locations list — do not free in session Destroy.
+  FOwnsTabSheet := False;
+  FOwnsTestLocations := False;
   TabSheet := ATabSheet;
   TreeView := ATreeView;
   TestLocations := ALocations;
@@ -660,11 +781,14 @@ end;
 
 destructor TTestSession.Destroy;
 begin
-  if (TabSheet <> nil) and not (csDestroying in TabSheet.ComponentState) then
-  begin
+  if FOwnsTabSheet and Assigned(TabSheet) and not (csDestroying in TabSheet.ComponentState) then
     TabSheet.Free;
-  end;
-  TestLocations.Free;
+  TabSheet := nil;
+  TreeView := nil;
+  if FOwnsTestLocations then
+    FreeAndNil(TestLocations)
+  else
+    TestLocations := nil;
   inherited;
 end;
 
@@ -743,6 +867,9 @@ begin
       if Assigned(FSessions[i].TreeView) then
         FSessions[i].TreeView.Images := ImageList;
   end;
+
+  if Assigned(FConsoleListView) then
+    FConsoleListView.SmallImages := ImageList;
 
   if Assigned(OldImages) then
     OldImages.Free;
@@ -831,6 +958,64 @@ begin
   StopButton.ShowHint := True;
 
   RebuildStatusImages;
+
+  // E1.7: structured console log list view — replaces the color-coded RichEdit dump.
+  // DetailsMemo stays in the .dfm (ApplyLayout still reparents/sizes it) but is hidden.
+  FConsoleListView := TListView.Create(Self);
+  FConsoleListView.Parent := ConsoleTab;
+  FConsoleListView.Align := alClient;
+  FConsoleListView.ViewStyle := vsReport;
+  FConsoleListView.ReadOnly := True;
+  FConsoleListView.RowSelect := True;
+  FConsoleListView.MultiSelect := True;
+  FConsoleListView.GridLines := False;
+  FConsoleListView.HideSelection := False;
+  FConsoleListView.Columns.Add.Caption := 'Time';
+  FConsoleListView.Columns[0].Width := 70;
+  FConsoleListView.Columns.Add.Caption := 'Kind';
+  FConsoleListView.Columns[1].Width := 55;
+  FConsoleListView.Columns.Add.Caption := 'Message';
+  FConsoleListView.Columns[2].Width := 420;
+  FConsoleListView.SmallImages := TestsTreeView.Images;
+  FConsoleListView.OnDblClick := ConsoleListViewDblClick;
+  SetupListViewClipboard(FConsoleListView);
+
+  // Coverage report tab (ReSharper-style file list → navigate + gutter)
+  FCoverageTab := TTabSheet.Create(DetailsPageControl);
+  FCoverageTab.PageControl := DetailsPageControl;
+  FCoverageTab.Caption := 'Coverage';
+
+  FCoverageSummaryLabel := TLabel.Create(FCoverageTab);
+  FCoverageSummaryLabel.Parent := FCoverageTab;
+  FCoverageSummaryLabel.Align := alTop;
+  FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.';
+  FCoverageSummaryLabel.AlignWithMargins := True;
+  FCoverageSummaryLabel.Margins.Left := 6;
+  FCoverageSummaryLabel.Margins.Top := 4;
+  FCoverageSummaryLabel.Margins.Right := 6;
+  FCoverageSummaryLabel.Margins.Bottom := 2;
+
+  FCoverageListView := TListView.Create(FCoverageTab);
+  FCoverageListView.Parent := FCoverageTab;
+  FCoverageListView.Align := alClient;
+  FCoverageListView.ViewStyle := vsReport;
+  FCoverageListView.ReadOnly := True;
+  FCoverageListView.RowSelect := True;
+  FCoverageListView.MultiSelect := True;
+  FCoverageListView.HideSelection := False;
+  FCoverageListView.Columns.Add.Caption := '%';
+  FCoverageListView.Columns[0].Width := 45;
+  FCoverageListView.Columns.Add.Caption := 'Covered';
+  FCoverageListView.Columns[1].Width := 60;
+  FCoverageListView.Columns.Add.Caption := 'Instr.';
+  FCoverageListView.Columns[2].Width := 50;
+  FCoverageListView.Columns.Add.Caption := 'File';
+  FCoverageListView.Columns[3].Width := 360;
+  FCoverageListView.OnDblClick := CoverageListViewDblClick;
+  SetupListViewClipboard(FCoverageListView);
+
+  DetailsMemo.Visible := False;
+
   TestsTreeView.Checkboxes := True;
   TestsTreeView.DoubleBuffered := True;
   TestsTreeView.StyleElements := [];
@@ -876,7 +1061,8 @@ begin
 
   TestsTreeView.PopupMenu := PopupMenu;
 
-  FTestLocations := TList<TTestLocation>.Create;
+  FFormOwnedTestLocations := TList<TTestLocation>.Create;
+  FTestLocations := FFormOwnedTestLocations;
   FSessions := TObjectList<TTestSession>.Create(True);
   FActiveSession := TTestSession.CreateFromExisting(DefaultSessionTabSheet, TestsTreeView, FTestLocations, FActiveProjectFile);
   FSessions.Add(FActiveSession);
@@ -913,6 +1099,45 @@ begin
   ExportToJsonMenutem.OnClick := ExportMenuClick;
   ExportToSonarQubeXmlMenutem.OnClick := ExportMenuClick;
   ExportToHtmlReportMenuItem.OnClick := ExportMenuClick;
+
+  // Actions menu: Apply Debug Trace Options (stack symbols for failed tests)
+  MenuItem := TMenuItem.Create(ActionsPopupMenu);
+  MenuItem.Caption := '-';
+  ActionsPopupMenu.Items.Add(MenuItem);
+  MenuItem := TMenuItem.Create(ActionsPopupMenu);
+  MenuItem.Caption := 'Apply Debug Trace Options to Active Project';
+  MenuItem.OnClick := ApplyDebugTraceOptionsClick;
+  ActionsPopupMenu.Items.Add(MenuItem);
+
+  // E1.6 / E1.8: coverage — visible in Actions; state refreshed on each open
+  FCollectCoverageMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FCollectCoverageMenuItem.Caption := 'Collect Code Coverage on Run';
+  FCollectCoverageMenuItem.AutoCheck := True;
+  FCollectCoverageMenuItem.OnClick := CollectCoverageMenuClick;
+  ActionsPopupMenu.Items.Add(FCollectCoverageMenuItem);
+
+  FInstallCoverageMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FInstallCoverageMenuItem.Caption := 'Install CodeCoverage…';
+  FInstallCoverageMenuItem.OnClick := EnsureCoverageToolClick;
+  ActionsPopupMenu.Items.Add(FInstallCoverageMenuItem);
+
+  FReloadCoverageMenuItem := TMenuItem.Create(ActionsPopupMenu);
+  FReloadCoverageMenuItem.Caption := 'Reload Coverage Report';
+  FReloadCoverageMenuItem.OnClick := ReloadCoverageClick;
+  ActionsPopupMenu.Items.Add(FReloadCoverageMenuItem);
+
+  FCoverageCheckBox := TCheckBox.Create(Self);
+  FCoverageCheckBox.Parent := ConfigScroll;
+  FCoverageCheckBox.Name := 'CoverageCheckBox';
+  FCoverageCheckBox.Caption := 'Collect code coverage on Run All / Selected';
+  FCoverageCheckBox.Hint := 'Wraps the test exe with Delphi Code Coverage (⋯ Actions). Requires MAP (Debug Trace) and CodeCoverage.exe.';
+  FCoverageCheckBox.ShowHint := True;
+  FCoverageCheckBox.Left := EnabledCheckBox.Left;
+  FCoverageCheckBox.Top := EnabledCheckBox.Top + 25;
+  FCoverageCheckBox.Width := 320;
+  FCoverageCheckBox.Height := 17;
+  FCoverageCheckBox.TabOrder := 4;
+  FCoverageCheckBox.OnClick := ConfigChangeHandler;
 
   if Supports(BorlandIDEServices, IOTAIDEThemingServices, ThemingServices) then
   begin
@@ -965,6 +1190,48 @@ begin
   FInspectorSplitter.Visible := False;
   FCurrentLayout := telCompact;
 
+  // E2.3: stack block = panel (hint glued above list). Keeps hint from drifting
+  // between Error label and ErrorMemo when alTop children re-order.
+  FStackFrameNavs := TObjectList<TObject>.Create(True);
+
+  FStackPanel := TPanel.Create(Self);
+  FStackPanel.Parent := InspectorScroll;
+  FStackPanel.BevelOuter := bvNone;
+  FStackPanel.Caption := '';
+  FStackPanel.ParentBackground := True;
+  FStackPanel.Align := alClient;
+  FStackPanel.Visible := False;
+
+  FStackHintLabel := TLabel.Create(Self);
+  FStackHintLabel.Parent := FStackPanel;
+  FStackHintLabel.Align := alTop;
+  FStackHintLabel.Caption := 'Stack Trace — double-click a frame to open source';
+  FStackHintLabel.Height := ScalePx(18);
+  FStackHintLabel.AlignWithMargins := True;
+  FStackHintLabel.Margins.Left := ScalePx(6);
+  FStackHintLabel.Margins.Top := ScalePx(4);
+  FStackHintLabel.Margins.Bottom := 0;
+
+  FStackFramesListView := TListView.Create(Self);
+  FStackFramesListView.Parent := FStackPanel;
+  FStackFramesListView.Align := alClient;
+  FStackFramesListView.ViewStyle := vsReport;
+  FStackFramesListView.ReadOnly := True;
+  FStackFramesListView.RowSelect := True;
+  FStackFramesListView.MultiSelect := True;
+  FStackFramesListView.GridLines := False;
+  FStackFramesListView.HideSelection := False;
+  FStackFramesListView.HotTrack := True;
+  FStackFramesListView.Columns.Add.Caption := '#';
+  FStackFramesListView.Columns[0].Width := ScalePx(30);
+  FStackFramesListView.Columns.Add.Caption := 'Method';
+  FStackFramesListView.Columns[1].Width := ScalePx(260);
+  FStackFramesListView.Columns.Add.Caption := 'Location';
+  FStackFramesListView.Columns[2].Width := ScalePx(180);
+  FStackFramesListView.OnDblClick := StackFramesListViewDblClick;
+  FStackFramesListView.OnKeyDown := StackFramesListViewKeyDown;
+  SetupListViewClipboard(FStackFramesListView);
+
   // Disabled overlay banner/panel
   FDisabledPanel := TPanel.Create(Self);
   FDisabledPanel.Parent := Self;
@@ -1016,6 +1283,11 @@ begin
   FPendingSaveFiles.Sorted := True;
   FPendingSaveFiles.Duplicates := dupIgnore;
 
+  FPendingResultJson := TStringList.Create;
+  FUiFlushScheduled := False;
+  FBatchingUi := False;
+  FNodeByName := TDictionary<string, TTreeNode>.Create;
+
   // Load layout and configs from ini file
   LayoutMode := Ord(telCompact);
   GroupingMode := Ord(tgmCodeStructure);
@@ -1029,6 +1301,8 @@ begin
       CustomParamsEdit.Text := Ini.ReadString('General', 'CustomParams', '');
       RunOnSaveCheckBox.Checked := Ini.ReadBool('General', 'RunOnSave', False);
       RunOnIdleCheckBox.Checked := Ini.ReadBool('General', 'RunOnIdle', False);
+      if Assigned(FCoverageCheckBox) then
+        FCoverageCheckBox.Checked := Ini.ReadBool('Coverage', 'Enabled', False);
     finally
       Ini.Free;
     end;
@@ -1036,6 +1310,7 @@ begin
     FEnabled := True;
   end;
 
+  UpdateCoverageUiState;
   SetEnabledState(FEnabled);
   ApplyLayout(TTestExplorerLayout(LayoutMode));
   FGroupingMode := TTestGroupingMode(GroupingMode);
@@ -1073,6 +1348,24 @@ var
   LThemingServices: IOTAIDEThemingServices;
   I: Integer;
 begin
+  // Drop global alias immediately so queued UI work bails out.
+  if FormDextTestRunner = Self then
+    FormDextTestRunner := nil;
+
+  FUiFlushScheduled := False;
+  Inc(FScanGeneration); // invalidate in-flight scan Queue callbacks
+
+  if Assigned(FIdleTimer) then
+  begin
+    FIdleTimer.Enabled := False;
+    FreeAndNil(FIdleTimer);
+  end;
+  if Assigned(FSaveTimer) then
+  begin
+    FSaveTimer.Enabled := False;
+    FreeAndNil(FSaveTimer);
+  end;
+
   if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
   begin
     try
@@ -1090,27 +1383,39 @@ begin
     FRunningProcessHandle := 0;
   end;
 
-  if Supports(BorlandIDEServices, IOTAIDEThemingServices, LThemingServices) and (FThemeNotifierIndex <> -1) then
+  if FThemeNotifierIndex <> -1 then
   begin
-    LThemingServices.RemoveNotifier(FThemeNotifierIndex);
+    try
+      if Supports(BorlandIDEServices, IOTAIDEThemingServices, LThemingServices) then
+        LThemingServices.RemoveNotifier(FThemeNotifierIndex);
+    except
+    end;
     FThemeNotifierIndex := -1;
   end;
 
-  FServer.Stop;
-  FServer.Free;
-  FSessions.Free;
-  FTestDetails.Free;
-  FGroupSummaries.Free;
-  FGroupNodes.Free;
+  if Assigned(FServer) then
+  begin
+    try
+      FServer.Stop;
+    except
+    end;
+    FreeAndNil(FServer);
+  end;
 
-  if Assigned(FIdleTimer) then
-    FIdleTimer.Free;
-  if Assigned(FSaveTimer) then
-    FSaveTimer.Free;
-  if Assigned(FPendingSaveFiles) then
-    FPendingSaveFiles.Free;
-  if Assigned(FScanCache) then
-    FScanCache.Free;
+  // Drop aliases into session data before freeing the session list.
+  FActiveSession := nil;
+  FTestLocations := nil;
+  FreeAndNil(FSessions);
+  FreeAndNil(FFormOwnedTestLocations);
+
+  FreeAndNil(FTestDetails);
+  FreeAndNil(FGroupSummaries);
+  FreeAndNil(FGroupNodes);
+  FreeAndNil(FPendingSaveFiles);
+  FreeAndNil(FPendingResultJson);
+  FreeAndNil(FNodeByName);
+  FreeAndNil(FScanCache);
+  FreeAndNil(FStackFrameNavs);
 
   if Assigned(ProjectsComboBox) then
   begin
@@ -1118,37 +1423,61 @@ begin
       ProjectsComboBox.Items.Objects[I].Free;
   end;
 
-  if FormDextTestRunner = Self then
-    FormDextTestRunner := nil;
-  inherited Destroy;
+  try
+    inherited Destroy;
+  except
+  end;
+end;
+
+function TFormDextTestRunner.ScalePx(ADesignPx: Integer): Integer;
+var
+  Ppi: Integer;
+begin
+  // Design pixels are authored at 96 DPI; scale for 100% / 150% / 200% monitors.
+  Ppi := CurrentPPI;
+  if Ppi <= 0 then
+    Ppi := 96;
+  Result := MulDiv(ADesignPx, Ppi, 96);
 end;
 
 procedure TFormDextTestRunner.ApplyDpiScaling;
 var
   i: Integer;
-  Ppi: Integer;
   Session: TTestSession;
 begin
-  Ppi := Self.CurrentPPI;
-  if Ppi = 0 then
-    Ppi := 96;
+  ButtonsPanel.Height := ScalePx(31);
 
-  ButtonsPanel.Height := MulDiv(31, Ppi, 96);
+  RefreshButton.Height := ScalePx(25);
+  RefreshButton.Width := ScalePx(90);
 
-  RefreshButton.Height := MulDiv(25, Ppi, 96);
-  RefreshButton.Width := MulDiv(90, Ppi, 96);
+  RunAllButton.Height := ScalePx(25);
+  RunAllButton.Width := ScalePx(95);
 
-  RunAllButton.Height := MulDiv(25, Ppi, 96);
-  RunAllButton.Width := MulDiv(95, Ppi, 96);
+  RunSelectedButton.Height := ScalePx(25);
+  RunSelectedButton.Width := ScalePx(95);
 
-  RunSelectedButton.Height := MulDiv(25, Ppi, 96);
-  RunSelectedButton.Width := MulDiv(95, Ppi, 96);
+  StopButton.Height := ScalePx(25);
+  StopButton.Width := ScalePx(65);
 
-  StopButton.Height := MulDiv(25, Ppi, 96);
-  StopButton.Width := MulDiv(65, Ppi, 96);
+  ActionsButton.Height := ScalePx(25);
+  ActionsButton.Width := ScalePx(30);
 
-  ActionsButton.Height := MulDiv(25, Ppi, 96);
-  ActionsButton.Width := MulDiv(30, Ppi, 96);
+  if Assigned(InfoPanel) then
+    InfoPanel.Height := ScalePx(98);
+
+  if Assigned(FStackHintLabel) then
+  begin
+    FStackHintLabel.Margins.Left := ScalePx(6);
+    FStackHintLabel.Margins.Top := ScalePx(4);
+    FStackHintLabel.Height := ScalePx(18);
+  end;
+
+  if Assigned(FStackFramesListView) and (FStackFramesListView.Columns.Count >= 3) then
+  begin
+    FStackFramesListView.Columns[0].Width := ScalePx(30);
+    FStackFramesListView.Columns[1].Width := ScalePx(260);
+    FStackFramesListView.Columns[2].Width := ScalePx(180);
+  end;
 
   if Assigned(FSessions) then
   begin
@@ -1156,11 +1485,17 @@ begin
     begin
       Session := FSessions[i];
       if Assigned(Session.FilterEdit) and Assigned(Session.FilterEdit.Parent) then
-        TPanel(Session.FilterEdit.Parent).Height := MulDiv(28, Ppi, 96);
+        TPanel(Session.FilterEdit.Parent).Height := ScalePx(28);
       if Assigned(Session.ClearFilterButton) then
-        Session.ClearFilterButton.Width := MulDiv(22, Ppi, 96);
+        Session.ClearFilterButton.Width := ScalePx(22);
     end;
   end;
+
+  // Re-apply inspector heights (Error memo / stack panel) for the new PPI.
+  if Assigned(ErrorMemo) and ErrorMemo.Visible then
+    LayoutInspectorDetails(True, IfThen(Assigned(FStackFramesListView), FStackFramesListView.Items.Count, 0))
+  else if Assigned(FStackPanel) and FStackPanel.Visible then
+    LayoutInspectorDetails(False, IfThen(Assigned(FStackFramesListView), FStackFramesListView.Items.Count, 0));
 end;
 
 procedure TFormDextTestRunner.DoShow;
@@ -1296,6 +1631,15 @@ begin
           TestLoc: TTestLocation;
           UiStopwatch: TStopwatch;
         begin
+          if IsTestingDesignShuttingDown or (FormDextTestRunner <> Self) or
+             (csDestroying in ComponentState) then
+          begin
+            for i := 0 to Length(LScannedLists) - 1 do
+              if Assigned(LScannedLists[i]) then
+                LScannedLists[i].Free;
+            Exit;
+          end;
+
           UiStopwatch := TStopwatch.StartNew;
           if Generation <> FScanGeneration then
           begin
@@ -1333,10 +1677,14 @@ begin
           finally
             TestsTreeView.Items.EndUpdate;
           end;
-          TThread.ForceQueue(nil, TThreadProcedure(procedure
-            begin
-              ExpandTestsTreeView;
-            end));
+          if not IsTestingDesignShuttingDown then
+            TThread.ForceQueue(nil, TThreadProcedure(procedure
+              begin
+                if IsTestingDesignShuttingDown then
+                  Exit;
+                if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+                  FormDextTestRunner.ExpandTestsTreeView;
+              end));
           LogPerformance(Format('RefreshActiveProjectTestsList: ui rebuild %.2f ms, total %.2f ms', [UiStopwatch.Elapsed.TotalMilliseconds, Stopwatch.Elapsed.TotalMilliseconds]));
         end));
     end));
@@ -1381,11 +1729,25 @@ begin
         end;
       end;
 
-      // 3. Details Memo
+      // 3. Details Memo (hidden) + structured console log list view
       if Assigned(DetailsMemo) then
       begin
         DetailsMemo.Color := BgColor;
         DetailsMemo.Font.Color := FgColor;
+      end;
+
+      if Assigned(FConsoleListView) then
+      begin
+        FConsoleListView.Color := BgColor;
+        FConsoleListView.Font.Color := FgColor;
+        FConsoleListView.Invalidate;
+      end;
+
+      if Assigned(FStackFramesListView) then
+      begin
+        FStackFramesListView.Color := BgColor;
+        FStackFramesListView.Font.Color := FgColor;
+        FStackFramesListView.Invalidate;
       end;
 
       // 4. Test Inspector (Scrollbox & Labels)
@@ -1426,9 +1788,14 @@ end;
 procedure TFormDextTestRunner.CMStyleChanged(var Message: TMessage);
 begin
   inherited;
+  if IsTestingDesignShuttingDown then
+    Exit;
   TThread.ForceQueue(nil, TThreadProcedure(procedure
     begin
-      ApplyIDETheme;
+      if IsTestingDesignShuttingDown then
+        Exit;
+      if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+        FormDextTestRunner.ApplyIDETheme;
     end));
 end;
 
@@ -1517,7 +1884,9 @@ end;
 
 procedure TFormDextTestRunner.ClearLogsClick(Sender: TObject);
 begin
-  DetailsMemo.Clear;
+  if Assigned(FConsoleListView) then
+    FConsoleListView.Items.Clear;
+  DetailsMemo.Clear; // kept for safety even though it is hidden (E1.7)
   ClearTestStatus;
   ResetSummaryLabels;
 end;
@@ -1553,42 +1922,125 @@ begin
   end;
 end;
 
+function TFormDextTestRunner.ApplyDebugTraceOptionsToProject(const AProject: IOTAProject;
+  out AConfigName: string): Boolean;
+var
+  Configs: IOTAProjectOptionsConfigurations;
+  Cfg: IOTABuildConfiguration;
+  Opts: IOTAProjectOptions;
+begin
+  Result := False;
+  AConfigName := '';
+  if not Assigned(AProject) then
+    Exit;
+
+  if Supports(AProject.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) and
+     Assigned(Configs.ActiveConfiguration) then
+  begin
+    Cfg := Configs.ActiveConfiguration;
+    AConfigName := Cfg.Name;
+    // Compiling
+    Cfg.Value['DCC_Optimization'] := 'false';
+    Cfg.Value['DCC_DebugInformation'] := '2'; // Full debug information
+    Cfg.Value['DCC_UseDebugDCUs'] := 'true';
+    // Linking / symbols for Dext.Core.Debug map resolver
+    Cfg.Value['DCC_MapFile'] := '3'; // Detailed
+    try
+      Cfg.Value['DCC_DebugInfoInExe'] := 'true';
+    except
+      // Property name varies by IDE version — ignore if unsupported
+    end;
+    Result := True;
+  end
+  else if Supports(AProject.ProjectOptions, IOTAProjectOptions, Opts) then
+  begin
+    AConfigName := '(legacy options)';
+    Opts.Values['Optimization'] := False;
+    Opts.Values['DebugInformation'] := True;
+    Opts.Values['UseDebugDCUs'] := True;
+    Result := True;
+  end;
+
+  if Result then
+  begin
+    try
+      (AProject as IOTAModule).MarkModified;
+    except
+    end;
+  end;
+end;
+
+procedure TFormDextTestRunner.ApplyDebugTraceOptionsClick(Sender: TObject);
+var
+  ConfigName: string;
+  Proj: IOTAProject;
+begin
+  Proj := GetProjectByFileName(FActiveProjectFile);
+  if not Assigned(Proj) then
+  begin
+    LogMsg('Apply Debug Trace Options: no active test project selected.');
+    MessageDlg('Select a test project in the Explorer combo box first.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+
+  if ApplyDebugTraceOptionsToProject(Proj, ConfigName) then
+  begin
+    LogMsg(Format('Applied Debug Trace Mode to %s [%s]: Optimization=False, DebugInfo=Full, UseDebugDCUs=True, MapFile=Detailed.',
+      [ExtractFileName(FActiveProjectFile), ConfigName]));
+    LogMsg('Save the project if prompted, then rebuild. For coverage: ⋯ → Collect Code Coverage on Run → Run All.');
+    MessageDlg(
+      'Debug Trace Options applied to configuration "' + ConfigName + '".' + sLineBreak + sLineBreak +
+      'Save the .dproj if the IDE asks, then rebuild.' + sLineBreak + sLineBreak +
+      'Stack traces: Run All as usual.' + sLineBreak +
+      'Code coverage: ⋯ Actions → enable "Collect Code Coverage on Run", then Run All.' + sLineBreak +
+      '(Also on Configurations tab: "Collect code coverage on Run All / Selected".)',
+      mtInformation, [mbOK], 0);
+  end
+  else
+  begin
+    LogMsg('Apply Debug Trace Options failed: could not access project build configuration.');
+    MessageDlg('Could not update project options. Set Debug Trace Mode manually (see Test Inspector hint).',
+      mtWarning, [mbOK], 0);
+  end;
+end;
+
 procedure TFormDextTestRunner.ExportMenuClick(Sender: TObject);
 var
   DefaultExtension: string;
   ExportFormat: string;
   Filter: string;
   SaveDialog: TSaveDialog;
-  Text: string;
+  Item: TMenuItem;
 begin
   if not (Sender is TMenuItem) then Exit;
-  Text := TMenuItem(Sender).Caption;
+  Item := TMenuItem(Sender);
 
-  if Text = 'Export to JUnit XML' then
+  // Match by menu object — Caption string breaks if accelerators/localization change.
+  if Item = ExportToJUnitXmlMenutem then
   begin
     ExportFormat := 'junit';
     DefaultExtension := 'xml';
     Filter := 'XML Files (*.xml)|*.xml';
   end
-  else if Text = 'Export to XUnit XML' then
+  else if Item = ExportToXUnitXMLMenutem then
   begin
     ExportFormat := 'xunit';
     DefaultExtension := 'xml';
     Filter := 'XML Files (*.xml)|*.xml';
   end
-  else if Text = 'Export to JSON' then
+  else if Item = ExportToJsonMenutem then
   begin
     ExportFormat := 'json';
     DefaultExtension := 'json';
     Filter := 'JSON Files (*.json)|*.json';
   end
-  else if Text = 'Export to SonarQube XML' then
+  else if Item = ExportToSonarQubeXmlMenutem then
   begin
     ExportFormat := 'sonar';
     DefaultExtension := 'xml';
     Filter := 'XML Files (*.xml)|*.xml';
   end
-  else if Text = 'Export to HTML Report' then
+  else if Item = ExportToHtmlReportMenuItem then
   begin
     ExportFormat := 'html';
     DefaultExtension := 'html';
@@ -1832,10 +2284,15 @@ begin
     Ini.WriteString('General', 'CustomParams', CustomParamsEdit.Text);
     Ini.WriteBool('General', 'RunOnSave', RunOnSaveCheckBox.Checked);
     Ini.WriteBool('General', 'RunOnIdle', RunOnIdleCheckBox.Checked);
+    if Assigned(FCoverageCheckBox) then
+      Ini.WriteBool('Coverage', 'Enabled', FCoverageCheckBox.Checked and FCoverageCheckBox.Enabled);
     Ini.UpdateFile;
   finally
     Ini.Free;
   end;
+
+  if Assigned(FCollectCoverageMenuItem) and Assigned(FCoverageCheckBox) then
+    FCollectCoverageMenuItem.Checked := FCoverageCheckBox.Checked and FCoverageCheckBox.Enabled;
 
   if Assigned(FIdleTimer) then
     FIdleTimer.Enabled := RunOnIdleCheckBox.Checked;
@@ -2186,7 +2643,120 @@ begin
   end;
 end;
 
+procedure TFormDextTestRunner.ClearNodeIndex;
+begin
+  if Assigned(FNodeByName) then
+    FNodeByName.Clear;
+end;
+
+procedure TFormDextTestRunner.BuildNodeIndex;
+var
+  Node: TTreeNode;
+  Key: string;
+begin
+  ClearNodeIndex;
+  if (TestsTreeView = nil) or (FNodeByName = nil) then
+    Exit;
+  Node := TestsTreeView.Items.GetFirstNode;
+  while Assigned(Node) do
+  begin
+    if Node.Parent <> nil then
+    begin
+      Key := GetNodeFullTestName(Node);
+      if Key <> '' then
+        FNodeByName.AddOrSetValue(Key, Node);
+    end;
+    Node := Node.GetNext;
+  end;
+end;
+
+procedure TFormDextTestRunner.SyncProgressAndSummaryLabels;
+begin
+  SummarySuccessLabel.Caption := 'Passed: ' + FPassedCount.ToString;
+  SummaryFailedLabel.Caption := 'Failed: ' + FFailedCount.ToString;
+  SummarySkippedLabel.Caption := 'Skipped: ' + FSkippedCount.ToString;
+  UpdateTotalTimeLabel;
+  if Assigned(ProgressPanel) and ProgressPanel.Visible then
+  begin
+    if ProgressBar.Style = pbstMarquee then
+      ProgressBar.Style := pbstNormal;
+    ProgressBar.Max := Max(ProgressBar.Max, Max(1, FTotalTests));
+    ProgressBar.Position := Min(FCompletedTests, ProgressBar.Max);
+    ProgressLabel.Caption := Format('%d/%d', [FCompletedTests, Max(FTotalTests, FCompletedTests)]);
+  end;
+end;
+
+procedure TFormDextTestRunner.ScheduleUiResultFlush;
+begin
+  if IsTestingDesignShuttingDown or FUiFlushScheduled then
+    Exit;
+  FUiFlushScheduled := True;
+  TThread.ForceQueue(nil, TThreadProcedure(procedure
+    begin
+      if IsTestingDesignShuttingDown then
+        Exit;
+      if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+        FormDextTestRunner.FlushPendingResultsUi;
+    end));
+end;
+
 procedure TFormDextTestRunner.OnTestResultReceived(const AJSONData: string);
+begin
+  // Cheap enqueue on the UI thread; painting is time-sliced in FlushPendingResultsUi
+  // so the IDE message loop can process editor/input between bursts.
+  if FPendingResultJson = nil then
+    Exit;
+  FPendingResultJson.Add(AJSONData);
+  ScheduleUiResultFlush;
+end;
+
+procedure TFormDextTestRunner.FlushPendingResultsUi;
+const
+  BudgetMs = 12;
+var
+  Sw: TStopwatch;
+  Payload: string;
+begin
+  if (FPendingResultJson = nil) or (FPendingResultJson.Count = 0) then
+  begin
+    FUiFlushScheduled := False;
+    Exit;
+  end;
+
+  FBatchingUi := True;
+  Sw := TStopwatch.StartNew;
+  if Assigned(TestsTreeView) then
+    TestsTreeView.Items.BeginUpdate;
+  try
+    while FPendingResultJson.Count > 0 do
+    begin
+      Payload := FPendingResultJson[0];
+      FPendingResultJson.Delete(0);
+      ProcessResultPayload(Payload);
+      if Sw.ElapsedMilliseconds >= BudgetMs then
+        Break;
+    end;
+  finally
+    if Assigned(TestsTreeView) then
+      TestsTreeView.Items.EndUpdate;
+    FBatchingUi := False;
+  end;
+
+  SyncProgressAndSummaryLabels;
+  if Assigned(TestsTreeView) then
+    TestsTreeView.Invalidate;
+
+  if FPendingResultJson.Count > 0 then
+  begin
+    // Yield to the IDE, then continue.
+    FUiFlushScheduled := False;
+    ScheduleUiResultFlush;
+  end
+  else
+    FUiFlushScheduled := False;
+end;
+
+procedure TFormDextTestRunner.ProcessResultPayload(const AJSONData: string);
 var
   i: Integer;
   JSONArray: TJSONArray;
@@ -2208,6 +2778,7 @@ var
     SelectedCount: Integer;
     Fixture: string;
     TempDur: Double;
+    AnalyticsLines: TStringList;
   begin
     if ItemJson.TryGetValue<string>('event', Event) and SameText(Event, 'RunComplete') then
     begin
@@ -2262,21 +2833,42 @@ var
         ProgressBar.Position := ProgressBar.Max;
         ProgressLabel.Caption := Format('%d/%d', [FCompletedTests, Max(FCompletedTests, FTotalTests)]);
         // Hide after a short delay so user can see 100%
-        TThread.ForceQueue(nil, TThreadProcedure(procedure
-          begin
-            if Assigned(ProgressPanel) then
-              ProgressPanel.Visible := False;
-          end));
+        if not IsTestingDesignShuttingDown then
+          TThread.ForceQueue(nil, TThreadProcedure(procedure
+            begin
+              if IsTestingDesignShuttingDown then
+                Exit;
+              if Assigned(FormDextTestRunner) and Assigned(FormDextTestRunner.ProgressPanel) and
+                 not (csDestroying in FormDextTestRunner.ComponentState) then
+                FormDextTestRunner.ProgressPanel.Visible := False;
+            end));
       end;
-      if FRunningProcessHandle <> 0 then
+      // Under CodeCoverage.exe the report is written AFTER the test process exits.
+      // Keep the process handle so NotifyProcessExited can load the XML.
+      if not FCoverageWrapActive then
       begin
-        CloseHandle(FRunningProcessHandle);
-        FRunningProcessHandle := 0;
+        if FRunningProcessHandle <> 0 then
+        begin
+          CloseHandle(FRunningProcessHandle);
+          FRunningProcessHandle := 0;
+        end;
       end;
       FRunningTests := False;
-      TTelemetryTracker.AnalyzeHistory(FActiveProjectFile, DetailsMemo);
+      TTelemetryTracker.RecordSuiteRun(FActiveProjectFile, FPassedCount, FFailedCount,
+        FSkippedCount, Max(FCompletedTests, FTotalTests), FTestExecutionDurationMs);
+      AnalyticsLines := TStringList.Create;
+      try
+        TTelemetryTracker.AnalyzeSuiteHistory(FActiveProjectFile, AnalyticsLines);
+        TTelemetryTracker.AnalyzeHistory(FActiveProjectFile, AnalyticsLines);
+        LogAnalyticsLines(AnalyticsLines);
+      finally
+        AnalyticsLines.Free;
+      end;
       CollapseSuccessAndFocusFailures;
-      TryLoadCoverage;
+      if FCoverageWrapActive then
+        LogMsg('Coverage: waiting for CodeCoverage.exe to finish writing the report…')
+      else
+        TryLoadCoverage;
       Exit;
     end;
 
@@ -2325,6 +2917,7 @@ var
       SummarySkippedLabel.Caption := 'Skipped: 0';
       UpdateTotalTimeLabel;
 
+      BuildNodeIndex;
       if FGroupingMode = tgmStatus then
         RefreshTreeView;
       Exit;
@@ -2345,7 +2938,7 @@ var
       if ItemJson.TryGetValue<TJSONObject>('error', ErrorObj) and Assigned(ErrorObj) then
       begin
         Msg := ErrorObj.GetValue<string>('message');
-        StackTrace := ErrorObj.GetValue<TJSONObject>('stackTrace').ToJSON;
+        StackTrace := ExtractStackTraceFromErrorJson(ErrorObj);
       end;
     end
     else if ItemJson.TryGetValue<string>('testname', TestName) then
@@ -2375,21 +2968,9 @@ var
 
     if TestName = '' then Exit;
 
-    LogMsg('Result received: ' + TestName + ' - ' + Status);
-
     if not SameText(Status, 'Running') then
     begin
-      // Update progress bar
       Inc(FCompletedTests);
-      if Assigned(ProgressPanel) and ProgressPanel.Visible then
-      begin
-        if ProgressBar.Style = pbstMarquee then
-          ProgressBar.Style := pbstNormal;
-        ProgressBar.Max := Max(ProgressBar.Max, FTotalTests);
-        ProgressBar.Position := Min(FCompletedTests, ProgressBar.Max);
-        ProgressLabel.Caption := Format('%d/%d', [FCompletedTests, FTotalTests]);
-      end;
-
       if SameText(Status, 'Passed') then
         Inc(FPassedCount)
       else if SameText(Status, 'Failed') or SameText(Status, 'Error') then
@@ -2397,12 +2978,25 @@ var
       else if SameText(Status, 'Skipped') then
         Inc(FSkippedCount);
 
-      SummarySuccessLabel.Caption := 'Passed: ' + FPassedCount.ToString;
-      SummaryFailedLabel.Caption := 'Failed: ' + FFailedCount.ToString;
-      SummarySkippedLabel.Caption := 'Skipped: ' + FSkippedCount.ToString;
       FTestExecutionDurationMs := FTestExecutionDurationMs + DurationMs;
-      UpdateTotalTimeLabel;
+      // Caption/progress updates happen once per UI flush slice (SyncProgressAndSummaryLabels).
     end;
+
+    // PASS stays silent (tree icons are enough). Failures/errors must always hit the console.
+    if SameText(Status, 'Failed') or SameText(Status, 'Error') then
+    begin
+      LogMsg('FAILED: ' + TestName);
+      if Msg <> '' then
+        LogMsg('Error: ' + Msg);
+      if StackTrace <> '' then
+      begin
+        LogMsg('Stack Trace:');
+        LogMsg(StackTrace);
+      end;
+      LogMsg('----------------------------------------');
+    end
+    else if SameText(Status, 'Skipped') then
+      LogMsg('SKIPPED: ' + TestName);
 
     TTelemetryTracker.RecordTestResult(FActiveProjectFile, TestName, Status, Round(DurationMs));
     UpdateNodeResultCache(TestName, Status, DurationMs);
@@ -2416,7 +3010,9 @@ var
     DetailInfo.ErrorMessage := Msg;
     DetailInfo.StackTrace := StackTrace;
 
-    Node := FindNodeByPath(TestName);
+    Node := nil;
+    if (FNodeByName = nil) or not FNodeByName.TryGetValue(TestName, Node) then
+      Node := FindNodeByPath(TestName);
     if Assigned(Node) and (Node.Data <> nil) then
     begin
       i := Integer(Node.Data) - 1;
@@ -2429,8 +3025,8 @@ var
 
     FTestDetails.AddOrSetValue(TestName, DetailInfo);
 
-    // If this test is selected, update inspector tab
-    if (TestsTreeView.Selected <> nil) and
+    // Inspector refresh is expensive — skip while batching; user selection still works via Change.
+    if (not FBatchingUi) and (TestsTreeView.Selected <> nil) and
        (SameText(TestsTreeView.Selected.Text, TestName) or
         SameText(GetNodeFullTestName(TestsTreeView.Selected), TestName)) then
     begin
@@ -2537,6 +3133,8 @@ begin
 end;
 
 procedure TFormDextTestRunner.NotifyProcessExited;
+var
+  AnalyticsLines: TStringList;
 begin
   FRunningTests := False;
   if FRunningProcessHandle <> 0 then
@@ -2550,11 +3148,15 @@ begin
     begin
       ProgressBar.Position := ProgressBar.Max;
       ProgressLabel.Caption := Format('%d/%d', [FCompletedTests, Max(FCompletedTests, FTotalTests)]);
-      TThread.Queue(nil, TThreadProcedure(procedure
-        begin
-          if Assigned(ProgressPanel) then
-            ProgressPanel.Visible := False;
-        end));
+      if not IsTestingDesignShuttingDown then
+        TThread.Queue(nil, TThreadProcedure(procedure
+          begin
+            if IsTestingDesignShuttingDown then
+              Exit;
+            if Assigned(FormDextTestRunner) and Assigned(FormDextTestRunner.ProgressPanel) and
+               not (csDestroying in FormDextTestRunner.ComponentState) then
+              FormDextTestRunner.ProgressPanel.Visible := False;
+          end));
     end;
 
     CloseHandle(FRunningProcessHandle);
@@ -2562,8 +3164,17 @@ begin
     TStopwatch(FStopwatch).Stop;
     UpdateTimingLabels;
 
-    TTelemetryTracker.AnalyzeHistory(FActiveProjectFile, DetailsMemo);
+    AnalyticsLines := TStringList.Create;
+    try
+      TTelemetryTracker.AnalyzeHistory(FActiveProjectFile, AnalyticsLines);
+      LogAnalyticsLines(AnalyticsLines);
+    finally
+      AnalyticsLines.Free;
+    end;
     CollapseSuccessAndFocusFailures;
+    if FCoverageWrapActive then
+      LogMsg('Coverage: CodeCoverage.exe exited — loading report…');
+    FCoverageWrapActive := False;
     TryLoadCoverage;
   end;
 end;
@@ -2574,15 +3185,19 @@ var
   NodeRect: TRect;
   Text: string;
 begin
-  // ATestName is usually in the format: ClassName.MethodName or TClassName.MethodName
-  Node := FindNodeByPath(ATestName);
-  if not Assigned(Node) then
+  Node := nil;
+  if (FNodeByName = nil) or not FNodeByName.TryGetValue(ATestName, Node) then
   begin
-    // Fallback: search for method leaf node matching method portion
-    Text := ATestName;
-    if Text.Contains('.') then
-      Text := Text.Split(['.'])[1];
-    Node := FindNodeByPath(Text);
+    Node := FindNodeByPath(ATestName);
+    if not Assigned(Node) then
+    begin
+      Text := ATestName;
+      if Text.Contains('.') then
+        Text := Text.Split(['.'])[1];
+      Node := FindNodeByPath(Text);
+    end;
+    if Assigned(Node) and Assigned(FNodeByName) then
+      FNodeByName.AddOrSetValue(ATestName, Node);
   end;
 
   if Assigned(Node) then
@@ -2596,25 +3211,20 @@ begin
     begin
       Node.ImageIndex := 2;
       Node.SelectedIndex := 2;
-      if AMessage <> '' then
-      begin
-        LogMsg('Test Failed: ' + ATestName);
-        LogMsg('Error: ' + AMessage);
-        if AStackTrace <> '' then
-        begin
-          LogMsg('Stack Trace:');
-          LogMsg(AStackTrace);
-        end;
-        LogMsg('----------------------------------------');
-      end;
+      // Console detail for failures is logged in ProcessResultPayload (once).
     end
     else if SameText(AStatus, 'Skipped') then
     begin
       Node.ImageIndex := 0; // Gray
       Node.SelectedIndex := 0;
     end;
-    NodeRect := Node.DisplayRect(False);
-    InvalidateRect(TestsTreeView.Handle, @NodeRect, True);
+    // Per-node InvalidateRect during a 200+ result burst starves the IDE.
+    // While batching, FlushPendingResultsUi invalidates the tree once.
+    if not FBatchingUi then
+    begin
+      NodeRect := Node.DisplayRect(False);
+      InvalidateRect(TestsTreeView.Handle, @NodeRect, True);
+    end;
   end;
 end;
 
@@ -2641,12 +3251,74 @@ begin
     LogPerformance(Format('TestsTreeViewChange slow %.2f ms: %s', [Stopwatch.Elapsed.TotalMilliseconds, Key]));
 end;
 
+function TFormDextTestRunner.NormalizeStackTraceText(const ARaw: string): string;
+var
+  JsonVal: TJSONValue;
+  S: string;
+begin
+  Result := Trim(ARaw);
+  if Result = '' then
+    Exit;
+
+  // Host sends {"raw":"line1\r\nline2"}; old Explorer dumped ToJSON literally.
+  S := Result;
+  if S.StartsWith('{') and S.Contains('"raw"') then
+  begin
+    JsonVal := TJSONObject.ParseJSONValue(S);
+    try
+      if (JsonVal <> nil) and (JsonVal is TJSONObject) then
+        if TJSONObject(JsonVal).TryGetValue<string>('raw', S) then
+          Result := S;
+    finally
+      JsonVal.Free;
+    end;
+  end;
+
+  Result := Result.Replace('\r\n', sLineBreak).Replace('\n', sLineBreak).Replace('\r', sLineBreak);
+end;
+
+function TFormDextTestRunner.ExtractStackTraceFromErrorJson(ErrorObj: TJSONObject): string;
+var
+  StackObj: TJSONObject;
+  Raw: string;
+begin
+  Result := '';
+  if ErrorObj = nil then
+    Exit;
+  if ErrorObj.TryGetValue<string>('stackTrace', Result) and (Result <> '') then
+  begin
+    Result := NormalizeStackTraceText(Result);
+    Exit;
+  end;
+  if ErrorObj.TryGetValue<TJSONObject>('stackTrace', StackObj) and Assigned(StackObj) then
+  begin
+    if StackObj.TryGetValue<string>('raw', Raw) then
+      Result := NormalizeStackTraceText(Raw)
+    else
+      Result := NormalizeStackTraceText(StackObj.ToJSON);
+  end;
+end;
+
 procedure TFormDextTestRunner.UpdateTestInspector(const ATestName: string);
 var
   DetailInfo: TTestDetailInfo;
+  ClassName: string;
+  CleanMethod: string;
+  Frame: TDextStackFrame;
+  Frames: TArray<TDextStackFrame>;
+  FrameItem: TListItem;
+  HasError: Boolean;
   i: Integer;
+  Line: string;
+  LocHint: string;
+  MethodOnly: string;
+  Nav: TStackFrameNav;
   Node: TTreeNode;
+  Parts: TArray<string>;
   RealLine: Integer;
+  ResolvedLine: Integer;
+  ResolvedPath: string;
+  StackText: string;
   StatusText: string;
   Stopwatch: TStopwatch;
   TestLocation: TTestLocation;
@@ -2655,6 +3327,10 @@ begin
   if not Assigned(TestNameLabel) then Exit;
   TestNameLabel.Caption := 'Test Name: ' + ATestName;
   ErrorMemo.Clear;
+  DetailInfo := Default(TTestDetailInfo);
+  HasError := False;
+  Frames := nil;
+  StatusText := '';
 
   // Set default Location
   LocationLabel.Caption := 'Location: Unknown';
@@ -2702,15 +3378,42 @@ begin
 
     if DetailInfo.ErrorMessage <> '' then
     begin
-      ErrorMemo.Lines.Add('Error Message:');
+      HasError := True;
+      // Label above already says "Error" — memo is only the message body.
       ErrorMemo.Lines.Add(DetailInfo.ErrorMessage);
-      ErrorMemo.Lines.Add('');
     end;
 
-    if DetailInfo.StackTrace <> '' then
+    // E2.3: parse the stack into structured frames for FStackFramesListView.
+    StackText := FormatStackTraceForDisplay(DetailInfo.StackTrace);
+    Frames := ParseStackFrames(StackText);
+    if Length(Frames) > 0 then
+      HasError := True
+    else if StackText <> '' then
     begin
-      ErrorMemo.Lines.Add('Stack Trace:');
-      ErrorMemo.Lines.Add(DetailInfo.StackTrace);
+      HasError := True;
+      if ErrorMemo.Lines.Count > 0 then
+        ErrorMemo.Lines.Add('');
+      for Line in StackText.Split([sLineBreak], TStringSplitOptions.ExcludeEmpty) do
+        ErrorMemo.Lines.Add(Line.Trim);
+    end
+    else if SameText(StatusText, 'Failed') or SameText(StatusText, 'Error') then
+    begin
+      HasError := True;
+      if ErrorMemo.Lines.Count > 0 then
+        ErrorMemo.Lines.Add('');
+      ErrorMemo.Lines.Add('(stack not available)');
+      ErrorMemo.Lines.Add('');
+      ErrorMemo.Lines.Add('Enable Debug Trace Mode on the test project, then rebuild:');
+      ErrorMemo.Lines.Add('');
+      ErrorMemo.Lines.Add('Quick: Actions (⋯) → Apply Debug Trace Options to Active Project');
+      ErrorMemo.Lines.Add('');
+      ErrorMemo.Lines.Add('Or manually — Project → Options → Building → Delphi Compiler:');
+      ErrorMemo.Lines.Add('  Compiling → Optimization = False');
+      ErrorMemo.Lines.Add('  Compiling → Debug information = Debug information');
+      ErrorMemo.Lines.Add('  Compiling → Use debug .dcus = True');
+      ErrorMemo.Lines.Add('  Linking → Debug information = True (+ Detailed map recommended)');
+      ErrorMemo.Lines.Add('');
+      ErrorMemo.Lines.Add('Tip: use the Debug configuration for the suite EXE; Release often strips symbols.');
     end;
   end
   else
@@ -2720,8 +3423,87 @@ begin
     DurationLabel.Caption := 'Duration: N/A';
   end;
 
-  ErrorHeaderLabel.Visible := (DetailInfo.ErrorMessage <> '') or (DetailInfo.StackTrace <> '');
-  ErrorMemo.Visible := ErrorHeaderLabel.Visible;
+  ErrorHeaderLabel.Visible := HasError and (ErrorMemo.Lines.Count > 0);
+  ErrorMemo.Visible := HasError and (ErrorMemo.Lines.Count > 0);
+  if ErrorHeaderLabel.Visible then
+  begin
+    if Length(Frames) > 0 then
+      ErrorHeaderLabel.Caption := 'Error'
+    else if SameText(StatusText, 'Failed') or SameText(StatusText, 'Error') then
+      ErrorHeaderLabel.Caption := 'Error / Stack Trace'
+    else
+      ErrorHeaderLabel.Caption := 'Error';
+  end;
+
+  ClearStackFrameNavs;
+  if Assigned(FStackFramesListView) then
+  begin
+    FStackFramesListView.Items.BeginUpdate;
+    try
+      for i := 0 to High(Frames) do
+      begin
+        Frame := Frames[i];
+        CleanMethod := CleanStackMethodName(Frame.MethodName);
+        FrameItem := FStackFramesListView.Items.Add;
+        FrameItem.Caption := IntToStr(i + 1);
+        // Method column: human name only (never " + $HEX" — that is noise).
+        if CleanMethod <> '' then
+          FrameItem.SubItems.Add(CleanMethod)
+        else
+          FrameItem.SubItems.Add(Frame.RawText);
+
+        // Location column: always Unit.pas:Line when we can resolve it.
+        LocHint := '(unresolved)';
+        ResolvedLine := 0;
+        if (CleanMethod <> '') and
+           (CleanMethod.ToLower.Contains('.dll') or
+            CleanMethod.StartsWith('KERNEL', True) or
+            CleanMethod.StartsWith('ntdll', True)) then
+          LocHint := '(unresolved)'
+        else if Frame.Resolved and not IsUnreliableMapLocation(Frame.FileName) and (Frame.Line > 0) then
+        begin
+          LocHint := Format('%s:%d', [Frame.FileName, Frame.Line]);
+          ResolvedLine := Frame.Line;
+        end
+        else if CleanMethod <> '' then
+        begin
+          ResolvedPath := ResolveStackFrameFile(CleanMethod, Frame.FileName);
+          if ResolvedPath <> '' then
+          begin
+            Parts := CleanMethod.Split(['.']);
+            MethodOnly := Parts[High(Parts)];
+            if Length(Parts) >= 2 then
+              ClassName := Parts[High(Parts) - 1]
+            else
+              ClassName := '';
+            ResolvedLine := FindMethodImplementationLine(ResolvedPath, ClassName, MethodOnly, 0);
+            if ResolvedLine > 0 then
+              LocHint := Format('%s:%d', [ExtractFileName(ResolvedPath), ResolvedLine])
+            else
+              LocHint := ExtractFileName(ResolvedPath);
+          end
+          else
+          begin
+            LocHint := UnitHintFromMethodName(CleanMethod);
+            if LocHint = '' then
+              LocHint := '(unresolved)';
+          end;
+        end;
+        FrameItem.SubItems.Add(LocHint);
+
+        Nav := TStackFrameNav.Create;
+        Nav.FileName := Frame.FileName;
+        Nav.MethodName := CleanMethod;
+        Nav.Line := ResolvedLine;
+        FStackFrameNavs.Add(Nav);
+        FrameItem.Data := Nav;
+      end;
+    finally
+      FStackFramesListView.Items.EndUpdate;
+    end;
+  end;
+
+  LayoutInspectorDetails(ErrorMemo.Visible, Length(Frames));
 
   if Stopwatch.Elapsed.TotalMilliseconds > 5 then
     LogPerformance(Format('UpdateTestInspector slow %.2f ms: %s', [Stopwatch.Elapsed.TotalMilliseconds, ATestName]));
@@ -2747,6 +3529,9 @@ begin
     DurationLabel.Caption := 'Duration: N/A';
     ErrorMemo.Clear;
   end;
+
+  ClearStackFrameNavs;
+  LayoutInspectorDetails(False, 0);
 
   TestsTreeView.Items.BeginUpdate;
   try
@@ -2787,6 +3572,8 @@ begin
 
   ClearTestStatus;
   DetailsMemo.Clear;
+  if Assigned(FConsoleListView) then
+    FConsoleListView.Items.Clear;
   FTotalTests := 0;
   FCompletedTests := 0;
   FTestExecutionDurationMs := 0;
@@ -2834,11 +3621,10 @@ begin
     ProgressPanel.Update;
   end;
   LogMsg('[2/3] Starting incremental compile (IDE make)...');
-  DetailsMemo.Update;
   LogPerformance('RunActiveProjectTests: before build');
 
-  Project.ProjectBuilder.BuildProject(cmOTAMake, False, True);
-  // Returns immediately - NotifyCompileComplete is called by Expert.AfterCompile
+  // Wait=False: must not block the IDE UI thread. AfterCompile → NotifyCompileComplete.
+  Project.ProjectBuilder.BuildProject(cmOTAMake, False, False);
 end;
 
 procedure TFormDextTestRunner.LaunchTestExe(const ATestFilter: string);
@@ -2847,6 +3633,7 @@ var
   CmdLine: string;
   Config: string;
   Configs: IOTAProjectOptionsConfigurations;
+  CoveragePrep: TCoverageRunPrep;
   CustomParams: string;
   ExeFile: string;
   i: Integer;
@@ -2859,6 +3646,7 @@ var
   ProcessHandle: THandle;
   Proj: IOTAProject;
   SI: TStartupInfo;
+  UseCoverage: Boolean;
 begin
   IsPackage := False;
   Output := '';
@@ -2919,7 +3707,7 @@ begin
     ProgressPanel.Visible := True;
     ProgressPanel.Update;
   end;
-  DetailsMemo.Update;
+  // DetailsMemo is hidden and no longer painted synchronously here (E1.7).
 
   Params := Format('--port %d -no-wait', [FServer.Port]);
   CustomParams := CustomParamsEdit.Text;
@@ -2931,7 +3719,39 @@ begin
     FServer.SelectedTestsJSON := '["' + ATestFilter + '"]';
   end;
 
-  CmdLine := Format('"%s" %s', [ExeFile, Params]);
+  UseCoverage := Assigned(FCoverageCheckBox) and FCoverageCheckBox.Checked;
+  if UseCoverage then
+  begin
+    FCoverageWrapActive := False;
+    if TDextCoverageRunner.PrepareRun(FActiveProjectFile, ExeFile, PlatformVal,
+      procedure(AMsg: string)
+      begin
+        LogMsg(AMsg);
+      end,
+      CoveragePrep) then
+    begin
+      FLastCoverageReportDir := CoveragePrep.ReportDir;
+      FLastCoverageSourceRoot := CoveragePrep.SourceRoot;
+      FCoverageWrapActive := True;
+      CmdLine := TDextCoverageRunner.BuildWrappedCommandLine(CoveragePrep, ExeFile, Params);
+      LogMsg('Coverage wrap: ' + CmdLine);
+      LogMsg('Coverage: report dir = ' + CoveragePrep.ReportDir);
+    end
+    else
+    begin
+      // Never block the suite: fall back to a normal run if coverage prep fails.
+      // FCoverageWrapActive stays False (set above) — that flag, not UseCoverage,
+      // gates waiting for CodeCoverage.exe / TryLoadCoverage after the process exits.
+      LogMsg('Coverage: setup failed — running tests without coverage wrap.');
+      CmdLine := Format('"%s" %s', [ExeFile, Params]);
+    end;
+  end
+  else
+  begin
+    FCoverageWrapActive := False;
+    CmdLine := Format('"%s" %s', [ExeFile, Params]);
+  end;
+
   LogMsg('Command Line: ' + CmdLine);
   UniqueString(CmdLine);
 
@@ -2957,7 +3777,9 @@ begin
         WaitForSingleObject(ProcessHandle, 120000); // 120s timeout max
         TThread.Queue(nil, TThreadProcedure(procedure
           begin
-            if Assigned(FormDextTestRunner) then
+            if IsTestingDesignShuttingDown then
+              Exit;
+            if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
               FormDextTestRunner.NotifyProcessExited;
           end));
       end).Start;
@@ -2999,16 +3821,114 @@ begin
 end;
 {$ENDIF}
 
-procedure TFormDextTestRunner.LogMsg(const AMsg: string);
+procedure TFormDextTestRunner.LogMsg(const AMsg: string; AKind: TDextConsoleKind);
+const
+  MaxConsoleItems = 2000;
+var
+  Stamp: string;
+  Upper: string;
+  TrimmedUpper: string;
+  Tag: string;
+  ImgIndex: Integer;
+  Item: TListItem;
+  Kind: TDextConsoleKind;
 begin
   LogToFile('[UI] ' + AMsg);
   Winapi.Windows.OutputDebugString(PChar('[Dext.UI] ' + AMsg));
-  {$IFDEF DEBUG}
-  DetailsMemo.Lines.Add(Format('[%s] %s', [FormatDateTime('hh:nn:ss.zzz', Now), AMsg]));
-  {$ELSE}
-  DetailsMemo.Lines.Add(AMsg);
-  {$ENDIF}
-  DetailsMemo.Update;
+  if not Assigned(FConsoleListView) then
+    Exit;
+
+  Stamp := FormatDateTime('hh:nn:ss', Now);
+  Kind := AKind;
+  if Kind = dckAuto then
+  begin
+    Upper := AnsiUpperCase(AMsg);
+    TrimmedUpper := Trim(Upper);
+    // Trend / suite sparkline: never FAIL (legend contains the word "fail").
+    if TrimmedUpper.StartsWith('TREND:') or TrimmedUpper.Contains(' TREND:') then
+      Kind := dckLog
+    // Prefer outcome prefixes from the runner over substring matches.
+    else if TrimmedUpper.StartsWith('FAILED') or TrimmedUpper.StartsWith('FAIL:') or
+            TrimmedUpper.StartsWith('ERROR:') or TrimmedUpper.StartsWith('ERROR ') or
+            TrimmedUpper.Contains('COMPILE FAILED') then
+      Kind := dckFail
+    else if TrimmedUpper.StartsWith('PASSED') or TrimmedUpper.StartsWith('PASS:') or
+            TrimmedUpper.StartsWith('SUCCESS') or TrimmedUpper.Contains('COMPILE SUCCEEDED') or
+            TrimmedUpper.StartsWith('✔') then
+      Kind := dckPass
+    else if TrimmedUpper.StartsWith('SKIPPED') or TrimmedUpper.StartsWith('SKIP:') then
+      Kind := dckSkip
+    else if TrimmedUpper.StartsWith('WARN') or TrimmedUpper.Contains('[WARN]') then
+      Kind := dckWarn
+    else
+      Kind := dckLog;
+  end;
+
+  case Kind of
+    dckPass:
+      begin
+        Tag := 'PASS';
+        ImgIndex := 1;
+      end;
+    dckFail:
+      begin
+        Tag := 'FAIL';
+        ImgIndex := 2;
+      end;
+    dckSkip:
+      begin
+        Tag := 'SKIP';
+        ImgIndex := 0;
+      end;
+    dckWarn:
+      begin
+        Tag := 'WARN';
+        ImgIndex := 0;
+      end;
+  else
+    begin
+      Tag := 'LOG';
+      ImgIndex := 0;
+    end;
+  end;
+
+  Item := FConsoleListView.Items.Add;
+  Item.Caption := Stamp;
+  Item.ImageIndex := ImgIndex;
+  Item.SubItems.Add(Tag);
+  Item.SubItems.Add(AMsg);
+
+  // Cap the console at a reasonable size so a long session doesn't grow unbounded.
+  while FConsoleListView.Items.Count > MaxConsoleItems do
+    FConsoleListView.Items.Delete(0);
+
+  // Do not call Update/Repaint here — it forces synchronous paint and
+  // freezes the IDE when hundreds of results arrive on the UI thread.
+  Item.MakeVisible(False);
+end;
+
+procedure TFormDextTestRunner.LogAnalyticsLines(ALines: TStrings);
+var
+  i: Integer;
+  Trimmed: string;
+  Upper: string;
+  Kind: TDextConsoleKind;
+begin
+  if not Assigned(ALines) then
+    Exit;
+  for i := 0 to ALines.Count - 1 do
+  begin
+    Trimmed := Trim(ALines[i]);
+    if Trimmed = '' then
+      Continue;
+    Upper := AnsiUpperCase(Trimmed);
+    // Analytics is historical commentary — never auto-classify via "fail" substrings.
+    if Upper.Contains('[FLAKY]') or Upper.Contains('[PERF REGRESSION]') then
+      Kind := dckWarn
+    else
+      Kind := dckLog;
+    LogMsg(ALines[i], Kind);
+  end;
 end;
 
 procedure TFormDextTestRunner.LogPerformance(const AMessage: string);
@@ -3103,6 +4023,7 @@ var
   NodeRect: TRect;
   TestClassName: string;
 begin
+  if FBatchingUi then Exit; // tree Invalidate once per flush slice
   if not Assigned(TestsTreeView) then Exit;
   DotPos := ATestName.IndexOf('.');
   if DotPos <= 0 then Exit;
@@ -3199,6 +4120,8 @@ begin
   FRunningTests := True;
   ClearTestStatus;
   DetailsMemo.Clear;
+  if Assigned(FConsoleListView) then
+    FConsoleListView.Items.Clear;
   FTotalTests := 0;
   FCompletedTests := 0;
   if Assigned(ProgressPanel) then
@@ -3236,7 +4159,7 @@ begin
         if not CompileProjectDirect(ProjFile) then
         begin
           LogMsg('Direct DCC compile failed, building via IDE make...');
-          Proj.ProjectBuilder.BuildProject(cmOTAMake, False, True);
+          Proj.ProjectBuilder.BuildProject(cmOTAMake, False, False);
         end;
 
         IsPackage := False;
@@ -3344,25 +4267,70 @@ function TFormDextTestRunner.FindMethodImplementationLine(const AFileName, AClas
 var
   Strings: TStringList;
   i: Integer;
-  SearchStr1, SearchStr2: string;
   Line: string;
+  QualifiedProc, QualifiedFunc, BareProc, BareFunc, Dotted: string;
+
+  function Matches(const ALine, ANeedle: string): Boolean;
+  begin
+    Result := (ANeedle <> '') and (ALine.StartsWith(ANeedle) or ALine.Contains(' ' + ANeedle));
+  end;
+
 begin
-  Result := ADefaultLine;
-  if not FileExists(AFileName) then Exit;
+  // 0 = not found — callers decide fallback (never use a bogus MAP line past EOF).
+  Result := 0;
+  if (AMethodName = '') or not FileExists(AFileName) then
+  begin
+    if ADefaultLine > 0 then
+      Result := ADefaultLine;
+    Exit;
+  end;
+
   Strings := TStringList.Create;
   try
     Strings.LoadFromFile(AFileName);
-    SearchStr1 := ('procedure ' + AClassName + '.' + AMethodName).ToLower;
-    SearchStr2 := ('function ' + AClassName + '.' + AMethodName).ToLower;
+    if AClassName <> '' then
+    begin
+      QualifiedProc := ('procedure ' + AClassName + '.' + AMethodName).ToLower;
+      QualifiedFunc := ('function ' + AClassName + '.' + AMethodName).ToLower;
+      Dotted := (AClassName + '.' + AMethodName).ToLower;
+    end
+    else
+    begin
+      QualifiedProc := '';
+      QualifiedFunc := '';
+      Dotted := '';
+    end;
+    BareProc := ('procedure ' + AMethodName).ToLower;
+    BareFunc := ('function ' + AMethodName).ToLower;
+
     for i := 0 to Strings.Count - 1 do
     begin
       Line := Strings[i].ToLower.Trim;
-      if Line.StartsWith(SearchStr1) or Line.StartsWith(SearchStr2) then
-      begin
-        Result := i + 1;
-        Break;
-      end;
+      if Line.StartsWith('//') or Line.StartsWith('{') then
+        Continue;
+      if Matches(Line, QualifiedProc) or Matches(Line, QualifiedFunc) then
+        Exit(i + 1);
     end;
+
+    // Standalone procedure/function in the unit (e.g. Dext.Testing.Host.RunTests).
+    for i := 0 to Strings.Count - 1 do
+    begin
+      Line := Strings[i].ToLower.Trim;
+      if Line.StartsWith(BareProc) or Line.StartsWith(BareFunc) then
+        Exit(i + 1);
+    end;
+
+    // Last resort: Class.Method token anywhere (nested / class methods).
+    if Dotted <> '' then
+      for i := 0 to Strings.Count - 1 do
+      begin
+        Line := Strings[i].ToLower;
+        if Line.Contains(Dotted) and (Line.Contains('procedure') or Line.Contains('function')) then
+          Exit(i + 1);
+      end;
+
+    if ADefaultLine > 0 then
+      Result := ADefaultLine;
   finally
     Strings.Free;
   end;
@@ -3407,6 +4375,536 @@ begin
       end;
     end;
   end;
+end;
+
+procedure TFormDextTestRunner.ClearStackFrameNavs;
+begin
+  // Clear list items before freeing nav objects (Item.Data pointers).
+  if Assigned(FStackFramesListView) then
+    FStackFramesListView.Items.Clear;
+  if Assigned(FStackFrameNavs) then
+    FStackFrameNavs.Clear;
+end;
+
+procedure TFormDextTestRunner.LayoutInspectorDetails(AHasErrorMemo: Boolean; AFrameCount: Integer);
+var
+  ErrorLines: Integer;
+  LinePx: Integer;
+  MinErrorPx: Integer;
+  MaxErrorPx: Integer;
+  ScrollChromePx: Integer;
+begin
+  // Order: InfoPanel → ErrorMemo → FStackPanel(hint+list). Stack panel keeps
+  // the hint glued to the list (never between Error label and memo).
+  if Assigned(InfoPanel) then
+  begin
+    InfoPanel.Align := alTop;
+    InfoPanel.Height := ScalePx(98);
+    InfoPanel.Top := 0;
+  end;
+
+  LinePx := ScalePx(18);
+  MinErrorPx := ScalePx(56);
+  MaxErrorPx := ScalePx(140);
+  ScrollChromePx := ScalePx(40);
+
+  if Assigned(ErrorMemo) then
+  begin
+    ErrorMemo.Align := alTop;
+    ErrorMemo.AlignWithMargins := True;
+    ErrorMemo.Margins.Left := 0;
+    ErrorMemo.Margins.Top := 0;
+    ErrorMemo.Margins.Right := 0;
+    ErrorMemo.Margins.Bottom := ScalePx(4);
+    if AHasErrorMemo then
+    begin
+      ErrorLines := Max(1, ErrorMemo.Lines.Count);
+      ErrorMemo.Height := Max(MinErrorPx, Min(MaxErrorPx, ErrorLines * LinePx + ScrollChromePx));
+      ErrorMemo.Visible := True;
+    end
+    else
+    begin
+      ErrorMemo.Height := 0;
+      ErrorMemo.Visible := False;
+    end;
+  end;
+
+  if Assigned(FStackHintLabel) then
+  begin
+    FStackHintLabel.Parent := FStackPanel;
+    FStackHintLabel.Align := alTop;
+    FStackHintLabel.Margins.Left := ScalePx(6);
+    FStackHintLabel.Margins.Top := ScalePx(4);
+    FStackHintLabel.Height := ScalePx(18);
+    if AFrameCount > 0 then
+      FStackHintLabel.Caption := 'Stack Trace — double-click a frame to open source';
+  end;
+
+  if Assigned(FStackFramesListView) then
+  begin
+    FStackFramesListView.Parent := FStackPanel;
+    FStackFramesListView.Align := alClient;
+  end;
+
+  if Assigned(FStackPanel) then
+  begin
+    FStackPanel.Parent := InspectorScroll;
+    FStackPanel.Align := alClient;
+    FStackPanel.Visible := AFrameCount > 0;
+  end;
+
+  if Assigned(InfoPanel) then
+    InfoPanel.Top := 0;
+end;
+
+function TFormDextTestRunner.FindUnitFileByName(const AUnitFileName: string): string;
+var
+  Candidate: string;
+  Dir: string;
+  Files: TArray<string>;
+  Group: IOTAProjectGroup;
+  i, p: Integer;
+  ModuleServices: IOTAModuleServices;
+  Project: IOTAProject;
+  Roots: TList<string>;
+  Target: string;
+
+  procedure AddRoot(const APath: string);
+  var
+    Full: string;
+  begin
+    if (Roots = nil) or (APath = '') then
+      Exit;
+    try
+      Full := ExcludeTrailingPathDelimiter(TPath.GetFullPath(APath));
+    except
+      Full := ExcludeTrailingPathDelimiter(APath);
+    end;
+    if Full = '' then
+      Exit;
+    if TDirectory.Exists(Full) and (Roots.IndexOf(Full) < 0) then
+      Roots.Add(Full);
+  end;
+
+begin
+  Result := '';
+  Target := ExtractFileName(AUnitFileName);
+  if (Target = '') or Target.EndsWith('.dll', True) then
+    Exit;
+
+  if FileExists(AUnitFileName) then
+    Exit(AUnitFileName);
+
+  // Open modules + project modules (no disk walk yet)
+  if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
+  begin
+    for i := 0 to ModuleServices.ModuleCount - 1 do
+      if SameText(ExtractFileName(ModuleServices.Modules[i].FileName), Target) then
+        Exit(ModuleServices.Modules[i].FileName);
+
+    Group := ModuleServices.MainProjectGroup;
+    if Assigned(Group) then
+      for p := 0 to Group.ProjectCount - 1 do
+      begin
+        Project := Group.Projects[p];
+        if not Assigned(Project) then
+          Continue;
+        for i := 0 to Project.GetModuleCount - 1 do
+          if SameText(ExtractFileName(Project.GetModule(i).FileName), Target) then
+            Exit(Project.GetModule(i).FileName);
+      end;
+  end;
+
+  if Assigned(FTestLocations) then
+    for i := 0 to FTestLocations.Count - 1 do
+      if SameText(ExtractFileName(FTestLocations[i].FileName), Target) then
+        Exit(FTestLocations[i].FileName);
+
+  Roots := TList<string>.Create;
+  try
+    if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
+    begin
+      Group := ModuleServices.MainProjectGroup;
+      if Assigned(Group) then
+        for p := 0 to Group.ProjectCount - 1 do
+          if Assigned(Group.Projects[p]) then
+            AddRoot(ExtractFilePath(Group.Projects[p].FileName));
+    end;
+
+    AddRoot(ExtractFilePath(FActiveProjectFile));
+    Dir := ExtractFilePath(FActiveProjectFile);
+    for i := 0 to 6 do
+    begin
+      if Dir = '' then
+        Break;
+      AddRoot(TPath.Combine(Dir, 'Sources'));
+      AddRoot(TPath.Combine(Dir, 'Tests'));
+      if TDirectory.Exists(TPath.Combine(Dir, 'Sources')) then
+        Break;
+      Dir := TPath.GetDirectoryName(ExcludeTrailingPathDelimiter(Dir));
+    end;
+    AddRoot('C:\dev\Dext\DextRepository\Sources');
+    AddRoot('C:\dev\Dext\DextRepository\Tests');
+
+    for Dir in Roots do
+    begin
+      Candidate := TPath.Combine(Dir, Target);
+      if FileExists(Candidate) then
+        Exit(Candidate);
+      try
+        Files := TDirectory.GetFiles(Dir, Target, TSearchOption.soAllDirectories);
+        if Length(Files) > 0 then
+          Exit(Files[0]);
+      except
+        // ignore access errors while walking
+      end;
+    end;
+  finally
+    Roots.Free;
+  end;
+end;
+
+function TFormDextTestRunner.IsUnreliableMapLocation(const AFileName: string): Boolean;
+var
+  Leaf: string;
+begin
+  Leaf := ExtractFileName(AFileName);
+  Result := (Leaf = '') or
+    Leaf.StartsWith('System.', True) or
+    Leaf.StartsWith('Winapi.', True) or
+    Leaf.StartsWith('Vcl.', True) or
+    Leaf.StartsWith('Data.', True) or
+    Leaf.StartsWith('FMX.', True) or
+    Leaf.EndsWith('.dll', True);
+end;
+
+function TFormDextTestRunner.UnitHintFromMethodName(const AMethodName: string): string;
+var
+  Acc: string;
+  i, j: Integer;
+  Parts: TArray<string>;
+  Resolved: string;
+begin
+  Result := '';
+  Acc := CleanStackMethodName(AMethodName);
+  if (Acc = '') or Acc.ToLower.Contains('.dll') or
+     Acc.StartsWith('KERNEL', True) or Acc.StartsWith('ntdll', True) then
+    Exit;
+  Parts := Acc.Split(['.']);
+  if Length(Parts) < 2 then
+    Exit;
+  // Prefer a unit that exists on disk; else show the longest dotted prefix + .pas
+  for i := High(Parts) - 1 downto 0 do
+  begin
+    Acc := Parts[0];
+    for j := 1 to i do
+      Acc := Acc + '.' + Parts[j];
+    Resolved := FindUnitFileByName(Acc + '.pas');
+    if Resolved <> '' then
+      Exit(ExtractFileName(Resolved));
+  end;
+  if Length(Parts) >= 2 then
+  begin
+    Acc := Parts[0];
+    for j := 1 to High(Parts) - 1 do
+      Acc := Acc + '.' + Parts[j];
+    Result := Acc + '.pas';
+  end;
+end;
+
+function TFormDextTestRunner.ResolveStackFrameFile(const AMethodName, AFileName: string): string;
+var
+  Acc: string;
+  CleanMethod: string;
+  i, j: Integer;
+  Parts: TArray<string>;
+  PreferMethod: Boolean;
+begin
+  Result := '';
+  CleanMethod := CleanStackMethodName(AMethodName);
+  PreferMethod := IsUnreliableMapLocation(AFileName);
+
+  if not PreferMethod then
+  begin
+    Result := FindUnitFileByName(AFileName);
+    if Result <> '' then
+      Exit;
+  end;
+
+  // Recover unit from method when MAP line is missing/unreliable.
+  Parts := CleanMethod.Split(['.']);
+  if Length(Parts) >= 2 then
+  begin
+    for i := High(Parts) - 1 downto 0 do
+    begin
+      Acc := Parts[0];
+      for j := 1 to i do
+        Acc := Acc + '.' + Parts[j];
+      Result := FindUnitFileByName(Acc + '.pas');
+      if Result <> '' then
+        Exit;
+    end;
+  end;
+
+  if AFileName <> '' then
+    Result := FindUnitFileByName(AFileName);
+end;
+
+procedure TFormDextTestRunner.OpenStackFrame(const AMethodName, AFileName: string; ALine: Integer);
+var
+  ClassName: string;
+  CleanMethod: string;
+  EditView: IOTAEditView;
+  FoundLine: Integer;
+  MethodLeaf: string;
+  Module: IOTAModule;
+  ModuleServices: IOTAModuleServices;
+  Parts: TArray<string>;
+  ResolvedFile: string;
+  SourceEditor: IOTASourceEditor;
+  TargetLine: Integer;
+begin
+  CleanMethod := CleanStackMethodName(AMethodName);
+  if (CleanMethod.ToLower.Contains('.dll')) or
+     CleanMethod.StartsWith('KERNEL', True) or
+     CleanMethod.StartsWith('ntdll', True) then
+  begin
+    if Assigned(FStackHintLabel) then
+      FStackHintLabel.Caption := 'Stack Trace — no source for OS/runtime frames';
+    MessageBeep(MB_ICONWARNING);
+    Exit;
+  end;
+
+  ResolvedFile := ResolveStackFrameFile(CleanMethod, AFileName);
+  if (ResolvedFile = '') or not FileExists(ResolvedFile) then
+  begin
+    LogMsg(Format('Could not open stack frame: method=%s file=%s', [CleanMethod, AFileName]));
+    if Assigned(FStackHintLabel) then
+      FStackHintLabel.Caption := 'Stack Trace — could not resolve source for that frame';
+    MessageBeep(MB_ICONWARNING);
+    Exit;
+  end;
+
+  // ALine > 0 from the list is already symbol-resolved (Unit:Line column).
+  TargetLine := 1;
+  if ALine > 0 then
+    TargetLine := ALine
+  else
+  begin
+    Parts := CleanMethod.Split(['.']);
+    if Length(Parts) >= 1 then
+    begin
+      MethodLeaf := Parts[High(Parts)];
+      if Length(Parts) >= 2 then
+        ClassName := Parts[High(Parts) - 1]
+      else
+        ClassName := '';
+      FoundLine := FindMethodImplementationLine(ResolvedFile, ClassName, MethodLeaf, 0);
+      if FoundLine > 0 then
+        TargetLine := FoundLine;
+    end;
+  end;
+
+  if not Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
+    Exit;
+
+  Module := ModuleServices.OpenModule(ResolvedFile);
+  if not Assigned(Module) then
+  begin
+    LogMsg('OpenModule failed: ' + ResolvedFile);
+    Exit;
+  end;
+
+  Module.Show;
+  if Supports(Module.CurrentEditor, IOTASourceEditor, SourceEditor) then
+  begin
+    EditView := SourceEditor.GetEditView(0);
+    if Assigned(EditView) then
+    begin
+      EditView.Position.Move(TargetLine, 1);
+      EditView.Paint;
+    end;
+  end;
+
+  if Assigned(FStackHintLabel) then
+    FStackHintLabel.Caption := Format('Stack Trace — opened %s:%d', [ExtractFileName(ResolvedFile), TargetLine]);
+end;
+
+procedure TFormDextTestRunner.StackFramesListViewDblClick(Sender: TObject);
+var
+  Item: TListItem;
+  Nav: TStackFrameNav;
+begin
+  if not Assigned(FStackFramesListView) then Exit;
+  Item := FStackFramesListView.Selected;
+  if not Assigned(Item) then Exit;
+
+  Nav := nil;
+  if Item.Data <> nil then
+    Nav := TStackFrameNav(Item.Data);
+  if not Assigned(Nav) then Exit;
+
+  OpenStackFrame(Nav.MethodName, Nav.FileName, Nav.Line);
+end;
+
+function TFormDextTestRunner.FormatListViewRow(AItem: TListItem): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  if not Assigned(AItem) then
+    Exit;
+  Result := AItem.Caption;
+  for i := 0 to AItem.SubItems.Count - 1 do
+  begin
+    if Result <> '' then
+      Result := Result + #9;
+    Result := Result + AItem.SubItems[i];
+  end;
+end;
+
+function TFormDextTestRunner.CopyListViewLines(AListView: TListView; ASelectedOnly: Boolean): string;
+var
+  i: Integer;
+  Lines: TStringList;
+  Item: TListItem;
+begin
+  Result := '';
+  if not Assigned(AListView) then
+    Exit;
+  Lines := TStringList.Create;
+  try
+    for i := 0 to AListView.Items.Count - 1 do
+    begin
+      Item := AListView.Items[i];
+      if ASelectedOnly and not Item.Selected then
+        Continue;
+      Lines.Add(FormatListViewRow(Item));
+    end;
+    Result := Lines.Text;
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TFormDextTestRunner.SetupListViewClipboard(AListView: TListView);
+var
+  Popup: TPopupMenu;
+  Item: TMenuItem;
+begin
+  if not Assigned(AListView) then
+    Exit;
+  AListView.MultiSelect := True;
+  Popup := TPopupMenu.Create(AListView);
+  Item := TMenuItem.Create(Popup);
+  Item.Caption := 'Copy'#9'Ctrl+C';
+  Item.Tag := NativeInt(AListView);
+  Item.OnClick := ListViewCopySelectedClick;
+  Popup.Items.Add(Item);
+  Item := TMenuItem.Create(Popup);
+  Item.Caption := 'Copy All';
+  Item.Tag := NativeInt(AListView);
+  Item.OnClick := ListViewCopyAllClick;
+  Popup.Items.Add(Item);
+  AListView.PopupMenu := Popup;
+  AListView.OnKeyDown := ListViewClipboardKeyDown;
+end;
+
+procedure TFormDextTestRunner.ListViewCopySelectedClick(Sender: TObject);
+var
+  LV: TListView;
+  Text: string;
+begin
+  if not (Sender is TMenuItem) then Exit;
+  LV := TListView(TMenuItem(Sender).Tag);
+  if not Assigned(LV) then Exit;
+  Text := CopyListViewLines(LV, True);
+  if Text = '' then
+    Text := CopyListViewLines(LV, False);
+  if Text <> '' then
+    Clipboard.AsText := Text;
+end;
+
+procedure TFormDextTestRunner.ListViewCopyAllClick(Sender: TObject);
+var
+  LV: TListView;
+  Text: string;
+begin
+  if not (Sender is TMenuItem) then Exit;
+  LV := TListView(TMenuItem(Sender).Tag);
+  if not Assigned(LV) then Exit;
+  Text := CopyListViewLines(LV, False);
+  if Text <> '' then
+    Clipboard.AsText := Text;
+end;
+
+procedure TFormDextTestRunner.ListViewClipboardKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  LV: TListView;
+  Text: string;
+begin
+  if not (Sender is TListView) then Exit;
+  LV := TListView(Sender);
+
+  if (Key = VK_RETURN) and (LV = FStackFramesListView) then
+  begin
+    Key := 0;
+    StackFramesListViewDblClick(Sender);
+    Exit;
+  end;
+
+  if (ssCtrl in Shift) and ((Key = Ord('C')) or (Key = Ord('c'))) then
+  begin
+    Key := 0;
+    Text := CopyListViewLines(LV, True);
+    if Text = '' then
+      Text := CopyListViewLines(LV, False);
+    if Text <> '' then
+      Clipboard.AsText := Text;
+  end;
+end;
+
+procedure TFormDextTestRunner.StackFramesListViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  ListViewClipboardKeyDown(Sender, Key, Shift);
+  if Key = VK_RETURN then
+  begin
+    Key := 0;
+    StackFramesListViewDblClick(Sender);
+  end;
+end;
+
+procedure TFormDextTestRunner.ConsoleListViewDblClick(Sender: TObject);
+const
+  FailedPrefix = 'FAILED: ';
+  SkippedPrefix = 'SKIPPED: ';
+var
+  Item: TListItem;
+  Msg: string;
+  Node: TTreeNode;
+  TestName: string;
+begin
+  if not Assigned(FConsoleListView) then Exit;
+  Item := FConsoleListView.Selected;
+  if not Assigned(Item) or (Item.SubItems.Count < 2) then Exit;
+
+  Msg := Item.SubItems[1];
+  TestName := '';
+  if Msg.StartsWith(FailedPrefix) then
+    TestName := Msg.Substring(Length(FailedPrefix))
+  else if Msg.StartsWith(SkippedPrefix) then
+    TestName := Msg.Substring(Length(SkippedPrefix));
+
+  if TestName = '' then Exit;
+
+  Node := FindNodeByPath(TestName);
+  if not Assigned(Node) then Exit;
+
+  TestsTreeView.Selected := Node;
+  Node.MakeVisible;
+  UpdateTestInspector(GetNodeFullTestName(Node));
+  if Assigned(DetailsPageControl) and Assigned(InspectorTab) then
+    DetailsPageControl.ActivePage := InspectorTab;
 end;
 
 function TFormDextTestRunner.GetCheckedTests: TArray<string>;
@@ -3528,6 +5026,7 @@ begin
       HitInfo := TestsTreeView.GetHitTestInfoAt(X, Y);
       if htOnStateIcon in HitInfo then
       begin
+        if not IsTestingDesignShuttingDown then
         TThread.ForceQueue(nil, TThreadProcedure(procedure
           var
             i: Integer;
@@ -3535,6 +5034,10 @@ begin
             ParentNode: TTreeNode;
             AnyChecked: Boolean;
           begin
+            if IsTestingDesignShuttingDown then
+              Exit;
+            if not Assigned(FormDextTestRunner) or (csDestroying in FormDextTestRunner.ComponentState) then
+              Exit;
             if not Assigned(Node) or not Assigned(TestsTreeView) then Exit;
             NodeChecked := Node.Checked;
             if Node.Parent = nil then
@@ -3606,6 +5109,7 @@ begin
       HitInfo := TestsTreeView.GetHitTestInfoAt(X, Y);
       if htOnStateIcon in HitInfo then
       begin
+        if not IsTestingDesignShuttingDown then
         TThread.ForceQueue(nil, TThreadProcedure(procedure
           var
             i: Integer;
@@ -3613,6 +5117,10 @@ begin
             ParentNode: TTreeNode;
             AnyChecked: Boolean;
           begin
+            if IsTestingDesignShuttingDown then
+              Exit;
+            if not Assigned(FormDextTestRunner) or (csDestroying in FormDextTestRunner.ComponentState) then
+              Exit;
             if not Assigned(Node) or not Assigned(TestsTreeView) then Exit;
             LState := Node.Checked;
             if Node.Parent = nil then
@@ -3730,6 +5238,7 @@ begin
       IniFile := TMemIniFile.Create(TPath.Combine(TPath.GetHomePath, 'DextTestExplorer.ini'));
       try
         IniFile.WriteInteger('Grouping', 'Mode', Ord(FGroupingMode));
+        IniFile.UpdateFile;
       finally
         IniFile.Free;
       end;
@@ -3803,6 +5312,8 @@ begin
   end;
 
   DetailsMemo.Align := alNone;
+  if Assigned(FConsoleListView) then
+    FConsoleListView.Align := alNone;
   InspectorScroll.Align := alNone;
   FInspectorSplitter.Visible := False;
 
@@ -3812,15 +5323,24 @@ begin
       NameSplitter.Align := alBottom;
       NameSplitter.Cursor := crVSplit;
       DetailsPanel.Align := alBottom;
-      DetailsPanel.Height := 220;
+      DetailsPanel.Height := 320;
 
       DetailsPageControl.Visible := True;
       DetailsMemo.Parent := ConsoleTab;
       DetailsMemo.Align := alClient;
       DetailsMemo.AlignWithMargins := False;
+      DetailsMemo.Visible := False; // E1.7: FConsoleListView is the visible console surface
+      if Assigned(FConsoleListView) then
+      begin
+        FConsoleListView.Parent := ConsoleTab;
+        FConsoleListView.Align := alClient;
+        FConsoleListView.AlignWithMargins := False;
+        FConsoleListView.Visible := True;
+      end;
       InspectorScroll.Parent := InspectorTab;
       InspectorScroll.Align := alClient;
       InspectorScroll.AlignWithMargins := False;
+      // Stack frames stay inside InspectorScroll (see LayoutInspectorDetails).
       NameSplitter.Top := InspectorScroll.Top - NameSplitter.Height;
     end;
 
@@ -3841,6 +5361,20 @@ begin
       DetailsMemo.Margins.Right := 0;
       DetailsMemo.Margins.Top := 6;
       DetailsMemo.Margins.Bottom := 6;
+      DetailsMemo.Visible := False; // E1.7: FConsoleListView is the visible console surface
+
+      if Assigned(FConsoleListView) then
+      begin
+        FConsoleListView.Parent := DetailsPanel;
+        FConsoleListView.Align := alLeft;
+        FConsoleListView.Width := DetailsPanel.Width div 2;
+        FConsoleListView.AlignWithMargins := True;
+        FConsoleListView.Margins.Left := 6;
+        FConsoleListView.Margins.Right := 0;
+        FConsoleListView.Margins.Top := 6;
+        FConsoleListView.Margins.Bottom := 6;
+        FConsoleListView.Visible := True;
+      end;
 
       FInspectorSplitter.Parent := DetailsPanel;
       FInspectorSplitter.Align := alLeft;
@@ -3875,6 +5409,20 @@ begin
       DetailsMemo.Margins.Right := 6;
       DetailsMemo.Margins.Top := 0;
       DetailsMemo.Margins.Bottom := 6;
+      DetailsMemo.Visible := False; // E1.7: FConsoleListView is the visible console surface
+
+      if Assigned(FConsoleListView) then
+      begin
+        FConsoleListView.Parent := DetailsPanel;
+        FConsoleListView.Align := alBottom;
+        FConsoleListView.Height := DetailsPanel.Height div 2;
+        FConsoleListView.AlignWithMargins := True;
+        FConsoleListView.Margins.Left := 6;
+        FConsoleListView.Margins.Right := 6;
+        FConsoleListView.Margins.Top := 0;
+        FConsoleListView.Margins.Bottom := 6;
+        FConsoleListView.Visible := True;
+      end;
 
       FInspectorSplitter.Parent := DetailsPanel;
       FInspectorSplitter.Align := alBottom;
@@ -3914,6 +5462,7 @@ var
   TargetRoot: TTreeNode;
   TestLocation: TTestLocation;
 begin
+  ClearNodeIndex;
   TestsTreeView.Items.BeginUpdate;
   try
     TestsTreeView.Items.Clear;
@@ -4083,6 +5632,7 @@ begin
   finally
     TestsTreeView.Items.EndUpdate;
   end;
+  BuildNodeIndex;
 end;
 
 procedure TFormDextTestRunner.TestsTreeViewAdvancedCustomDrawItem(Sender: TCustomTreeView; Node: TTreeNode; State: TCustomDrawState; Stage: TCustomDrawStage; var PaintImages, DefaultDraw: Boolean);
@@ -4250,6 +5800,8 @@ begin
 
   ClearTestStatus;
   DetailsMemo.Clear;
+  if Assigned(FConsoleListView) then
+    FConsoleListView.Items.Clear;
   FTotalTests := 0;
   FCompletedTests := 0;
   if Assigned(ProgressPanel) then
@@ -4279,7 +5831,7 @@ begin
   if not CompileProjectDirect(FActiveProjectFile) then
   begin
     LogMsg('Direct DCC compile failed or bypassed. Falling back to IDE make...');
-    Proj.ProjectBuilder.BuildProject(cmOTAMake, False, True);
+    Proj.ProjectBuilder.BuildProject(cmOTAMake, False, False);
   end;
 
   if not FileExists(ExeFile) then
@@ -4314,10 +5866,14 @@ begin
 
   if FoundAction <> nil then
   begin
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        FoundAction.Execute;
-      end));
+    if not IsTestingDesignShuttingDown then
+      TThread.Queue(nil, TThreadProcedure(procedure
+        begin
+          if IsTestingDesignShuttingDown then
+            Exit;
+          if Assigned(FoundAction) then
+            FoundAction.Execute;
+        end));
   end
   else
   begin
@@ -4705,54 +6261,381 @@ end;
 procedure TFormDextTestRunner.TryLoadCoverage;
 var
   CovPath: string;
-  Root: string;
-  TestsDir: string;
-  Files: TArray<string>;
-  CoverageFile: string;
-begin
-  CovPath := TPath.Combine(ExtractFilePath(FActiveProjectFile), 'dext_coverage.xml');
-  if not FileExists(CovPath) then
-    CovPath := TPath.Combine(TPath.GetDirectoryName(ExtractFilePath(FActiveProjectFile)), 'dext_coverage.xml');
+  Candidates: TArray<string>;
+  Candidate: string;
+  WorkDir: string;
+  SourceRoot: string;
+  ProjDir: string;
+  RepoRoot: string;
+  XmlFile: string;
+  XmlFiles: TArray<string>;
+  ScanDirs: TArray<string>;
+  Attempt: Integer;
 
-  if not FileExists(CovPath) then
+  function LooksLikeCoverageXml(const APath: string): Boolean;
+  var
+    Stream: TFileStream;
+    Buf: TBytes;
+    Head: string;
+    N: Integer;
+    Leaf: string;
   begin
-    Root := TPath.GetDirectoryName(TPath.GetDirectoryName(ExtractFilePath(FActiveProjectFile)));
-    CovPath := TPath.Combine(TPath.Combine(Root, 'Tests'), 'test-results.xml');
-  end;
-
-  if not FileExists(CovPath) then
-  begin
-    TestsDir := 'c:\dev\Dext\DextRepository\Tests\Output';
-    if TDirectory.Exists(TestsDir) then
-    begin
-      Files := TDirectory.GetFiles(TestsDir, '*.xml');
-      for CoverageFile in Files do
-      begin
-        try
-          if TFile.ReadAllText(CoverageFile).Contains('<coverage') then
-          begin
-            CovPath := CoverageFile;
-            Break;
-          end;
-        except
-          // ignore
-        end;
+    Result := False;
+    if not FileExists(APath) then
+      Exit;
+    // Fast name match for the canonical DCC report.
+    Leaf := TPath.GetFileName(APath);
+    if SameText(Leaf, 'CodeCoverage_Summary.xml') or
+       SameText(Leaf, 'dext_coverage.xml') then
+      Exit(True);
+    try
+      Stream := TFileStream.Create(APath, fmOpenRead or fmShareDenyNone);
+      try
+        N := Min(4096, Stream.Size);
+        if N <= 0 then Exit;
+        SetLength(Buf, N);
+        Stream.ReadBuffer(Buf[0], N);
+        Head := TEncoding.ANSI.GetString(Buf);
+        Result := Head.Contains('<report') or Head.Contains('<coverage') or
+                  Head.Contains('<linehits') or Head.Contains('<lineToCover');
+      finally
+        Stream.Free;
       end;
+    except
     end;
   end;
 
-  if FileExists(CovPath) then
+begin
+  CovPath := '';
+  ProjDir := ExtractFilePath(FActiveProjectFile);
+  WorkDir := TDextCoverageRunner.CoverageWorkDir(FActiveProjectFile);
+  SourceRoot := FLastCoverageSourceRoot;
+  if SourceRoot = '' then
+    SourceRoot := TPath.GetDirectoryName(ProjDir);
+  // Tests\Core\UnitTests → walk to repo root for Tests\Output\report
+  RepoRoot := ProjDir;
+  while (RepoRoot <> '') and (RepoRoot <> TPath.GetPathRoot(RepoRoot)) and
+        not TDirectory.Exists(TPath.Combine(RepoRoot, 'Sources')) do
+    RepoRoot := TPath.GetDirectoryName(RepoRoot);
+
+  Candidates := [
+    TPath.Combine(FLastCoverageReportDir, 'CodeCoverage_Summary.xml'),
+    TPath.Combine(FLastCoverageReportDir, 'dext_coverage.xml'),
+    TPath.Combine(TPath.Combine(WorkDir, 'report'), 'CodeCoverage_Summary.xml'),
+    TPath.Combine(TPath.Combine(WorkDir, 'report'), 'dext_coverage.xml'),
+    TPath.Combine(TPath.Combine(RepoRoot, 'Tests\Output\report'), 'CodeCoverage_Summary.xml'),
+    TPath.Combine(TPath.Combine(RepoRoot, 'TestOutput\report'), 'CodeCoverage_Summary.xml'),
+    TPath.Combine(ProjDir, 'dext_coverage.xml')
+  ];
+
+  // CodeCoverage writes linehits last — retry briefly if wrap just finished.
+  for Attempt := 1 to 15 do
+  begin
+    for Candidate in Candidates do
+    begin
+      if (Candidate <> '') and LooksLikeCoverageXml(Candidate) then
+      begin
+        CovPath := Candidate;
+        Break;
+      end;
+    end;
+    if CovPath <> '' then
+      Break;
+
+    ScanDirs := [
+      FLastCoverageReportDir,
+      TPath.Combine(WorkDir, 'report'),
+      TPath.Combine(RepoRoot, 'Tests\Output\report'),
+      TPath.Combine(RepoRoot, 'TestOutput\report'),
+      TPath.Combine(ProjDir, 'report')
+    ];
+    for Candidate in ScanDirs do
+    begin
+      if (Candidate = '') or not TDirectory.Exists(Candidate) then
+        Continue;
+      try
+        XmlFiles := TDirectory.GetFiles(Candidate, '*.xml');
+        for XmlFile in XmlFiles do
+          if LooksLikeCoverageXml(XmlFile) then
+          begin
+            CovPath := XmlFile;
+            Break;
+          end;
+      except
+      end;
+      if CovPath <> '' then
+        Break;
+    end;
+    if CovPath <> '' then
+      Break;
+    if not FCoverageWrapActive and (Attempt > 3) then
+      Break;
+    Sleep(100);
+  end;
+
+  if CovPath <> '' then
   begin
     LogMsg('Loading code coverage from: ' + CovPath);
-    TThread.Queue(nil, TThreadProcedure(procedure
-      begin
-        TCoverageManager.GetInstance.LoadCoverageFromXML(CovPath);
-      end));
+    if not IsTestingDesignShuttingDown then
+      TThread.Queue(nil, TThreadProcedure(procedure
+        var
+          LoadedCount: Integer;
+          LocalPath: string;
+          LocalRoot: string;
+        begin
+          LocalPath := CovPath;
+          LocalRoot := SourceRoot;
+          if IsTestingDesignShuttingDown then
+            Exit;
+          if not Assigned(FormDextTestRunner) or (csDestroying in FormDextTestRunner.ComponentState) then
+            Exit;
+          TCoverageManager.GetInstance.LoadCoverageFromXML(LocalPath, LocalRoot);
+          LoadedCount := TCoverageManager.GetInstance.LoadedFileCount;
+          FormDextTestRunner.LogMsg(Format('Coverage loaded: %s (%d file(s))', [LocalPath, LoadedCount]));
+          if LoadedCount = 0 then
+            FormDextTestRunner.LogMsg('WARN: Coverage XML had no file entries — check the report path/format.')
+          else
+          begin
+            FormDextTestRunner.LogMsg(
+              'Coverage: open the Coverage tab (or one of the listed units) to see gutter colors. ' +
+              'Units not exercised by this run have no gutter.');
+            FormDextTestRunner.RefreshCoverageReportTab;
+            if Assigned(FormDextTestRunner.DetailsPageControl) and Assigned(FormDextTestRunner.FCoverageTab) then
+              FormDextTestRunner.DetailsPageControl.ActivePage := FormDextTestRunner.FCoverageTab;
+          end;
+        end));
   end
   else
   begin
     LogMsg('No code coverage report found.');
+    if FLastCoverageReportDir <> '' then
+      LogMsg('Coverage: looked in ' + FLastCoverageReportDir);
   end;
+end;
+
+procedure TFormDextTestRunner.RefreshCoverageReportTab;
+var
+  Summaries: TArray<TCoverageFileSummary>;
+  Summary: TCoverageFileSummary;
+  Item: TListItem;
+  TotalCovered, TotalLines: Integer;
+  DisplayName: string;
+begin
+  if not Assigned(FCoverageListView) then
+    Exit;
+
+  Summaries := TCoverageManager.GetInstance.GetFileSummaries;
+  TotalCovered := 0;
+  TotalLines := 0;
+
+  FCoverageListView.Items.BeginUpdate;
+  try
+    FCoverageListView.Items.Clear;
+    for Summary in Summaries do
+    begin
+      Inc(TotalCovered, Summary.CoveredLines);
+      Inc(TotalLines, Summary.TotalLines);
+      DisplayName := ExtractFileName(Summary.FilePath);
+      if DisplayName = '' then
+        DisplayName := Summary.FilePath;
+      Item := FCoverageListView.Items.Add;
+      Item.Caption := Format('%.0f%%', [Summary.Percent]);
+      Item.SubItems.Add(IntToStr(Summary.CoveredLines));
+      Item.SubItems.Add(IntToStr(Summary.TotalLines));
+      Item.SubItems.Add(DisplayName);
+      Item.SubItems.Add(Summary.FilePath); // full path for open (no column)
+    end;
+  finally
+    FCoverageListView.Items.EndUpdate;
+  end;
+
+  if Assigned(FCoverageSummaryLabel) then
+  begin
+    if Length(Summaries) = 0 then
+      FCoverageSummaryLabel.Caption := 'No coverage loaded. Enable Collect Code Coverage and Run All.'
+    else
+      FCoverageSummaryLabel.Caption := Format(
+        '%d file(s) · %d/%d instrumented lines (%.1f%%) · Totals are MAP hits, not every source line · double-click to open',
+        [Length(Summaries), TotalCovered, TotalLines, (TotalCovered / Max(TotalLines, 1)) * 100.0]);
+  end;
+end;
+
+procedure TFormDextTestRunner.CoverageListViewDblClick(Sender: TObject);
+var
+  Item: TListItem;
+  FilePath: string;
+  Line: Integer;
+begin
+  if not Assigned(FCoverageListView) then
+    Exit;
+  Item := FCoverageListView.Selected;
+  if not Assigned(Item) or (Item.SubItems.Count < 3) then
+    Exit;
+
+  FilePath := '';
+  if Item.SubItems.Count >= 4 then
+    FilePath := Item.SubItems[3];
+  if (FilePath = '') or not FileExists(FilePath) then
+    FilePath := FindUnitFileByName(Item.SubItems[2]);
+  if FilePath = '' then
+  begin
+    LogMsg('Coverage: could not locate ' + Item.SubItems[2]);
+    Exit;
+  end;
+
+  Line := TCoverageManager.GetInstance.FirstLineOfInterest(FilePath, True);
+  OpenSourceFileAtLine(FilePath, Line);
+end;
+
+procedure TFormDextTestRunner.OpenSourceFileAtLine(const AFileName: string; ALine: Integer);
+var
+  ModuleServices: IOTAModuleServices;
+  Module: IOTAModule;
+  SourceEditor: IOTASourceEditor;
+  EditView: IOTAEditView;
+  TargetLine: Integer;
+begin
+  if (AFileName = '') or not FileExists(AFileName) then
+    Exit;
+  if not Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
+    Exit;
+
+  Module := ModuleServices.OpenModule(AFileName);
+  if not Assigned(Module) then
+  begin
+    LogMsg('Coverage: OpenModule failed for ' + AFileName);
+    Exit;
+  end;
+
+  Module.Show;
+  TargetLine := ALine;
+  if TargetLine < 1 then
+    TargetLine := 1;
+
+  if Supports(Module.CurrentEditor, IOTASourceEditor, SourceEditor) then
+  begin
+    EditView := SourceEditor.GetEditView(0);
+    if Assigned(EditView) then
+    begin
+      EditView.Position.Move(TargetLine, 1);
+      TCoverageManager.GetInstance.RegisterView(EditView);
+      EditView.Paint;
+    end;
+  end;
+  TCoverageManager.GetInstance.RefreshActiveViews;
+end;
+
+function TFormDextTestRunner.IsCodeCoverageToolAvailable(out AToolPath: string): Boolean;
+var
+  PlatformVal: string;
+  Configs: IOTAProjectOptionsConfigurations;
+  Proj: IOTAProject;
+begin
+  PlatformVal := 'Win32';
+  Proj := GetProjectByFileName(FActiveProjectFile);
+  if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+    PlatformVal := Configs.ActivePlatformName;
+  AToolPath := TDextCodeCoverageTool.FindPath(PlatformVal);
+  Result := (AToolPath <> '') and (FileExists(AToolPath) or (ExtractFilePath(AToolPath) = ''));
+end;
+
+procedure TFormDextTestRunner.UpdateCoverageUiState;
+var
+  ToolPath: string;
+  Available: Boolean;
+begin
+  Available := IsCodeCoverageToolAvailable(ToolPath);
+
+  if Assigned(FInstallCoverageMenuItem) then
+  begin
+    if Available then
+      FInstallCoverageMenuItem.Caption := 'CodeCoverage ready — Locate / Reinstall…'
+    else
+      FInstallCoverageMenuItem.Caption := 'Install CodeCoverage…';
+    FInstallCoverageMenuItem.Enabled := True;
+  end;
+
+  if Assigned(FCollectCoverageMenuItem) then
+  begin
+    FCollectCoverageMenuItem.Enabled := Available;
+    if Assigned(FCoverageCheckBox) then
+      FCollectCoverageMenuItem.Checked := FCoverageCheckBox.Checked and Available;
+    if not Available then
+      FCollectCoverageMenuItem.Checked := False;
+  end;
+
+  if Assigned(FReloadCoverageMenuItem) then
+    FReloadCoverageMenuItem.Enabled := Available;
+
+  if Assigned(FCoverageCheckBox) then
+  begin
+    FCoverageCheckBox.Enabled := Available;
+    if not Available then
+      FCoverageCheckBox.Checked := False;
+  end;
+end;
+
+procedure TFormDextTestRunner.CollectCoverageMenuClick(Sender: TObject);
+var
+  ToolPath: string;
+begin
+  if not Assigned(FCollectCoverageMenuItem) or not Assigned(FCoverageCheckBox) then
+    Exit;
+
+  if FCollectCoverageMenuItem.Checked and not IsCodeCoverageToolAvailable(ToolPath) then
+  begin
+    FCollectCoverageMenuItem.Checked := False;
+    EnsureCoverageToolClick(Sender);
+    UpdateCoverageUiState;
+    if not IsCodeCoverageToolAvailable(ToolPath) then
+      Exit;
+    FCollectCoverageMenuItem.Checked := True;
+  end;
+
+  FCoverageCheckBox.OnClick := nil;
+  try
+    FCoverageCheckBox.Checked := FCollectCoverageMenuItem.Checked;
+  finally
+    FCoverageCheckBox.OnClick := ConfigChangeHandler;
+  end;
+  ConfigChangeHandler(FCoverageCheckBox);
+
+  if FCoverageCheckBox.Checked then
+    LogMsg('Coverage: ON — next Run All / Selected wraps CodeCoverage.exe (MAP required).')
+  else
+    LogMsg('Coverage: OFF — Run All launches the test exe directly.');
+end;
+
+procedure TFormDextTestRunner.EnsureCoverageToolClick(Sender: TObject);
+var
+  ToolPath: string;
+  PlatformVal: string;
+  Configs: IOTAProjectOptionsConfigurations;
+  Proj: IOTAProject;
+begin
+  PlatformVal := 'Win32';
+  Proj := GetProjectByFileName(FActiveProjectFile);
+  if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+    PlatformVal := Configs.ActivePlatformName;
+
+  if TDextCoverageRunner.EnsureTool(PlatformVal, ToolPath,
+    procedure(AMsg: string)
+    begin
+      LogMsg(AMsg);
+    end) then
+  begin
+    MessageDlg(
+      'CodeCoverage ready:' + sLineBreak + ToolPath + sLineBreak + sLineBreak +
+      'Next: ⋯ → enable "Collect Code Coverage on Run", Apply Debug Trace if needed, rebuild, then Run All.',
+      mtInformation, [mbOK], 0);
+  end;
+  UpdateCoverageUiState;
+end;
+
+procedure TFormDextTestRunner.ReloadCoverageClick(Sender: TObject);
+begin
+  LogMsg('Reloading code coverage report...');
+  TryLoadCoverage;
 end;
 
 procedure TFormDextTestRunner.RunImpactedTests(const ATests: TArray<string>);
@@ -4880,15 +6763,31 @@ end;
 
 { TTelemetryTracker }
 
-class procedure TTelemetryTracker.RecordTestResult(const AProjectFile, ATestName, AStatus: string; ADurationMs: Integer); // ADurationMs remains Integer for storage
+class procedure TTelemetryTracker.EnsurePending;
+begin
+  if FPendingResults = nil then
+    FPendingResults := TList<TPendingTestResult>.Create;
+end;
+
+class procedure TTelemetryTracker.FlushPendingResults;
 var
-  Dir, HistoryFile: string;
+  Dir, HistoryFile, ProjectFile, Text: string;
   JsonArray: TJSONArray;
   Obj: TJSONObject;
-  Text: string;
+  i: Integer;
+  Item: TPendingTestResult;
 begin
-  if AProjectFile = '' then Exit;
-  Dir := TPath.Combine(TPath.GetDirectoryName(AProjectFile), '.dext\testing');
+  if (FPendingResults = nil) or (FPendingResults.Count = 0) then
+    Exit;
+
+  ProjectFile := FPendingResults[0].ProjectFile;
+  if ProjectFile = '' then
+  begin
+    FPendingResults.Clear;
+    Exit;
+  end;
+
+  Dir := TPath.Combine(TPath.GetDirectoryName(ProjectFile), '.dext\testing');
   try
     ForceDirectories(Dir);
     HistoryFile := TPath.Combine(Dir, 'history.json');
@@ -4900,32 +6799,139 @@ begin
         Text := TFile.ReadAllText(HistoryFile, TEncoding.UTF8);
         JsonArray := TJSONObject.ParseJSONValue(Text) as TJSONArray;
       except
-        // ignore parsing errors
       end;
     end;
-
     if JsonArray = nil then
       JsonArray := TJSONArray.Create;
 
-    Obj := TJSONObject.Create;
-    Obj.AddPair('testName', ATestName);
-    Obj.AddPair('status', AStatus);
-    Obj.AddPair('durationMs', TJSONNumber.Create(ADurationMs));
-    Obj.AddPair('timestamp', DateTimeToStr(Now));
-    JsonArray.AddElement(Obj);
+    for i := 0 to FPendingResults.Count - 1 do
+    begin
+      Item := FPendingResults[i];
+      Obj := TJSONObject.Create;
+      Obj.AddPair('testName', Item.TestName);
+      Obj.AddPair('status', Item.Status);
+      Obj.AddPair('durationMs', TJSONNumber.Create(Item.DurationMs));
+      Obj.AddPair('timestamp', DateTimeToStr(Now));
+      JsonArray.AddElement(Obj);
+    end;
 
-    // Limit to last 1000 runs
     while JsonArray.Count > 1000 do
       JsonArray.Remove(0).Free;
 
     TFile.WriteAllText(HistoryFile, JsonArray.ToJSON, TEncoding.UTF8);
     JsonArray.Free;
   except
-    // ignore filesystem errors
+  end;
+  FPendingResults.Clear;
+end;
+
+class procedure TTelemetryTracker.RecordTestResult(const AProjectFile, ATestName, AStatus: string; ADurationMs: Integer);
+var
+  Item: TPendingTestResult;
+begin
+  // Buffer only — never read/write history.json per test on the UI thread.
+  if AProjectFile = '' then Exit;
+  EnsurePending;
+  Item.ProjectFile := AProjectFile;
+  Item.TestName := ATestName;
+  Item.Status := AStatus;
+  Item.DurationMs := ADurationMs;
+  FPendingResults.Add(Item);
+end;
+
+class procedure TTelemetryTracker.RecordSuiteRun(const AProjectFile: string; APassed, AFailed, ASkipped, ATotal: Integer; ADurationMs: Double);
+var
+  Dir, HistoryFile: string;
+  JsonArray: TJSONArray;
+  Obj: TJSONObject;
+  Text: string;
+begin
+  FlushPendingResults;
+  if AProjectFile = '' then Exit;
+  Dir := TPath.Combine(TPath.GetDirectoryName(AProjectFile), '.dext\testing');
+  try
+    ForceDirectories(Dir);
+    HistoryFile := TPath.Combine(Dir, 'suite_history.json');
+
+    JsonArray := nil;
+    if FileExists(HistoryFile) then
+    begin
+      try
+        Text := TFile.ReadAllText(HistoryFile, TEncoding.UTF8);
+        JsonArray := TJSONObject.ParseJSONValue(Text) as TJSONArray;
+      except
+      end;
+    end;
+    if JsonArray = nil then
+      JsonArray := TJSONArray.Create;
+
+    Obj := TJSONObject.Create;
+    Obj.AddPair('date', DateToISO8601(Now, False));
+    Obj.AddPair('total', TJSONNumber.Create(ATotal));
+    Obj.AddPair('passed', TJSONNumber.Create(APassed));
+    Obj.AddPair('failed', TJSONNumber.Create(AFailed));
+    Obj.AddPair('skipped', TJSONNumber.Create(ASkipped));
+    Obj.AddPair('duration', TJSONNumber.Create(Round(ADurationMs)));
+    JsonArray.AddElement(Obj);
+
+    while JsonArray.Count > 50 do
+      JsonArray.Remove(0).Free;
+
+    TFile.WriteAllText(HistoryFile, JsonArray.ToJSON, TEncoding.UTF8);
+    JsonArray.Free;
+  except
   end;
 end;
 
-class procedure TTelemetryTracker.AnalyzeHistory(const AProjectFile: string; AMemo: TMemo);
+class procedure TTelemetryTracker.AnalyzeSuiteHistory(const AProjectFile: string; ALines: TStrings);
+var
+  Directory, FileName, Text: string;
+  JsonArray: TJSONArray;
+  JsonObj: TJSONObject;
+  i, Passed, Failed, Skipped, Total, Duration: Integer;
+  Spark: string;
+begin
+  if (AProjectFile = '') or (ALines = nil) then Exit;
+  Directory := TPath.Combine(TPath.GetDirectoryName(AProjectFile), '.dext\testing');
+  FileName := TPath.Combine(Directory, 'suite_history.json');
+  if not FileExists(FileName) then Exit;
+
+  try
+    Text := TFile.ReadAllText(FileName, TEncoding.UTF8);
+    JsonArray := TJSONObject.ParseJSONValue(Text) as TJSONArray;
+    if JsonArray = nil then Exit;
+    try
+      ALines.Add('');
+      ALines.Add('=== Suite run history (last ' + JsonArray.Count.ToString + ' runs) ===');
+      Spark := '';
+      for i := 0 to JsonArray.Count - 1 do
+      begin
+        if not (JsonArray.Items[i] is TJSONObject) then Continue;
+        JsonObj := TJSONObject(JsonArray.Items[i]);
+        JsonObj.TryGetValue<Integer>('passed', Passed);
+        JsonObj.TryGetValue<Integer>('failed', Failed);
+        JsonObj.TryGetValue<Integer>('skipped', Skipped);
+        JsonObj.TryGetValue<Integer>('total', Total);
+        JsonObj.TryGetValue<Integer>('duration', Duration);
+        if Failed > 0 then
+          Spark := Spark + 'F'
+        else if Skipped > 0 then
+          Spark := Spark + 's'
+        else
+          Spark := Spark + '.';
+        if i >= JsonArray.Count - 8 then
+          ALines.Add(Format('  #%d  pass=%d fail=%d skip=%d total=%d  %d ms',
+            [i + 1, Passed, Failed, Skipped, Total, Duration]));
+      end;
+      ALines.Add('  Trend: ' + Spark + '  (. pass  s skip  F fail)');
+    finally
+      JsonArray.Free;
+    end;
+  except
+  end;
+end;
+
+class procedure TTelemetryTracker.AnalyzeHistory(const AProjectFile: string; ALines: TStrings);
 var
   AvgDuration: Double;
   Directory, FileName: string;
@@ -4951,7 +6957,8 @@ var
   Text: string;
   Value: TJSONValue;
 begin
-  if (AProjectFile = '') or (AMemo = nil) then Exit;
+  FlushPendingResults;
+  if (AProjectFile = '') or (ALines = nil) then Exit;
 
   Directory := TPath.Combine(TPath.GetDirectoryName(AProjectFile), '.dext\testing');
   FileName := TPath.Combine(Directory, 'history.json');
@@ -5037,20 +7044,20 @@ begin
           begin
             if not HasHeader then
             begin
-              AMemo.Lines.Add('');
-              AMemo.Lines.Add('[ANALYTICS] --- TEST ANALYTICS ENGINE REPORT ---');
+              ALines.Add('');
+              ALines.Add('[ANALYTICS] --- TEST ANALYTICS ENGINE REPORT ---');
               HasHeader := True;
             end;
 
             if IsFlaky then
-              AMemo.Lines.Add('   [FLAKY] TEST DETECTED: ' + NameKey + ' (status changes between Pass and Fail)');
+              ALines.Add('   [FLAKY] TEST DETECTED: ' + NameKey + ' (status changes between Pass and Fail)');
             if IsRegression then
-              AMemo.Lines.Add(Format('   [PERF REGRESSION] %s (Last: %dms, Avg: %.1fms)', [NameKey, LastDuration, AvgDuration]));
+              ALines.Add(Format('   [PERF REGRESSION] %s (Last: %dms, Avg: %.1fms)', [NameKey, LastDuration, AvgDuration]));
           end;
         end;
 
         if HasHeader then
-          AMemo.Lines.Add('========================================');
+          ALines.Add('========================================');
       finally
         JsonArray.Free;
       end;
@@ -5069,6 +7076,7 @@ procedure TFormDextTestRunner.ActionsButtonClick(Sender: TObject);
 var
   ClickPoint: TPoint;
 begin
+  UpdateCoverageUiState;
   ClickPoint := ActionsButton.ClientToScreen(Point(0, ActionsButton.Height));
   ActionsPopupMenu.Popup(ClickPoint.X, ClickPoint.Y);
 end;
@@ -5128,6 +7136,7 @@ finalization
 {$IFDEF DEXT_TEST_EXPLORER_PERF_LOG}
   PerfLogLock.Free;
 {$ENDIF}
+  FreeAndNil(TTelemetryTracker.FPendingResults);
   UnregisterDockableForm;
 
 end.

@@ -51,6 +51,7 @@ implementation
 uses
   Winapi.Windows,
   Vcl.Forms,
+  Dext.Testing.Design.Server,
   Dext.Testing.Design.DockableForm,
   Dext.Testing.Design.Gutter,
   Dext.Testing.Design.Coverage;
@@ -258,9 +259,13 @@ begin
         (SameText(ExtractFileExt(FileName), '.dproj') or SameText(ExtractFileExt(FileName), '.groupproj'))) then
     begin
       LogExpert('FileNotification: Project change/event for ' + FileName);
+      if IsTestingDesignShuttingDown then
+        Exit;
       TThread.ForceQueue(nil, TThreadProcedure(procedure
         begin
-          if Assigned(FormDextTestRunner) then
+          if IsTestingDesignShuttingDown then
+            Exit;
+          if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
             FormDextTestRunner.RefreshProjects;
           AttachNotifiersToOpenModules;
         end));
@@ -345,13 +350,17 @@ initialization
 
 finalization
   LogExpert('Unit finalization: package unloading/uninstalling');
+  BeginTestingDesignShutdown;
   if Assigned(BorlandIDEServices) then
   begin
     RemoveAllModuleNotifiers;
     if FNotifierIndex <> -1 then
     begin
       LogExpert('Unit finalization: removing IDE notifier');
-      (BorlandIDEServices as IOTAServices).RemoveNotifier(FNotifierIndex);
+      try
+        (BorlandIDEServices as IOTAServices).RemoveNotifier(FNotifierIndex);
+      except
+      end;
       FNotifierIndex := -1;
     end;
   end;

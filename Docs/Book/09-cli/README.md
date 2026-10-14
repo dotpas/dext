@@ -31,9 +31,7 @@ dext test --html
 # Scaffolding
 dext scaffold -c "mydb.db" -d sqlite -o Entities.pas
 
-# Dashboard
-dext ui
-dext ui --port 8080
+# Dashboard — DextSidecar.exe (tray), not dext ui
 
 # Documentation
 dext doc

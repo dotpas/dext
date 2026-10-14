@@ -672,6 +672,9 @@ In-process **MediatR**-style publish/subscribe (`Dext.Events`). Handlers respect
 
 ## 7. Testing & Quality
 
+> **Maturity:** Framework + `dext test --coverage` = **Stable**; IDE Explorer / gutter polish / suite trends = **Evolving** (#1); Sidecar essentials = **Evolving** (parallel); C++Builder / UIA / mutation / contracts = **Planned**.  
+> Canonical public map: [Dext-Testing-Features-Catalog.md](Dext-Testing-Features-Catalog.md) · [Embarcadero Roadmap](Plans/Dext-Testing-Embarcadero-Roadmap.md).
+
 ### 7.1 Test Runner
 - **CLI Runner** — `dext test` runs the project suite. On Windows, `--coverage` produces HTML/XML plus `dext_coverage.xml` (SonarQube coverage) via Delphi Code Coverage. The live host for the suite is **Dext Test Explorer** (S36 / section 7.7), not an embedded web dashboard.
 - **Fluent Runner API** (`Dext.Testing.Fluent`) — Programmatic configuration: `TTest.Configure.Verbose.RegisterFixtures([...]).Run`. The suite exe already reads `-filter:`, `-category:`, `-fixture:`, `-junit:`, `-html:`, `-json:`.
@@ -728,21 +731,23 @@ Fluent API based on the `Should(Value)` pattern.
 - **Native DUnit2 Integration** (`Dext.Testing.DUnit2`) — Decoupled runner adaptation using proxy interfaces to pipe real-time results and suite hierarchies from DUnit2 frameworks to the Dext Test Explorer.
 - **Test Context Injection** — `ITestContext` injectable via parameter for `WriteLine`, `AttachFile` (screenshots), and execution metadata.
 - **Per-test history in Test Explorer** (`TTelemetryTracker` in `Dext.Testing.Design.DockableForm`) — `{project}\.dext\testing\history.json` (up to 1000 rows). The Details pane flags flaky tests and duration regression. This is not the suite-total JSON.
-- **`TTestHistoryManager`** (`Dext.Testing.History`, `dext_test_history.json`) — Per-**run** totals (passed/failed/skipped/duration, last 50). Only the sidecar dashboard consumes it today. Explorer does not show that series yet — S75 F-10.
+- **Suite-total history in Test Explorer (S75 F-10)** — `{project}\.dext\testing\suite_history.json` (last 50 runs). Explorer records and prints suite trends after each run (`RecordSuiteRun` / `AnalyzeSuiteHistory`).
+- **`TTestHistoryManager`** (`Dext.Testing.History`, `dext_test_history.json`) — Per-**run** totals for the sidecar dashboard path (parallel format).
 - **OpenTelemetry Test Telemetry** (`Dext.Testing.Listeners.Telemetry`) — Integrated telemetry listener piping test execution metrics (`test_duration_ms`, `test_count_passed`, `test_count_failed`) to OpenTelemetry collectors.
 
 ### 7.7 RAD Studio Expert & IDE Integration (`Dext.Testing.Design.*`)
 - **Dext Test Explorer Dockable Window** (`Dext.Testing.Design.DockableForm`) — Native dockable window in RAD Studio displaying interactive test tree, status filters, and search. Per-test history in Details (flaky / duration). Suite totals across runs: S75 F-10.
 - **Gutter Margin Icons** (`Dext.Testing.Design.Gutter`) — Interactive visual icons in the left code editor margin (green checkmark for pass, red cross for failure).
 - **Embedded Local IDE HTTP/SSE Server** (`Dext.Testing.Design.Server`) — Real-time event streaming server embedded in the Expert receiving test execution streams without BPL coupling.
-- **Code Coverage Visualizer** (`Dext.Testing.Design.Coverage`) — Direct editor highlighting of lines covered by test runs via AST parsing (`Dext.Testing.Design.AST`).
+- **Code Coverage Visualizer** (`Dext.Testing.Design.Coverage`) — Editor gutter highlighting of covered/uncovered/partial lines; notifiers registered with OTA lifetime cleanup (`RegisterView` / `UnregisterView` / `RefreshActiveViews` via `GetEditBufferIterator`). Ctrl+Alt+C shows covering tests.
+- **Tagged console log** — Explorer console prefixes lines with `[PASS]` / `[FAIL]` / `[SKIP]` / `[WARN]` / `[INFO]` for scannable output (RichEdit color polish still Evolving).
 
 ### 7.8 Scale and Rigor
 Dext is continuously validated by a massive testing infrastructure to ensure integrity across its subsystems:
 
 - **Engineering Statistics** — The project exceeds **200,000 lines of pure Pascal code** (excluding templates and documentation), reflecting a massive investment in stability and high-level abstractions.
-- **Massive Coverage** — Hundreds of test suites with thousands of individual assertions validating everything from the Core (Memory, Collections) to complex Web and ORM integrations.
-- **Multi-DB Matrix (ORM)** — The persistence engine is exhaustively tested across a real matrix of 5 databases: PostgreSQL, SQL Server, MySQL, SQLite, and Firebird.
+- **Massive Coverage** — Hundreds of test suites with thousands of individual assertions validating everything from the Core (Memory, Collections) to complex Web and ORM integrations. Suite coverage runs via **`dext test --coverage`** (Stable); IDE gutter visualization is Evolving (polish).
+- **Multi-DB Matrix (ORM)** — Persistence drivers are **Stable** across PostgreSQL, SQL Server, MySQL, SQLite, Oracle, Firebird, and **InterBase**. Docker harness for integration tests: `infra/tests` (Preview).
 - **Stress & Concurrency Testing** — Validation of concurrent collections, channels, and async tasks under high load to ensure no Race Conditions.
 - **Field Evidence** — Framework validated in real-world projects deployed on **AWS and Azure**, with fiscal management systems processing peaks of **~800,000 daily requests**.
 - **CI/CD** — JUnit / xUnit / TRX / HTML / JSON reports and SonarQube coverage (`dext_coverage.xml`) for Azure DevOps and GitHub Actions pipelines.
