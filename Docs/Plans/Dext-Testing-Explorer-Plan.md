@@ -54,8 +54,9 @@ Specs de origem:
 - [x] Inspector: stack legível + aviso Debug Trace Options se vazio — [StackTrace-Plan](Dext-Testing-StackTrace-Plan.md)  
 - [x] Coverage gutter polish + Reload Coverage — E1.6  
 - [x] **E1.8 Coverage run** — Find/Install `CodeCoverage.exe` (shared `Dext.Testing.CodeCoverage.Tool`), opt-in *Collect code coverage*, wrap Run All sob DCC (`-xml -xmllines -ife -tec -twd`), parser dual Sonar + `linehits`, discovery sem path hardcoded  
-- [x] **E1.8b Coverage UX v1** — aba **Coverage** (file/%/Instr.), dbl-click → open; gutter via `RequestGutterColumn` (D13); cores BGR; só linhas instrumentadas (sem var/procedure/blank)  
-- [x] **E1.8c Coverage UX v1.1** — soft-fail MAP (log + aba `Coverage (!)` âmbar, sem modal); limpa grid/gutter em falha; header agregado Covered/Not covered/Total; coluna Not cov.; barra textual de %; **HTML opt-in** (`GenerateHtml` default false; `-html` só se marcado); Open HTML / Clear artifacts desabilitados sem arquivos
+- [x] **E1.8b Coverage UX v1** — aba **Coverage** (file/%/Instrumented), dbl-click → open; gutter via `RequestGutterColumn` (D13); cores BGR; só linhas instrumentadas (sem var/procedure/blank)  
+- [x] **E1.8c Coverage UX v1.1** — soft-fail MAP (log + aba `Coverage (!)` âmbar, sem modal); limpa grid/gutter em falha; header agregado Covered/Not covered/Instrumented; **HTML opt-in** (default false); Open/Clear desabilitados sem arquivos; coluna `%` só numérico  
+- [x] **E1.9k** — Open HTML no **contexto da aba Coverage** (+ Actions ⋯)
 
 ### 1.2 Console Log visual (JetBrains / VS)
 
@@ -127,8 +128,9 @@ Substituir `TRichEdit` dump por um **structured output pane**:
 1. Configurations → *Collect code coverage* (ou Actions → Install / Locate CodeCoverage).  
 2. Actions → Apply Debug Trace Options → rebuild (MAP detalhado).  
 3. Run All → console: `Coverage: using …` + wrap; ao fim `Coverage loaded: N file(s)`.  
-4. Aba **Coverage** → header agregado + Not cov. + barra %; double-click abre unit → gutter.  
-5. Configurations → *Also generate HTML* (off por default) → Run All → Actions → **Open Coverage HTML Report**; **Clear Generated Coverage Files** quando houver artefatos.  
+4. Aba **Coverage** → header agregado + Not covered + Instrumented + `%` numérico; double-click abre unit → gutter.  
+5. Configurations → *Also generate HTML* (off por default) → Run All → **Open HTML** no contexto da aba **ou** Actions; **Clear Generated Coverage Files** quando houver artefatos.  
+5b. Cap. 18b → [roteiro](Dext-Testing-Cap18b-Explorer-Demo.md) com `LegacyCobrancaTests`.  
 6. Release / sem MAP → aba `Coverage (!)` âmbar (sem modal); testes seguem.  
 7. Coverage off → Run All sem wrap.  
 8. Reload Coverage após `dext test --coverage` externo.
@@ -158,6 +160,15 @@ Mesma fonte que o [delphi-code-coverage-wizard-plus](https://github.com/MHumm/de
 | E1.9h | Branch / partial coverage rico | G | Limite do DCC |
 | E1.9i | `tests=` / Show Covering Tests com dados reais | G | DCC hoje não emite bem |
 | E1.9j | Full-line highlight no editor (opcional) | G | HTML já faz; gutter IDE é o default |
+| E1.9k | Open HTML no **contexto da aba Coverage** (+ manter Actions ⋯) | P | **Feito** — menu da ListView; dbl-click continua = `.pas` |
+| E1.9l | Open HTML **na IDE via WebView2** (opcional) | G | Default browser. In-IDE só se WebView2 disponível; fallback browser. **Hold** até após DoD; alinhar Sidecar WebView2. |
+
+**UX HTML (acordado 2026-10):** Configurations = só *Generate HTML* (opt-in, default off). Abrir = contexto Coverage + Actions. WebView2 = E1.9l depois do DoD.
+
+**Cap. 18b demo:** [Cap18b-Explorer-Demo](Dext-Testing-Cap18b-Explorer-Demo.md) · sample `Tests/Samples/Cap18b.LegacyDUnitX/`.
+
+**DoD Delphi (Sprint E):** fechado 2026-10 — ver [SprintE-QA-Checklist](Dext-Testing-SprintE-QA-Checklist.md).  
+**Hold pós-DoD:** E1.9 restante (Prev/Next, E1.9l WebView2, …) e E4.3 C++ discovery — escolher vs Sidecar E3.5 no Sprint F.
 
 ---
 

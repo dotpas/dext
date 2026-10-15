@@ -21,12 +21,23 @@
 | Aba | Deveria ser | Estado real |
 |-----|-------------|-------------|
 | **Dashboard** | Home: saúde, cobertura, atividade | Parcial — cards vivos; “Recent Activity” cosmético |
-| **Projects** | Sessão IDE viva (não “picker de pasta”) | **Quebrada / legado** — ver §8 |
-| **Tests** | Descobrir / rodar / coverage / live | Parcial — AST só `[Test]`/`[TestFixture]`; precisa exe já buildado; rota `/api/tests/run` unificada (projects[] \| project) |
-| **HTTP** | Cliente `.http` | Funciona para smoke REST; sem auth/cookies/persistência ricos |
-| **Traces** | Spans / Gantt leve | Parcial — depende de sinks ricos no app |
-| **Logs** | Terminal live filtrável | Funciona bem com sinks Sidecar |
-| **Settings** | Config persistente | UI morta (“coming soon”); APIs existem |
+| **Projects** | Sessão IDE viva (não “picker de pasta”) | Parcial / legado — ver §8 |
+| **Tests** | Descobrir / rodar / coverage / live | **Quebrada no run** — ver §1.1 (QA 2026-10) |
+| **HTTP** | Cliente `.http` | Funciona (smoke); polish futuro (auth/cookies/persistência) |
+| **Traces** | Spans / Gantt leve | Funciona; muito a melhorar |
+| **Logs** | Terminal live filtrável | Funciona; muito a melhorar |
+| **Settings** | Config persistente | **Vazia** — UI morta; APIs existem |
+
+### 1.1 QA humano 2026-10 (Cesar) — aba Testes
+
+Sintoma confirmado na SPA Sidecar (`localhost` / tray UI):
+
+1. Árvore lista testes (ex.: `Dext.Core.UnitTests`, 297); seleção persiste em config.  
+2. Ao clicar **Executar** (selected / all / coverage), a lista **some**; UI fica em “Executing Selected Tests in Parallel Workers…” sem progresso útil.  
+3. Painel / Projetos: parciais. Configurações: sem conteúdo.
+
+**Pitch Embarcadero:** o runner do dia a dia é o **Test Explorer na IDE**, não a aba Testes do Sidecar. Sidecar smoke = Start + `/health` apenas.  
+**Backlog Sidecar (não bloqueia DoD Explorer):** corrigir `/api/tests/run` + SSE/UI para não destruir a árvore; Settings real; polish HTTP/Traces/Logs.
 
 ### Peças mortas / aspiracionais
 

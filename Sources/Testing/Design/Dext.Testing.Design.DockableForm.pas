@@ -201,6 +201,7 @@ type
     FInstallCoverageMenuItem: TMenuItem;
     FReloadCoverageMenuItem: TMenuItem;
     FOpenCoverageHtmlMenuItem: TMenuItem;
+    FOpenCoverageHtmlContextMenuItem: TMenuItem;
     FClearCoverageArtifactsMenuItem: TMenuItem;
     FLastCoverageReportDir: string;
     FLastCoverageSourceRoot: string;
@@ -5021,6 +5022,20 @@ begin
   Item.Tag := NativeInt(AListView);
   Item.OnClick := ListViewCopyAllClick;
   Popup.Items.Add(Item);
+
+  // E1.9k: Coverage tab — Open HTML where the user looks at results (Actions ⋯ remains too).
+  if AListView = FCoverageListView then
+  begin
+    Item := TMenuItem.Create(Popup);
+    Item.Caption := '-';
+    Popup.Items.Add(Item);
+    FOpenCoverageHtmlContextMenuItem := TMenuItem.Create(Popup);
+    FOpenCoverageHtmlContextMenuItem.Caption := 'Open HTML Report';
+    FOpenCoverageHtmlContextMenuItem.OnClick := OpenCoverageHtmlClick;
+    FOpenCoverageHtmlContextMenuItem.Enabled := False;
+    Popup.Items.Add(FOpenCoverageHtmlContextMenuItem);
+  end;
+
   AListView.PopupMenu := Popup;
   AListView.OnKeyDown := ListViewClipboardKeyDown;
 end;
@@ -7061,6 +7076,8 @@ begin
 
   if Assigned(FOpenCoverageHtmlMenuItem) then
     FOpenCoverageHtmlMenuItem.Enabled := HasHtml;
+  if Assigned(FOpenCoverageHtmlContextMenuItem) then
+    FOpenCoverageHtmlContextMenuItem.Enabled := HasHtml;
 
   if Assigned(FClearCoverageArtifactsMenuItem) then
     FClearCoverageArtifactsMenuItem.Enabled := HasArtifacts;

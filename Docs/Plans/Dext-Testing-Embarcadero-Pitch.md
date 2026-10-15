@@ -49,6 +49,7 @@ Happy to demo three scenarios live (15 min).
 - [Dext-Testing-Features-Catalog.pt-br.md](../Dext-Testing-Features-Catalog.pt-br.md)
 - [Dext-Testing-Embarcadero-Roadmap.md](Dext-Testing-Embarcadero-Roadmap.md)
 - Livro (publicação): Cap. 18b — [`dext-testing-book-pt/18b_Projetos Legados sem o Framework Dext.md`](../../../Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos%20Legados%20sem%20o%20Framework%20Dext.md)
+- Demo Explorer Cap. 18b: [`Tests/Samples/Cap18b.LegacyDUnitX`](../../Tests/Samples/Cap18b.LegacyDUnitX/) · [roteiro](Dext-Testing-Cap18b-Explorer-Demo.md)
 - Explorer backlog: [Dext-Testing-Explorer-Plan.md](Dext-Testing-Explorer-Plan.md)
 - Specs: S36 Test Explorer + refactoring proposal/status
 

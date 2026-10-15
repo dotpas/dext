@@ -54,6 +54,9 @@
         <Projects Include="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj">
             <Dependencies/>
         </Projects>
+        <Projects Include="..\..\Tests\Samples\Cap18b.LegacyDUnitX\LegacyCobrancaTests.dproj">
+            <Dependencies/>
+        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -215,14 +218,23 @@
     <Target Name="Dext_Core_UnitTests:Make">
         <MSBuild Projects="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj" Targets="Make"/>
     </Target>
+    <Target Name="LegacyCobrancaTests">
+        <MSBuild Projects="..\..\Tests\Samples\Cap18b.LegacyDUnitX\LegacyCobrancaTests.dproj"/>
+    </Target>
+    <Target Name="LegacyCobrancaTests:Clean">
+        <MSBuild Projects="..\..\Tests\Samples\Cap18b.LegacyDUnitX\LegacyCobrancaTests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="LegacyCobrancaTests:Make">
+        <MSBuild Projects="..\..\Tests\Samples\Cap18b.LegacyDUnitX\LegacyCobrancaTests.dproj" Targets="Make"/>
+    </Target>
     <Target Name="Build">
-        <CallTarget Targets="Dext_Core;Dext_AST_Core;Dext_Net_Core;Dext_EF_Core;Dext_EF_Components;Dext_Web_Core;Dext_AI_Core;Dext_Web_Hubs_Core;Dext_Events_Core;Dext_Hosting_Core;Dext_Testing_Core;Dext_UI_Core;Dext_EF_Design;Dext_Testing_Design;DextTool;DextSidecar;Dext_Core_UnitTests"/>
+        <CallTarget Targets="Dext_Core;Dext_AST_Core;Dext_Net_Core;Dext_EF_Core;Dext_EF_Components;Dext_Web_Core;Dext_AI_Core;Dext_Web_Hubs_Core;Dext_Events_Core;Dext_Hosting_Core;Dext_Testing_Core;Dext_UI_Core;Dext_EF_Design;Dext_Testing_Design;DextTool;DextSidecar;Dext_Core_UnitTests;LegacyCobrancaTests"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="Dext_Core:Clean;Dext_AST_Core:Clean;Dext_Net_Core:Clean;Dext_EF_Core:Clean;Dext_EF_Components:Clean;Dext_Web_Core:Clean;Dext_AI_Core:Clean;Dext_Web_Hubs_Core:Clean;Dext_Events_Core:Clean;Dext_Hosting_Core:Clean;Dext_Testing_Core:Clean;Dext_UI_Core:Clean;Dext_EF_Design:Clean;Dext_Testing_Design:Clean;DextTool:Clean;DextSidecar:Clean;Dext_Core_UnitTests:Clean"/>
+        <CallTarget Targets="Dext_Core:Clean;Dext_AST_Core:Clean;Dext_Net_Core:Clean;Dext_EF_Core:Clean;Dext_EF_Components:Clean;Dext_Web_Core:Clean;Dext_AI_Core:Clean;Dext_Web_Hubs_Core:Clean;Dext_Events_Core:Clean;Dext_Hosting_Core:Clean;Dext_Testing_Core:Clean;Dext_UI_Core:Clean;Dext_EF_Design:Clean;Dext_Testing_Design:Clean;DextTool:Clean;DextSidecar:Clean;Dext_Core_UnitTests:Clean;LegacyCobrancaTests:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="Dext_Core:Make;Dext_AST_Core:Make;Dext_Net_Core:Make;Dext_EF_Core:Make;Dext_EF_Components:Make;Dext_Web_Core:Make;Dext_AI_Core:Make;Dext_Web_Hubs_Core:Make;Dext_Events_Core:Make;Dext_Hosting_Core:Make;Dext_Testing_Core:Make;Dext_UI_Core:Make;Dext_EF_Design:Make;Dext_Testing_Design:Make;DextTool:Make;DextSidecar:Make;Dext_Core_UnitTests:Make"/>
+        <CallTarget Targets="Dext_Core:Make;Dext_AST_Core:Make;Dext_Net_Core:Make;Dext_EF_Core:Make;Dext_EF_Components:Make;Dext_Web_Core:Make;Dext_AI_Core:Make;Dext_Web_Hubs_Core:Make;Dext_Events_Core:Make;Dext_Hosting_Core:Make;Dext_Testing_Core:Make;Dext_UI_Core:Make;Dext_EF_Design:Make;Dext_Testing_Design:Make;DextTool:Make;DextSidecar:Make;Dext_Core_UnitTests:Make;LegacyCobrancaTests:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
