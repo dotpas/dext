@@ -1,36 +1,34 @@
-# S75 — C++Builder Test Explorer (DLL + dedicated installer)
+# S75 — C++Builder Test Explorer (mesma BPL + personalidade)
 
-**Status:** Scaffolding / Planned (blocked on [discovery notes](../Plans/Dext-Testing-Cpp-Discovery.md))  
-**Depends on:** S36 Expert stability (Delphi personality)
+**Status:** Discovery (Sprint F) — ver [Cpp-Discovery](../Plans/Dext-Testing-Cpp-Discovery.md)  
+**Depends on:** S36 Expert estável (Delphi)
 
 ## Goal
 
-Ship a **separate** RAD Studio design package for the **C++Builder personality** that reuses the Explorer Model/Presenter/IPC protocol, without requiring Delphi `Dext.Testing` BPLs in the C++ user’s project.
+O **mesmo** `Dext.Testing.Design.bpl` instalado também para `CPlusPlusBuilder.Personality`, sem package `.Cpp` separado. Discovery valida o que funciona (menu, dock, `.cbproj`, DUnit) e o que falta (adapters GTest, etc.).
 
-## Architecture
+## Architecture (hipótese MVP)
 
 ```
 RAD Studio (C++Builder personality)
-  └─ Dext.Testing.Design.Cpp.bpl  (OTA Expert, VCL UI)
-       ├─ Shared protocol (JSON over Winsock — same as Delphi Expert)
-       └─ Runner adapters (Phase 0 chooses MVP: Google Test XML, etc.)
-Test exe (GTest / Catch2 / …)
-  └─ Posts results to Expert port (or Expert parses JUnit/GTest XML)
+  └─ Dext.Testing.Design.bpl  (mesmo OTA Expert Delphi)
+       ├─ InstallIDEPackage(..., "CPlusPlusBuilder.Personality")
+       └─ Descoberta / run: TBD após smoke DUnit + deep research
 ```
 
-## Deliverables
+## Deliverables (após discovery)
 
-1. **DLL/BPL** — `Packages/<ver>/Dext.Testing.Design.Cpp.dpk` (or C++ package) containing dockable form + OTA registration only.
-2. **Shared core** — extract IPC server + tree model into units with **zero** dependency on `Dext.Testing` runner (already mostly true via `Dext.Testing.Core` / Design-local JSON).
-3. **Installer** — `Installers/DextTestExplorer-CppBuilder/` MSI or PowerShell setup that registers the package for C++ personalities only.
-4. **Beta** — Thiago / David Millington / Leonardo after discovery checklist is filled.
+1. Provar install do BPL na personalidade C++.  
+2. Smoke DUnit (baseline Embarcadero).  
+3. Lista de gaps (descoberta `.cbproj`, runners, compile path).  
+4. Só então: adapters / GetIt actions — **sem** BPL `Design.Cpp`.
 
-## Non-goals (this spec revision)
+## Non-goals
 
-- Full Delphi catalog inside C++ projects.
-- Replacing Google Test / Catch2 assert APIs.
-- WebView desktop shell.
+- Package `Dext.Testing.Design.Cpp` (scaffold **removido** 2026-10).  
+- Anunciar suporte C++ pronto.  
+- Substituir GTest/Catch2 APIs.
 
-## Scaffolding in repo
+## Removido do repo
 
-See `Sources/Testing/Design.Cpp/` and `Installers/DextTestExplorer-CppBuilder/`.
+`Sources/Testing/Design.Cpp/`, `Packages/*/Dext.Testing.Design.Cpp.*`, `Installers/DextTestExplorer-CppBuilder/`.

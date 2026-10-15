@@ -4759,8 +4759,6 @@ begin
         Break;
       Dir := TPath.GetDirectoryName(ExcludeTrailingPathDelimiter(Dir));
     end;
-    AddRoot('C:\dev\Dext\DextRepository\Sources');
-    AddRoot('C:\dev\Dext\DextRepository\Tests');
 
     for Dir in Roots do
     begin

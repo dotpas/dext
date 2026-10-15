@@ -1,9 +1,15 @@
-# Non-Dext projects (framework docs pointer)
+# Non-Dext projects
 
-The full publishing chapter is in the **Dext Testing book** (PT manuscript first):
+You can run **DUnit**, **DUnitX**, or **DUnit2** suites in the **Dext Test Explorer** without rewriting asserts to Dext Testing `[Fact]`: add the matching integration adapter to the test project.
 
-[`Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos Legados sem o Framework Dext.md`](../../../../Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos%20Legados%20sem%20o%20Framework%20Dext.md)
+## Sample in this repository
 
-DUnit / DUnitX / DUnit2 adapters → Explorer without rewriting asserts; sample under `examples/chapter-18b-legacy-dunitx/`.
+[`Tests/Samples/Cap18b.LegacyDUnitX`](../../../Tests/Samples/Cap18b.LegacyDUnitX/) — `LegacyCobrancaTests` (classic DUnitX) + `Dext.Testing.DUnitX` adapter.
 
-This file is only a short pointer from the framework book tree. Narrative and craft live in the bookshelf manuscript.
+Step-by-step (IDE): [Cap18b Explorer Demo](../../Plans/Dext-Testing-Cap18b-Explorer-Demo.md).
+
+## Idea
+
+1. Keep the legacy assert framework you already use.  
+2. Reference the matching Dext Testing integration unit (DUnit / DUnitX / DUnit2).  
+3. The Explorer discovers, builds, and shows PASS/FAIL like Dext suites.

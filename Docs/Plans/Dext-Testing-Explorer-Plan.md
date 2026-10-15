@@ -102,7 +102,7 @@ Substituir `TRichEdit` dump por um **structured output pane**:
 | Suite trends | Feito |
 | Coverage gutter | Feito (E1.6 + coluna D13) |
 | Coverage run (tool + wrap + load + aba) | Feito v1.1 (E1.8 / E1.8b / E1.8c) |
-| C++ | Planned (package Design.Cpp esboço) |
+| C++ | Discovery — mesmo BPL + `CPlusPlusBuilder.Personality` (scaffold `.Cpp` removido) |
 
 ---
 

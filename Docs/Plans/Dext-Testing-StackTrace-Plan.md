@@ -2,19 +2,19 @@
 
 **Goal:** traces legíveis no Explorer + coleta confiável no suite EXE, sem depender de madExcept/Eureka no default.
 
-**Libs refresh (2026-10):** DUnitX + LeakCheck já atualizados antes desta conversa; Daofy + RadIA atualizados depois. Daofy sem mudança relevante para nós; **RadIA trouxe commits novos** úteis (ver §1.1).
+**Nota:** fontes externas (Daofy, RadIA, DUnitX, LeakCheck) vivem **fora** deste repositório (workspace / clones). Aqui só nomes e ideias — sem paths para árvores irmãs.
 
 ---
 
 ## 1. Quatro fontes
 
-| # | Projeto | Path | O que roubar | Refresh |
-|---|---------|------|--------------|---------|
-| 1 | **Dext.Core.Debug** (atual) | `Sources/Debug/Dext.Core.Debug.pas` | Hook RTL + `.map` + `E.StackTrace` — **baseline a evoluir** | — |
-| 2 | **Daofy StackTrace** | `Libs/daofy/tools/stacktrace/` + [migration plan](../../../Libs/daofy/docs/stacktrace-migration-plan.md) | VEH, MAPDATA tokenizado, exception.log, callgraph, checklist de riscos | Sem delta útil no pull |
-| 3 | **RadIA** | `Libs/RadIA-Plugin/Source/Core/RadIA.Core.StackTrace*.pas` | **Parse de frames** multi-formato + resolve unit do projeto + confiança | **Muitos commits** — ver §1.1 |
-| 4 | **DUnitX** | `Libs/DUnitX` (`IStacktraceProvider`, JCL/madExcept/Eureka adapters) | **Provider pluggable**; obtenção no endereço da exceção | Já atualizado (pré-chat) |
-| 5 | **delphi-leakcheck** | `Libs/delphi-leakcheck` (`GetStackTraceProc` + `IStackTraceFormatter`, Map/Jcl) | Separar **captura** × **formatação**; formatters MAP/JCL | Já atualizado (pré-chat) |
+| # | Projeto | Onde (conceito) | O que roubar |
+|---|---------|-----------------|--------------|
+| 1 | **Dext.Core.Debug** (atual) | `Sources/Debug/Dext.Core.Debug.pas` (neste repo) | Hook RTL + `.map` + `E.StackTrace` — **baseline a evoluir** |
+| 2 | **Daofy StackTrace** | projeto Daofy (externo) | VEH, MAPDATA tokenizado, exception.log, callgraph |
+| 3 | **RadIA** | plugin RadIA (externo) | **Parse de frames** multi-formato + resolve unit + confiança — ver §1.1 |
+| 4 | **DUnitX** | DUnitX (GetIt / clone externo) | **Provider pluggable**; JCL/madExcept/Eureka adapters |
+| 5 | **delphi-leakcheck** | LeakCheck (externo) | Separar **captura** × **formatação**; formatters MAP/JCL |
 
 ### 1.1 RadIA — o que os commits novos mudam para o Dext
 
@@ -28,7 +28,7 @@ Commits relevantes no plugin (ex.: `3f0d0fea` *cross-unit stack trace diagnostic
 | Resolve unit no workspace / por método (semantic) | Double-click → OTA open file:line |
 | Testes `RadIA.Tests.StackTraceAnalysis` | Espelhar casos de parse nos testes Dext |
 
-**Não** linkar o package RadIA no Design: **copiar o padrão** (regex + frame record + resolve), não a dependência IDE/AI.
+**Não** linkar o package RadIA no Design nem paths de clones externos: **copiar o padrão** (regex + frame record + resolve), não a dependência IDE/AI.
 
 ---
 

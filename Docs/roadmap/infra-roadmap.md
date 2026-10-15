@@ -141,7 +141,7 @@ Evolução da `Fluent Tasks API` para suportar cenários complexos de orquestra�
 - [x] Tagged console log + RichEdit color polish.
 - [ ] Coverage **visual** polish for demos / daily use.
 - [ ] Further Passive View migration of remaining DockableForm paths.
-- [x] Book Cap. 18b non-Dext / legacy (`dext-developer-bookshelf/dext-testing-book-pt`).
+- [x] Non-Dext / legacy demo sample (`Tests/Samples/Cap18b.LegacyDUnitX`).
 
 ### 3. Sidecar (essentials in parallel)
 

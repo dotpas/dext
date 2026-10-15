@@ -15,10 +15,8 @@ Win64
 test-results.json
 /Tests/Testing/test-results.xml
 test-results.html
-
 # Generated Documentation Artifacts
 Docs/API/xml/
-
 # Node.js dependencies
 node_modules/
 *.rsm
@@ -28,10 +26,10 @@ node_modules/
 *.tvsconfig
 *.~*
 *.a
-/Sources/*.bpi
+*.bpi
 *.dsv
 test-results.xml
-/Sources/*.dext
+*.dext
 /scratch/**
 history.json
 *.so
@@ -40,14 +38,13 @@ history.json
 *.hpp
 dext-symbols.*
 *.deployproj
-/Benchmarks/Dext.Benchmarks
+/Benchmarks/
 *.prjmgc
 *.user
 /Temp
-/Tests/Core/*.vrc
+*.vrc
 *.db-shm
-/Benchmarks/*.db-wal
+*.db-wal
 *.lst
-/Tests/Core/UnitTests/.dext/testing/suite_history.json
-/Tests/Web/.dext/testing/suite_history.json
 suite_history.json
+.cursor/

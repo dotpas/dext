@@ -1,9 +1,15 @@
-# Projetos não-Dext (ponte na doc do framework)
+# Projetos não-Dext
 
-O capítulo completo para publicação está no **livro Dext Testing** (Série Dext Developer):
+Você pode rodar suítes **DUnit**, **DUnitX** ou **DUnit2** no **Dext Test Explorer** sem reescrever asserts em `[Fact]` do Dext Testing: basta o adapter de integração no projeto de teste.
 
-[`Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos Legados sem o Framework Dext.md`](../../../../Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos%20Legados%20sem%20o%20Framework%20Dext.md)
+## Sample no repositório
 
-Lá: adapters DUnit / DUnitX / DUnit2 → Explorer, sem reescrever asserts; exemplo em `examples/chapter-18b-legacy-dunitx/`.
+[`Tests/Samples/Cap18b.LegacyDUnitX`](../../../Tests/Samples/Cap18b.LegacyDUnitX/) — projeto `LegacyCobrancaTests` (DUnitX clássico) + adapter `Dext.Testing.DUnitX`.
 
-Nesta pasta (`Book.pt-br/08-testes`) fica só a referência rápida da documentação do framework. O ofício e a narrativa do Faturamento vivem no manuscrito do bookshelf.
+Roteiro passo a passo (IDE): [Cap18b Explorer Demo](../../Plans/Dext-Testing-Cap18b-Explorer-Demo.md).
+
+## Ideia
+
+1. Projeto de testes legado continua com o framework de asserts que já usa.  
+2. Inclui a unit de integração Dext Testing correspondente (DUnit / DUnitX / DUnit2).  
+3. O Explorer descobre, compila e mostra PASS/FAIL como nas suítes Dext.

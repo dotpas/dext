@@ -1,6 +1,5 @@
-# Cap. 18b — demo reproduzível no Test Explorer
+# Demo — projetos não-Dext no Test Explorer (Cap18b sample)
 
-**Capítulo:** [`dext-testing-book-pt/18b_Projetos Legados sem o Framework Dext.md`](../../../Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_Projetos%20Legados%20sem%20o%20Framework%20Dext.md)  
 **Sample no repo:** [`Tests/Samples/Cap18b.LegacyDUnitX/LegacyCobrancaTests.dproj`](../../Tests/Samples/Cap18b.LegacyDUnitX/LegacyCobrancaTests.dproj)
 
 Objetivo do pitch: suíte **DUnitX** (Assert clássico) aparece e roda no **Dext Test Explorer** sem reescrever fixtures em `[Fact]`.
@@ -10,16 +9,15 @@ Objetivo do pitch: suíte **DUnitX** (Assert clássico) aparece e roda no **Dext
 ## Pré-requisitos
 
 1. Packages `Dext.Testing.Design` (+ Expert) instalados; IDE reiniciada.  
-2. Search path do sample aponta para:
-   - `Sources/Common` (`Dext.Testing.Integration`, `Dext.Testing.DUnitX`)
-   - `Libs/DUnitX/Source` (vendored sob `Dext/Libs`)  
-3. Delphi **10.4+** (mesmo requisito do capítulo).
+2. Search path do sample: `Sources/Common` (`Dext.Testing.Integration`, `Dext.Testing.DUnitX`).  
+3. **DUnitX** no Library path da IDE (GetIt ou clone — **não** há `Libs/` neste repositório).  
+4. Delphi **10.4+**.
 
 ---
 
 ## Passos (Você no Delphi)
 
-1. **File → Open** `DextRepository/Tests/Samples/Cap18b.LegacyDUnitX/LegacyCobrancaTests.dproj`.  
+1. **File → Open** `Tests/Samples/Cap18b.LegacyDUnitX/LegacyCobrancaTests.dproj` (deste repositório).  
 2. Abrir o **Dext Test Explorer** (Tools / menu Dext).  
 3. No combo de projetos do Explorer, selecionar `LegacyCobrancaTests` (Refresh se preciso).  
 4. **Run All** — compile + exe com `--port`; o adapter `Dext.Testing.DUnitX` envia resultados.  

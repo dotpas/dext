@@ -1126,9 +1126,9 @@ var
 begin
   Result := 'dext.exe';
   Paths := [
-    'C:\dev\Dext\DextRepository\Apps\dext.exe',
     TPath.Combine(FProjectDir, '..\..\..\Apps\dext.exe'),
-    TPath.Combine(FProjectDir, '..\..\Apps\dext.exe')
+    TPath.Combine(FProjectDir, '..\..\Apps\dext.exe'),
+    TPath.Combine(FProjectDir, '..\..\..\..\Apps\dext.exe')
   ];
   for P in Paths do
   begin

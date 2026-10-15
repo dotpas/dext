@@ -56,7 +56,7 @@
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <SanitizedProjectName>LegacyCobrancaTests</SanitizedProjectName>
-        <DCC_UnitSearchPath>..\..\..\Sources\Common;..\..\..\..\Libs\DUnitX\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\..\Sources\Common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_Define>DEXT_DUNITX;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Android)'!=''">

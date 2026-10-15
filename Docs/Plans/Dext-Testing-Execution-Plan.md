@@ -14,7 +14,7 @@ Docs satélites (detalhe):
 |---|------|--------|
 | E0.1 | Catálogo Testing v1 + PT | Feito |
 | E0.2 | Embarcadero Roadmap + Pitch | Feito |
-| E0.3 | Cap. 18b livro bookshelf | Redigido (polish Fase 5 livro depois) |
+| E0.3 | Demo não-Dext (sample Cap18b) | Feito — `Tests/Samples/Cap18b.LegacyDUnitX` |
 | E0.4 | `dext ui` removido; Sidecar canônico | Feito |
 
 ---
@@ -77,8 +77,8 @@ Contract tests · WireMock-like · Mutation · Testcontainers productizado · UI
 ```text
 Sprint A–D2: Explorer + Coverage v1.1                         ✅
 Sprint E:    QA DoD + Cap. 18b sample + E1.9k                 ✅ (2026-10)
-Sprint F:    E4.3 C++  —  ou  Sidecar E3.5 (escolher)         próximo
-Sprint G:    E1.9 restante coverage polish                    depois
+Sprint F:    E4.3 C++ — smoke DUnit (doc Embarcadero) → package Cpp  ← escolhido
+Sprint G:    E1.9 restante coverage polish  |  Sidecar E3.5           depois
 ```
 
 ---
@@ -97,16 +97,19 @@ Sprint G:    E1.9 restante coverage polish                    depois
 
 | Prioridade | Item | Porquê |
 |------------|------|--------|
-| 1 | **E4.3 C++ discovery** *ou* **E3.5 Sidecar Testes run** | Escolher: Embarcadero vs companion útil |
+| 1 | **E4.3 C++** — ver próximos passos abaixo | Sprint F escolhido |
 | 2 | E1.9 coverage polish (Prev/Next, E1.9l WebView…) | Não urgente |
-| 3 | E1.10 Passive View | Débito |
-| 4 | Sidecar Settings + polish HTTP/Traces/Logs | Companion |
+| 3 | E3.5 Sidecar Testes run (árvore some) | Companion; depois do smoke C++ |
+| 4 | E1.10 Passive View | Débito |
 
 ## Hold
 
 - E1.9l WebView2 coverage in-IDE — depois  
-- Não exagerar claims Sidecar na conversa Embarcadero  
+- Não exagerar claims Sidecar / C++ “pronto” na conversa Embarcadero  
+- Expert Sidecar (`DEXT_ENABLE_SIDECAR_EXPERT`) off até SPA estável  
 
-## Próxima ação
+## Próxima ação (Sprint F)
 
-DoD Explorer **fechado**. Decidir Sprint F: C++ discovery (pitch Embarcadero) vs corrigir Sidecar aba Testes (E3.5).
+Discovery C++ **fechado** (estratégia). Ver [Cpp-Discovery](Dext-Testing-Cpp-Discovery.md).
+
+Quando retomar implementação: (1) smoke DUnit + BPL personalidade C++; (2) ponte C++ HTTP (GTest + DUnit C++); (3) depois coverage/Sonar C++.

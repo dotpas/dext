@@ -159,13 +159,8 @@ begin
   Result := cSidecarExeName;
   SetLength(Paths, 0);
 
-  // Known repo layout
-  TryAddSidecarCandidate('C:\dev\Dext\DextRepository\Apps\Sidecar\' + cSidecarExeName, Paths);
-  TryAddSidecarCandidate('C:\dev\Dext\DextRepository\Apps\Sidecar\Win32\Debug\' + cSidecarExeName, Paths);
-  TryAddSidecarCandidate('C:\dev\Dext\DextRepository\Apps\Sidecar\Win32\Release\' + cSidecarExeName, Paths);
-  TryAddSidecarCandidate('C:\dev\Dext\DextRepository\Output\' + cSidecarExeName, Paths);
+  // Walk up from active project / project group (no machine-absolute paths)
 
-  // Walk up from active project / project group
   ProjDir := '';
   if Assigned(BorlandIDEServices) and Supports(BorlandIDEServices, IOTAModuleServices, ModServices) then
   begin

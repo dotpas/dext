@@ -37,7 +37,7 @@
 
 1. **Test Explorer** — estabilizar UX, coverage **visual** na IDE (gutter/polish), async/cancel, mensagens claras.  
 2. **Catálogo + este roadmap** — pacote de contato (já em curso).  
-3. **Capítulo livro (bookshelf): Cap. 18b** — `Docs/dext-developer-bookshelf/dext-testing-book-pt/18b_…` (já redigido; polish se preciso).  
+3. **Demo não-Dext** — sample `Tests/Samples/Cap18b.LegacyDUnitX` + [roteiro](Dext-Testing-Cap18b-Explorer-Demo.md).  
 4. **Coverage** — CLI já entrega; foco = experiência IDE (não reinventar motor).
 
 ### P1 — Em paralelo (não bloqueia livro)
@@ -91,7 +91,7 @@
 - [x] Catálogo v1 com maturidade honesta  
 - [x] Este roadmap + pitch one-pager  
 - [ ] Explorer: coverage gutter usável na demo sem surpresas  
-- [x] Cap. 18b no livro de publicação (`dext-testing-book-pt`) — redigido; polish Fase 5 se necessário  
+- [x] Sample Cap18b + roteiro Explorer (não-Dext / DUnitX)  
 
 - [ ] C++: discovery notes prontas (Expert = Planned, sem overclaim)  
 - [ ] Sidecar: não precisa estar “produto completo” no primeiro contato  
