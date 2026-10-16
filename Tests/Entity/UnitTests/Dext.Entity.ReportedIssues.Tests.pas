@@ -296,6 +296,8 @@ begin
   EanValue := 7898040321642; 
   MaxInt64Value := 9223372036854775807;
   NullableEan := EanValue;
+  // Nullable<Int64> has no managed fields, so a local is NOT zero-initialized
+  EmptyNullable.Clear;
 
   Conn := TFDConnection.Create(nil);
   try

@@ -29,6 +29,34 @@ Permite que tipos primitivos como `Integer` ou `Boolean` aceitem valores nulos d
 property Age: Nullable<Integer>;
 ```
 
+> **Atenção:** uma variável **local** `Nullable<T>` não começa necessariamente nula.
+
+O Delphi só zera variáveis locais de records que possuem campos gerenciados
+(`string`, interfaces, arrays dinâmicos...). O `Nullable<T>` guarda seu estado
+em um `Boolean` simples; então, para `T` = `Integer`, `Int64`, `Double`,
+`TDateTime` etc., o record não tem conteúdo gerenciado e a variável local
+começa com **o lixo que estava na pilha**. Ela pode indicar `HasValue = True`
+com um valor aleatório. `Nullable<string>` é seguro, pois a `string` força a
+inicialização.
+
+```pascal
+var
+  Ean: Nullable<Int64>;   // local: estado indefinido!
+begin
+  Ean.Clear;              // sempre inicialize explicitamente
+  // ou: Ean := Default(Nullable<Int64>);
+  if Ean.IsNull then ...
+end;
+```
+
+- Afeta apenas **variáveis locais**. Campos de classe, variáveis globais e
+  objetos no heap (incluindo entidades do ORM) são zerados e são seguros.
+- Regra: chame `Clear` (ou atribua `Default(...)`) antes de ler um
+  `Nullable<T>` local que não recebeu valor.
+- Uma correção no framework está planejada (spec S76): um
+  `class operator Initialize` para Delphi 10.4+. Compiladores mais antigos
+  continuarão precisando do `Clear` explícito.
+
 ### Smart Properties (Prop<T>)
 Usado para definir propriedades de Entidade que permitem construção de queries fluentes e verificação em tempo de compilação.
 
