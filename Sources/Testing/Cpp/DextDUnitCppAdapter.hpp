@@ -24,6 +24,7 @@
  */
 
 #include "DextTestingHost.hpp"
+#include "DextReportWriter.hpp"
 #include "DextMapResolve.hpp"
 
 #include <TestFramework.hpp>
@@ -102,6 +103,7 @@ public:
 
   void TestingEnds()
   {
+    ReportSink::Instance().Write();
     if (Ok()) FHost->PostFinished();
   }
 
@@ -125,9 +127,11 @@ public:
 
   void Passed(const std::string& fixture, const std::string& testName, int durationMs = 0)
   {
-    if (!Ok() || !Selected(fixture, testName)) return;
+    if (!Selected(fixture, testName)) return;
     if (IsDUnitRegistryRootName(fixture) || IsDUnitRegistryRootName(testName))
       return;
+    ReportSink::Instance().Add(fixture, testName, ReportStatus::Passed, "", "", durationMs);
+    if (!Ok()) return;
     FHost->PostResultsJson(HostClient::MakeResultJson(
       "Passed", fixture, testName, testName, "", "", durationMs));
   }
@@ -135,9 +139,11 @@ public:
   void Failed(const std::string& fixture, const std::string& testName,
     const std::string& message, int durationMs = 0, const std::string& stackTrace = "")
   {
-    if (!Ok() || !Selected(fixture, testName)) return;
+    if (!Selected(fixture, testName)) return;
     if (IsDUnitRegistryRootName(fixture) || IsDUnitRegistryRootName(testName))
       return;
+    ReportSink::Instance().Add(fixture, testName, ReportStatus::Failed, message, stackTrace, durationMs);
+    if (!Ok()) return;
     FHost->PostResultsJson(HostClient::MakeResultJson(
       "Failed", fixture, testName, testName, "", message, durationMs, stackTrace));
   }
@@ -145,9 +151,11 @@ public:
   void Error(const std::string& fixture, const std::string& testName,
     const std::string& message, int durationMs = 0, const std::string& stackTrace = "")
   {
-    if (!Ok() || !Selected(fixture, testName)) return;
+    if (!Selected(fixture, testName)) return;
     if (IsDUnitRegistryRootName(fixture) || IsDUnitRegistryRootName(testName))
       return;
+    ReportSink::Instance().Add(fixture, testName, ReportStatus::Error, message, stackTrace, durationMs);
+    if (!Ok()) return;
     FHost->PostResultsJson(HostClient::MakeResultJson(
       "Error", fixture, testName, testName, "", message, durationMs, stackTrace));
   }
@@ -460,18 +468,31 @@ inline void RegisterDunitTestCase(const System::UnicodeString& suiteName)
  * --port N [--discover] [-no-wait]
  * Without --port: plain TextTestRunner (console).
  */
+inline int RunDextDUnitWithListener(const std::shared_ptr<DextDUnitReporter>& rep)
+{
+  TDextDUnitListener* listenerObj = new TDextDUnitListener(rep);
+  Testframework::_di_ITestListener listeners[1];
+  listeners[0] = static_cast<Texttestrunner::TTextTestListener&>(*listenerObj);
+  Testframework::TTestResult* r =
+    Testframework::RunRegisteredTests(listeners, 0);
+  if (!r) return 1;
+  return (r->WasSuccessful()) ? 0 : 1;
+}
+
 inline int RunDextDUnit(int argc, char** argv)
 {
+  ReportSink::CaptureArgv(argc, argv);
   int port = 0;
-  if (!ParsePortFromArgv(argc, argv, port)) {
+  const bool hasPort = ParsePortFromArgv(argc, argv, port);
+  if (!hasPort && !ReportSink::Instance().Enabled()) {
     Testframework::TTestResult* r =
       Texttestrunner::RunRegisteredTests(Texttestrunner::rxbContinue);
     if (!r) return 1;
     return (r->WasSuccessful()) ? 0 : 1;
   }
 
-  auto rep = std::make_shared<DextDUnitReporter>(port);
-  if (!rep->Ok()) {
+  auto rep = std::make_shared<DextDUnitReporter>(hasPort ? port : 0);
+  if (hasPort && !rep->Ok() && !ReportSink::Instance().Enabled()) {
     Texttestrunner::RunRegisteredTests(Texttestrunner::rxbContinue);
     return 2;
   }
@@ -479,15 +500,7 @@ inline int RunDextDUnit(int argc, char** argv)
   if (HasArgvFlag(argc, argv, "--discover") || HasArgvFlag(argc, argv, "-discover"))
     return DiscoverRegisteredTests(rep);
 
-  { /* _di_ITestListener::operator& returns ITestListener** — never pass &intf to RunRegisteredTests. */
-    TDextDUnitListener* listenerObj = new TDextDUnitListener(rep);
-    Testframework::_di_ITestListener listeners[1];
-    listeners[0] = static_cast<Texttestrunner::TTextTestListener&>(*listenerObj);
-    Testframework::TTestResult* r =
-      Testframework::RunRegisteredTests(listeners, 0);
-    if (!r) return 1;
-    return (r->WasSuccessful()) ? 0 : 1;
-  }
+  return RunDextDUnitWithListener(rep);
 }
 
 } // namespace Testing

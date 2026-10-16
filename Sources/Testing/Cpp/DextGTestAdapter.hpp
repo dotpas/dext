@@ -20,6 +20,7 @@
 
 #include "DextTestingHost.hpp"
 #include "DextMapResolve.hpp"
+#include "DextReportWriter.hpp"
 
 /* bcc32c W6759: GTest puts [[maybe_unused]] on sites Clang-Embarcadero rejects.
    Leave ignored for the rest of the TU (covers later TEST() expansions). */
@@ -149,7 +150,6 @@ public:
 
   void OnTestEnd(const ::testing::TestInfo& info) override
   {
-    if (!FHost || !FHost->Ok()) return;
     if (!Selected(info)) return;
     auto ms = static_cast<int>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -161,6 +161,10 @@ public:
       type = "Failed";
     const std::string unit = (!FAssertFile.empty() && FFailed) ? FAssertFile : FileName(info);
     const int line = (FAssertLine > 0 && FFailed) ? FAssertLine : LineNumber(info);
+    ReportSink::Instance().Add(SuiteName(info), TestName(info),
+      ReportStatusFromType(type), FMessage, FStack, ms, unit);
+    if (!FHost || !FHost->Ok()) return;
+    if (!Selected(info)) return;
     if (FFailed || (type && type[0] == 'F')) {
       StackDiagLogf("OnTestEnd: POST Failed %s.%s stackChars=%u line=%d unit=%s",
         SuiteName(info).c_str(), TestName(info).c_str(),
@@ -186,6 +190,7 @@ public:
   {
     if (FHost && FHost->Ok())
       FHost->PostFinished();
+    ReportSink::Instance().Write();
   }
 
   void PrepareSelection() { LoadSelection(); }
@@ -277,11 +282,14 @@ inline int DiscoverGTests(const std::shared_ptr<HostClient>& host)
  */
 inline int RunDextGTest(int argc, char** argv)
 {
+  ReportSink::CaptureArgv(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
 
   int port = 0;
   if (!ParsePortFromArgv(argc, argv, port)) {
     StackDiagRunBanner("RunDextGTest/console");
+    auto* listener = new DextGTestListener(std::shared_ptr<HostClient>());
+    ::testing::UnitTest::GetInstance()->listeners().Append(listener);
     return RUN_ALL_TESTS();
   }
 

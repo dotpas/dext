@@ -52,7 +52,7 @@
         <GenDll>true</GenDll>
         <SanitizedProjectName>Dext_Testing_Design_ExpertLib</SanitizedProjectName>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <DCC_UnitSearchPath>..\..\Sources\Testing\Design;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\Sources\Testing\Design;..\..\Sources\Testing;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>

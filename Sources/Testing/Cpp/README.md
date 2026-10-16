@@ -30,6 +30,14 @@ int main(int argc, char** argv) {
 | Refresh | `--port N --discover -no-wait` |
 | Run | `--port N -no-wait` |
 
+The same executable writes the Delphi report files when you pass the switches the Delphi runner already understands:
+
+```text
+MyTests.exe -junit:test-results.xml -json:test-results.json -html:test-results.html -sonar:sonar-tests.xml
+```
+
+JUnit, JSON and Sonar (`testExecutions`) follow `Dext.Testing.Report`. HTML is a table of those same rows. This works with or without `--port`.
+
 Sample: `Tests/Samples/Cpp.GTestSmoke`.
 
 ## DUnit C++

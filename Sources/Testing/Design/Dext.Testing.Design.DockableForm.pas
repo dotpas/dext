@@ -2870,6 +2870,7 @@ var
   Key: string;
   Parts: TArray<string>;
   SonarReporter: TSonarQubeReporter;
+  ResolvedPath: string;
   SuiteName: string;
   TestDetailInfo: TTestDetailInfo;
   TestInfo: Dext.Testing.Integration.TTestInfo;
@@ -3009,6 +3010,13 @@ begin
           TestInfo.TestName := TestDetailInfo.TestName;
         end;
         TestInfo.DisplayName := TestDetailInfo.TestName;
+        TestInfo.UnitName := TestDetailInfo.FileName;
+        if (TestInfo.UnitName <> '') and not TPath.IsPathRooted(TestInfo.UnitName) then
+        begin
+          ResolvedPath := FindUnitFileByName(TestInfo.UnitName);
+          if ResolvedPath <> '' then
+            TestInfo.UnitName := ResolvedPath;
+        end;
         if SameText(TestDetailInfo.Status, 'Passed') then TestInfo.Result := trPassed
         else if SameText(TestDetailInfo.Status, 'Failed') or SameText(TestDetailInfo.Status, 'Error') then TestInfo.Result := trFailed
         else if SameText(TestDetailInfo.Status, 'Skipped') then TestInfo.Result := trSkipped
