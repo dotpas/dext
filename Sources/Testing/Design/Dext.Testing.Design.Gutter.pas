@@ -23,8 +23,7 @@ begin
   begin
     FKeyboardBindingIndex := LKeyboardServices.AddKeyboardBinding(TDextKeyboardBinding.Create);
   end;
-
-  TCoverageManager.GetInstance.RefreshActiveViews;
+  { No RefreshActiveViews at register — keep IDE file-open path clean. }
 end;
 
 procedure UnregisterGutterVisualizer;

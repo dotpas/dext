@@ -220,6 +220,18 @@ begin
   Result := False;
   AFailureHint := '';
   FillChar(Prep, SizeOf(Prep), 0);
+
+  { DelphiCodeCoverage is Delphi/MAP only. Wrapping a .cbproj exe exits in ms
+    without posting Host results — Run All looks empty. Soft-skip and run bare. }
+  if SameText(ExtractFileExt(ProjectFile), '.cbproj') then
+  begin
+    AFailureHint :=
+      'Coverage skipped: DelphiCodeCoverage does not support C++Builder yet. Tests run without wrap.';
+    if Assigned(ALog) then
+      ALog(AFailureHint);
+    Exit;
+  end;
+
   if not EnsureTool(PlatformName, Prep.ToolExe, ALog) then
   begin
     AFailureHint :=

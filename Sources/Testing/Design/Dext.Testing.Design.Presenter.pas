@@ -11,6 +11,7 @@ uses
   Winapi.Windows,
   Dext.Testing.Design.Server,
   Dext.Testing.Design.AST,
+  Dext.Testing.Design.ProjectKinds,
   Dext.Testing.Integration;
 
 type
@@ -291,6 +292,15 @@ begin
   Result := False;
   if not FileExists(AProjFile) then Exit;
 
+  if SameText(ExtractFileExt(AProjFile), '.cbproj') then
+  begin
+    SafeConsole(AOnConsole, 'Compiling C++Builder project via IDE: ' + ExtractFileName(AProjFile));
+    Result := CompileProjectViaOTA(AProjFile);
+    if not Result then
+      SafeConsole(AOnConsole, 'Error: C++Builder compile failed (IOTAProjectBuilder).');
+    Exit;
+  end;
+
   WorkDir := ExtractFilePath(AProjFile);
   ProjName := TPath.GetFileNameWithoutExtension(AProjFile);
   DprFile := TPath.Combine(WorkDir, ProjName + '.dpr');
@@ -426,11 +436,43 @@ var
   LOutStart, LOutEnd: Integer;
   LBaseGroupStart, LBaseGroupEnd: Integer;
   LBaseGroup: string;
+  LIsCpp: Boolean;
+
+  function ReadOutDirFromGroup(const AGroup, ATagOpen, ATagClose: string): string;
+  begin
+    Result := '';
+    LOutStart := AGroup.IndexOf(ATagOpen);
+    if LOutStart < 0 then
+      Exit;
+    Inc(LOutStart, Length(ATagOpen));
+    LOutEnd := AGroup.IndexOf(ATagClose, LOutStart);
+    if LOutEnd > LOutStart then
+      Result := AGroup.Substring(LOutStart, LOutEnd - LOutStart).Trim;
+  end;
+
+  function ReadOutDirFromGroupAny(const AGroup: string): string;
+  begin
+    { C++Builder uses FinalOutputDir; Delphi uses DCC_ExeOutput. }
+    if LIsCpp then
+    begin
+      Result := ReadOutDirFromGroup(AGroup, '<FinalOutputDir>', '</FinalOutputDir>');
+      if Result = '' then
+        Result := ReadOutDirFromGroup(AGroup, '<DCC_ExeOutput>', '</DCC_ExeOutput>');
+    end
+    else
+    begin
+      Result := ReadOutDirFromGroup(AGroup, '<DCC_ExeOutput>', '</DCC_ExeOutput>');
+      if Result = '' then
+        Result := ReadOutDirFromGroup(AGroup, '<FinalOutputDir>', '</FinalOutputDir>');
+    end;
+  end;
+
 begin
   Result := False;
   AIsPackage := False;
   AOutput := '';
   if not FileExists(AProjFile) then Exit;
+  LIsCpp := SameText(ExtractFileExt(AProjFile), '.cbproj');
   try
     LContent := TFile.ReadAllText(AProjFile);
     AIsPackage := LContent.Contains('<AppType>Package</AppType>');
@@ -450,14 +492,7 @@ begin
         if LPlatformGroupEnd > LPlatformGroupStart then
         begin
           LPlatformGroup := LContent.Substring(LPlatformGroupStart, LPlatformGroupEnd - LPlatformGroupStart);
-          LOutStart := LPlatformGroup.IndexOf('<DCC_ExeOutput>');
-          if LOutStart >= 0 then
-          begin
-            Inc(LOutStart, Length('<DCC_ExeOutput>'));
-            LOutEnd := LPlatformGroup.IndexOf('</DCC_ExeOutput>', LOutStart);
-            if LOutEnd > LOutStart then
-              AOutput := LPlatformGroup.Substring(LOutStart, LOutEnd - LOutStart).Trim;
-          end;
+          AOutput := ReadOutDirFromGroupAny(LPlatformGroup);
         end;
       end;
     end;
@@ -475,22 +510,28 @@ begin
           if LBaseGroupEnd > LBaseGroupStart then
           begin
             LBaseGroup := LContent.Substring(LBaseGroupStart, LBaseGroupEnd - LBaseGroupStart);
-            LOutStart := LBaseGroup.IndexOf('<DCC_ExeOutput>');
-            if LOutStart >= 0 then
-            begin
-              Inc(LOutStart, Length('<DCC_ExeOutput>'));
-              LOutEnd := LBaseGroup.IndexOf('</DCC_ExeOutput>', LOutStart);
-              if LOutEnd > LOutStart then
-                AOutput := LBaseGroup.Substring(LOutStart, LOutEnd - LOutStart).Trim;
-            end;
+            AOutput := ReadOutDirFromGroupAny(LBaseGroup);
           end;
         end;
       end;
     end;
 
-    // 3. Fallback
+    // 3. Fallback tags anywhere in the file
     if AOutput = '' then
-      AOutput := ExtractTagValue(LContent, 'DCC_ExeOutput');
+    begin
+      if LIsCpp then
+      begin
+        AOutput := ExtractTagValue(LContent, 'FinalOutputDir');
+        if AOutput = '' then
+          AOutput := ExtractTagValue(LContent, 'DCC_ExeOutput');
+      end
+      else
+      begin
+        AOutput := ExtractTagValue(LContent, 'DCC_ExeOutput');
+        if AOutput = '' then
+          AOutput := ExtractTagValue(LContent, 'FinalOutputDir');
+      end;
+    end;
 
     Result := True;
   except
@@ -525,7 +566,12 @@ begin
       List := TList<TTestLocation>.Create;
       try
         ProjectDirectory := ExtractFilePath(AProjFile);
-        if TDirectory.Exists(ProjectDirectory) then
+        { C++: no AST scanner yet — tree stays empty until Run posts Host results (or a future GTest/DUnit scan). }
+        if SameText(ExtractFileExt(AProjFile), '.cbproj') then
+        begin
+          // intentionally empty List
+        end
+        else if TDirectory.Exists(ProjectDirectory) then
         begin
           for FileName in TDirectory.GetFiles(ProjectDirectory, '*.pas', TSearchOption.soAllDirectories) do
           begin

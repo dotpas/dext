@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{0F40EAA7-A02D-4B6C-A9E7-9DAFF10878E7}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="DextDUnitSmokeTestsP">
+        <MSBuild Projects="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj"/>
+    </Target>
+    <Target Name="DextDUnitSmokeTestsP:Clean">
+        <MSBuild Projects="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj" Targets="Clean"/>
+    </Target>
+    <Target Name="DextDUnitSmokeTestsP:Make">
+        <MSBuild Projects="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj" Targets="Make"/>
+    </Target>
+    <Target Name="DextGTestSmokeTestsP">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj"/>
+    </Target>
+    <Target Name="DextGTestSmokeTestsP:Clean">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj" Targets="Clean"/>
+    </Target>
+    <Target Name="DextGTestSmokeTestsP:Make">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="DextDUnitSmokeTestsP;DextGTestSmokeTestsP"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="DextDUnitSmokeTestsP:Clean;DextGTestSmokeTestsP:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="DextDUnitSmokeTestsP:Make;DextGTestSmokeTestsP:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

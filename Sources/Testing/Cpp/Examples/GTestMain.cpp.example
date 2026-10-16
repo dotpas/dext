@@ -1,0 +1,14 @@
+// Example C++Builder Google Test MainSource + Dext Explorer.
+// Prefer RunDextGTest (--port / --discover). GetIt Google Test on include/lib path.
+// Link with Dynamic RTL = True; Delphi RTL = False (GetIt gtest.lib).
+// MainSource: #pragma hdrstop only (no System.hpp when Delphi RTL is off).
+// Put TEST() in other .cpp units — MainSource is awkward to open in the IDE.
+
+#pragma hdrstop
+
+#include "DextGTestAdapter.hpp"
+
+#pragma argsused
+int main(int argc, char* argv[]) {
+  return Dext::Testing::RunDextGTest(argc, argv);
+}

@@ -12,13 +12,39 @@
 | Runners C++ | **Google Test** (produto) + **DUnit C++** (legado Embarcadero; poucos usam) |
 | DUnitX / Catch / … | **DUnitX não** (RTTI Delphi). Catch/doctest depois, se houver demanda |
 | `Dext.Testing` (runtime package) | **Sem** interop C++ — sem gerar `.hpp`, sem build “headers for C++”, sem misturar RTL no exe C++ |
-| Design BPL | Mesmo `Dext.Testing.Design.bpl` + `CPlusPlusBuilder.Personality` |
+| Expert na IDE | **Ship alvo = DLL** (`INITWIZARD0001` / chave `Experts`) + instalador — ver § Empacotamento |
+| Dev do framework (repo Dext) | BPL `Dext.Testing.Design` continua ok para desenvolvimento interno |
 | IPC | Exe C++ puro → protocolo Host (`--port` real; research 2 = *forma*) |
 | **Aberto** | Coverage C++ (LLVM?) + relatórios CI (Sonar etc.) — ver § Lacuna |
 
 **Fechado em discovery (2026-10):** produto = Explorer + adapters C++ (GTest/DUnit); sem `Dext.Testing` runtime/interop; ponte C++ própria (HTTP Host), não as units Delphi.
 
-**Objetivo Sprint F (implementação):** smoke DUnit + BPL na personalidade C++; gaps `.cbproj`; spike ponte C++ (GTest + DUnit C++) ↔ Host real.
+### Empacotamento do Expert — BPL (hoje) vs DLL (ship)
+
+| | **BPL design-only** (hoje) | **DLL Expert** (alvo de distribuição) |
+|--|----------------------------|----------------------------------------|
+| Projeto | `Dext.Testing.Design.dpk` / `Register` | Library Delphi + `exports InitWizard name WizardEntryPoint` |
+| Carga | Install Packages / GetIt `InstallIDEPackage` | Registro `HKCU\Software\Embarcadero\BDS\<ver>\Experts` (ou instalador que escreve isso) |
+| Personalidades | Instalar para Delphi **e** `CPlusPlusBuilder.Personality` | Mesmo `bds.exe` — DLL carregada pela IDE; código filtra `Personality` |
+| Dev C++ | Precisa do ecossistema de packages Dext (ou GetIt completo) | **Instalador isolado** — não clona o repo Delphi só para ter o Explorer |
+| Rebuild `Dext.inc` / packages | IDE **desinstala** o Expert BPL → reinstall manual | Expert **isolado** da árvore de packages do usuário — não some no rebuild |
+
+**Por que DLL importa (Cesar):** (1) usuário C++Builder não deve baixar o monorepo Dext para compilar o Expert; (2) quem customiza `Dext.inc` e recompila packages não pode perder o Explorer a cada build.
+
+**Multi-personalidade** continua sendo: mesmo binário Expert + filtrar `.dproj`/`.cbproj` — a DLL não “vira C++”; só muda o **veículo de instalação**.
+
+**Deps na DLL:** `UsePackage = rtl;vcl;designide` (packages da IDE). Código Dext entra **na DLL** — instalador não leva `Dext.*.bpl`. Continua amarrado à versão do `bds.exe`.
+
+**Código entregue:**
+
+| Item | Path |
+|------|------|
+| `.cbproj` / personalidade / OTA compile | `Sources/Testing/Design/Dext.Testing.Design.ProjectKinds.pas` |
+| Expert DLL | `Apps/TestExplorerExpert/` |
+| Instalador registro Experts | `Installers/DextTestExplorer/` |
+| Ponte C++ HTTP + GTest + DUnit reporter | `Sources/Testing/Cpp/` |
+
+**Validar na sua máquina:** rebuild Design BPL; build ExpertLib + install script; GTest com include `Sources/Testing/Cpp`.
 
 ---
 

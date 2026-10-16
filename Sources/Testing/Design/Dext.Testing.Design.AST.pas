@@ -20,6 +20,8 @@ type
   public
     class function ScanFile(const AFileName: string; out ATests: TList<TTestLocation>): Boolean; overload;
     class function ScanText(const AText: string; out ATests: TList<TTestLocation>): Boolean; overload;
+    /// <summary>C++: DUnit TTestCase + Google Test TEST/TEST_F/TEST_P.</summary>
+    class function ScanCppText(const AText: string; out ATests: TList<TTestLocation>): Boolean;
   end;
 
 implementation
@@ -28,6 +30,7 @@ implementation
 
 class function TTestASTScanner.ScanFile(const AFileName: string; out ATests: TList<TTestLocation>): Boolean;
 var
+  Ext: string;
   FileContent: string;
   Stream: TStringList;
   i: Integer;
@@ -43,7 +46,11 @@ begin
     try
       Stream.LoadFromFile(AFileName);
       FileContent := Stream.Text;
-      Result := ScanText(FileContent, ATests);
+      Ext := ExtractFileExt(AFileName);
+      if SameText(Ext, '.cpp') or SameText(Ext, '.h') or SameText(Ext, '.hpp') or SameText(Ext, '.cc') then
+        Result := ScanCppText(FileContent, ATests)
+      else
+        Result := ScanText(FileContent, ATests);
       if Result then
       begin
         for i := 0 to ATests.Count - 1 do
@@ -58,6 +65,138 @@ begin
     end;
   finally
     Stream.Free;
+  end;
+end;
+
+class function TTestASTScanner.ScanCppText(const AText: string; out ATests: TList<TTestLocation>): Boolean;
+var
+  ClassMatch: TMatch;
+  ClassRegex: TRegEx;
+  CurrentClass: string;
+  GTestMatch: TMatch;
+  GTestRegex: TRegEx;
+  ImplMatch: TMatch;
+  ImplRegex: TRegEx;
+  i: Integer;
+  InPublished: Boolean;
+  Line: string;
+  Lines: TArray<string>;
+  MethodMatch: TMatch;
+  MethodRegex: TRegEx;
+  TestLoc: TTestLocation;
+  Trimmed: string;
+
+  procedure AddLoc(const AClass, AMethod: string; ALine: Integer);
+  var
+    Existing: TTestLocation;
+    k: Integer;
+  begin
+    if (AClass = '') or (AMethod = '') then
+      Exit;
+    for k := 0 to ATests.Count - 1 do
+    begin
+      Existing := ATests[k];
+      if SameText(Existing.ClassName, AClass) and SameText(Existing.MethodName, AMethod) then
+      begin
+        { Prefer .cpp implementation line over .h declaration when re-scanned. }
+        if ALine > Existing.Line then
+        begin
+          Existing.Line := ALine;
+          ATests[k] := Existing;
+        end;
+        Exit;
+      end;
+    end;
+    TestLoc.ClassName := AClass;
+    TestLoc.MethodName := AMethod;
+    TestLoc.Line := ALine;
+    TestLoc.FileName := '';
+    ATests.Add(TestLoc);
+    Result := True;
+  end;
+
+begin
+  Result := False;
+  if not Assigned(ATests) then
+    ATests := TList<TTestLocation>.Create;
+
+  { class TFoo : public TTestCase }
+  ClassRegex := TRegEx.Create(
+    '^\s*class\s+(\w+)\s*:\s*public\s+TTestCase\b', [roIgnoreCase]);
+  { declaration in __published: void __fastcall TestFoo(); }
+  MethodRegex := TRegEx.Create(
+    '^\s*(?:void\s+)?(?:__fastcall\s+)?(Test\w+)\s*\(', [roIgnoreCase]);
+  { implementation: void __fastcall TFoo::TestFoo() }
+  ImplRegex := TRegEx.Create(
+    '^\s*(?:void\s+)?(?:__fastcall\s+)?(\w+)::(Test\w+)\s*\(', [roIgnoreCase]);
+  { Google Test: TEST(Suite, Name) / TEST_F / TEST_P }
+  GTestRegex := TRegEx.Create(
+    '^\s*TEST(?:_F|_P)?\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)', []);
+
+  CurrentClass := '';
+  InPublished := False;
+  Lines := AText.Split([#10]);
+  for i := 0 to Length(Lines) - 1 do
+  begin
+    Line := Lines[i];
+    Trimmed := Line.Trim;
+    if Trimmed = '' then
+      Continue;
+    if (Length(Trimmed) > 0) and (Trimmed[Length(Trimmed)] = #13) then
+      Trimmed := Trimmed.TrimRight([#13]);
+    if Trimmed = '' then
+      Continue;
+
+    GTestMatch := GTestRegex.Match(Trimmed);
+    if GTestMatch.Success then
+    begin
+      AddLoc(GTestMatch.Groups[1].Value, GTestMatch.Groups[2].Value, i + 1);
+      Continue;
+    end;
+
+    ImplMatch := ImplRegex.Match(Trimmed);
+    if ImplMatch.Success then
+    begin
+      AddLoc(ImplMatch.Groups[1].Value, ImplMatch.Groups[2].Value, i + 1);
+      Continue;
+    end;
+
+    ClassMatch := ClassRegex.Match(Trimmed);
+    if ClassMatch.Success then
+    begin
+      CurrentClass := ClassMatch.Groups[1].Value;
+      InPublished := False;
+      Continue;
+    end;
+
+    if CurrentClass = '' then
+      Continue;
+
+    if Trimmed.StartsWith('__published') then
+    begin
+      InPublished := True;
+      Continue;
+    end;
+    if SameText(Trimmed, 'public:') or SameText(Trimmed, 'private:') or
+       SameText(Trimmed, 'protected:') or SameText(Trimmed, 'public') or
+       SameText(Trimmed, 'private') or SameText(Trimmed, 'protected') then
+    begin
+      InPublished := False;
+      Continue;
+    end;
+    if Trimmed = '};' then
+    begin
+      CurrentClass := '';
+      InPublished := False;
+      Continue;
+    end;
+
+    if not InPublished then
+      Continue;
+
+    MethodMatch := MethodRegex.Match(Trimmed);
+    if MethodMatch.Success then
+      AddLoc(CurrentClass, MethodMatch.Groups[1].Value, i + 1);
   end;
 end;
 

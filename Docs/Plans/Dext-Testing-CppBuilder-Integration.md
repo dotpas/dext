@@ -8,6 +8,10 @@ A arquitetura do Dext Test Explorer adota um modelo de execução desacoplado2. 
 O suporte estendido a frameworks legados na linguagem Delphi — como DUnit, DUnitX e DUnit2 — é viabilizado por meio do padrão *Adapter*2. O projeto de teste inclui a unidade Dext.Testing.Integration e intercepta a inicialização da linha de comando com a instrução TTestRunnerRegistry.TryExecuteFromCommandLine2. Se a IDE invocar o executável com parâmetros de comunicação do Dext, o interceptador assume o controle, executa os testes e reporta os resultados para o painel visual da IDE2.  
 A expansão dessa infraestrutura para a personalidade **C++Builder** (sCppBuilderPersonality) exige mapear o ecossistema de testes unitários C++, adaptar o Expert escrito em Delphi para reconhecer projetos C++ e construir uma ponte de interoperabilidade nativa em C++.
 
+### Nota do smoke GetIt (Cpp.GTestSmoke)
+
+No sample `Tests/Samples/Cpp.GTestSmoke` (Dynamic RTL + Delphi RTL = False para `gtest.lib`), o **MainSource** (`SmokeGTestMain.cpp`) frequentemente **não abre** no editor da IDE; unidades irmãs (`SmokeGTestSuite.cpp`, `SmokeGTestDeep.cpp`) abrem e o click-to-code do Explorer funciona. Comportamento aceito e documentado no README do sample — editar testes nas unidades de suite, não no MainSource.
+
 ## **Ecossistema de Testes Unitários no C++Builder**
 
 Para fundamentar a estratégia de integração do Dext na personalidade C++Builder, é necessário analisar os frameworks de teste utilizados por desenvolvedores C++ no RAD Studio. Ao contrário do Delphi, onde o DUnitX e o DUnit constituem os padrões históricos predominantemente adotados, o ecossistema C++Builder apresenta uma coexistência entre invólucros C++ legados e bibliotecas C++ modernas multiplataforma3.

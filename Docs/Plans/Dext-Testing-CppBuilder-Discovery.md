@@ -1,7 +1,8 @@
 # Estratégia de Produto e Arquitetura: Dext Testing no C++Builder
 
 > **Status:** deep research 2 (input). Decisões operacionais: [Dext-Testing-Cpp-Discovery.md](Dext-Testing-Cpp-Discovery.md).  
-> **Atenção:** §5.2 inventa flags `--dext-host` / `--dext-port` e JSON de exemplo. O Explorer Delphi hoje usa `--port N -no-wait` + protocolo do Host — alinhar o adapter ao contrato **real** antes de implementar.
+> **Atenção:** §5.2 inventa flags `--dext-host` / `--dext-port` e JSON de exemplo. O Explorer Delphi hoje usa `--port N -no-wait` + protocolo do Host — alinhar o adapter ao contrato **real** antes de implementar.  
+> **Ship (pós-research):** Expert distribuído como **DLL** + instalador (não só BPL) — C++ sem monorepo; isolamento quando o usuário recompila packages Dext. Ver Cpp-Discovery § Empacotamento.
 
 ## Pergunta Central de Produto: Qual o melhor caminho?
 

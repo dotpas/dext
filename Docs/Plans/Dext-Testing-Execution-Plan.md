@@ -112,4 +112,7 @@ Sprint G:    E1.9 restante coverage polish  |  Sidecar E3.5           depois
 
 Discovery C++ **fechado** (estratégia). Ver [Cpp-Discovery](Dext-Testing-Cpp-Discovery.md).
 
-Quando retomar implementação: (1) smoke DUnit + BPL personalidade C++; (2) ponte C++ HTTP (GTest + DUnit C++); (3) depois coverage/Sonar C++.
+**Ship Expert:** DLL com `rtl;vcl;designide` + Dext linkado na DLL + instalador. BPL só para dev interno.
+
+**Em código:** personalidade/`.cbproj`, Expert DLL + instalador, ponte C++ (`Sources/Testing/Cpp`).  
+**Validar:** rebuild Design BPL; build/register DLL; GTest `--port`. Coverage/Sonar C++ depois.

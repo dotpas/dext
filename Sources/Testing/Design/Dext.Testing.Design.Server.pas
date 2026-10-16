@@ -63,14 +63,26 @@ type
 procedure BeginTestingDesignShutdown;
 function IsTestingDesignShuttingDown: Boolean;
 
+{ Master switch — when False, Expert must not touch IDE open/save/compile/notifiers. }
+type
+  TDextEnabledChangedProc = procedure(AEnabled: Boolean);
+
+function IsDextTestExplorerEnabled: Boolean;
+procedure SetDextTestExplorerEnabled(AValue: Boolean);
+procedure LoadDextTestExplorerEnabledFromIni;
+procedure SetDextEnabledChangedHook(AHook: TDextEnabledChangedProc);
+
 implementation
 
 uses
-  System.IOUtils;
+  System.IOUtils,
+  System.IniFiles;
 
 var
   LServerLogLock: TObject = nil;
   GTestingDesignShuttingDown: Boolean = False;
+  GDextTestExplorerEnabled: Boolean = True;
+  GDextEnabledChangedHook: TDextEnabledChangedProc = nil;
 
 procedure BeginTestingDesignShutdown;
 begin
@@ -83,6 +95,49 @@ end;
 function IsTestingDesignShuttingDown: Boolean;
 begin
   Result := GTestingDesignShuttingDown;
+end;
+
+function IsDextTestExplorerEnabled: Boolean;
+begin
+  Result := GDextTestExplorerEnabled and not GTestingDesignShuttingDown;
+end;
+
+procedure SetDextEnabledChangedHook(AHook: TDextEnabledChangedProc);
+begin
+  GDextEnabledChangedHook := AHook;
+end;
+
+procedure SetDextTestExplorerEnabled(AValue: Boolean);
+begin
+  if GDextTestExplorerEnabled = AValue then
+    Exit;
+  GDextTestExplorerEnabled := AValue;
+  if Assigned(GDextEnabledChangedHook) then
+  try
+    GDextEnabledChangedHook(AValue);
+  except
+  end;
+end;
+
+procedure LoadDextTestExplorerEnabledFromIni;
+var
+  Ini: TMemIniFile;
+  Path: string;
+begin
+  GDextTestExplorerEnabled := True;
+  try
+    Path := TPath.Combine(TPath.GetHomePath, 'DextTestExplorer.ini');
+    if not TFile.Exists(Path) then
+      Exit;
+    Ini := TMemIniFile.Create(Path);
+    try
+      GDextTestExplorerEnabled := Ini.ReadBool('General', 'Enabled', True);
+    finally
+      Ini.Free;
+    end;
+  except
+    GDextTestExplorerEnabled := True;
+  end;
 end;
 
 procedure LogServerDebug(const AMsg: string);

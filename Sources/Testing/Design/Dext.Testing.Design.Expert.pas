@@ -45,12 +45,15 @@ type
 
 procedure RegisterExpert;
 procedure AttachNotifiersToOpenModules;
+procedure ApplyDextTestExplorerEnabledState(AEnabled: Boolean);
 
 implementation
 
 uses
   Winapi.Windows,
   Vcl.Forms,
+  Vcl.ExtCtrls,
+  Dext.Testing.Design.ExpertTrace,
   Dext.Testing.Design.Server,
   Dext.Testing.Design.DockableForm,
   Dext.Testing.Design.Gutter,
@@ -58,14 +61,15 @@ uses
 
 procedure LogExpert(const AMsg: string);
 begin
+  ExpertTrace('[Expert] ' + AMsg);
   LogToFile('[Expert] ' + AMsg);
-  Winapi.Windows.OutputDebugString(PChar('[Dext.Expert] ' + AMsg));
 end;
 
 type
   TDextMenuHelper = class
   public
     procedure OnMenuClick(Sender: TObject);
+    procedure OnMenuWatchTimer(Sender: TObject);
   end;
 
 var
@@ -73,59 +77,122 @@ var
   FTestExplorerMenu: TMenuItem = nil;
   FMenuHelper: TDextMenuHelper = nil;
   FAttachedNotifiers: TList<TModuleNotifierInfo> = nil;
+  FMenuWatchTimer: TTimer = nil;
+  FMenuWatchTicks: Integer = 0;
 
 procedure TDextMenuHelper.OnMenuClick(Sender: TObject);
 begin
   ShowDextTestExplorer;
 end;
 
+function MenuStillAttached: Boolean;
+begin
+  Result := Assigned(FTestExplorerMenu) and (FTestExplorerMenu.Parent <> nil);
+end;
+
 procedure SetupMenus;
 var
   LNTAServices: INTAServices;
-  LMainMenu: TMainMenu;
-  LToolsMenu: TMenuItem;
-  I: Integer;
 begin
-  if Assigned(FTestExplorerMenu) then Exit;
-  LogExpert('SetupMenus: Creating menu item');
-  
-  if Supports(BorlandIDEServices, INTAServices, LNTAServices) then
+  { BPL Register runs late — LToolsMenu.Add sticks.
+    Expert DLL InitWizard runs early — IDE rebuilds Tools and wipes manual Add.
+    Use INTAServices.AddActionMenu (child of ToolsMenu) so the IDE owns the slot. }
+  if MenuStillAttached then
   begin
-    LMainMenu := LNTAServices.MainMenu;
-    if LMainMenu <> nil then
-    begin
-      LToolsMenu := nil;
-      for I := 0 to LMainMenu.Items.Count - 1 do
-      begin
-        if SameText(LMainMenu.Items[I].Name, 'ToolsMenu') or 
-           (LMainMenu.Items[I].Caption.Contains('Tools')) or
-           (LMainMenu.Items[I].Caption.Contains('Ferramentas')) then
-        begin
-          LToolsMenu := LMainMenu.Items[I];
-          Break;
-        end;
-      end;
-  
-      if LToolsMenu = nil then 
-        LToolsMenu := LMainMenu.Items[LMainMenu.Items.Count - 1];
-
-      if FMenuHelper = nil then
-        FMenuHelper := TDextMenuHelper.Create;
-
-      FTestExplorerMenu := TMenuItem.Create(LMainMenu);
-      FTestExplorerMenu.Caption := 'Dext Test Explorer';
-      FTestExplorerMenu.OnClick := FMenuHelper.OnMenuClick;
-      LToolsMenu.Add(FTestExplorerMenu);
-    end;
+    LogExpert('SetupMenus: already attached under ' + FTestExplorerMenu.Parent.Name);
+    Exit;
   end;
+
+  LogExpert('SetupMenus: Creating menu item via AddActionMenu');
+
+  if not Assigned(BorlandIDEServices) then
+  begin
+    LogExpert('SetupMenus: BorlandIDEServices is nil');
+    Exit;
+  end;
+
+  if not Supports(BorlandIDEServices, INTAServices, LNTAServices) then
+  begin
+    LogExpert('SetupMenus: INTAServices not available');
+    Exit;
+  end;
+
+  if FMenuHelper = nil then
+    FMenuHelper := TDextMenuHelper.Create;
+
+  if Assigned(FTestExplorerMenu) then
+  begin
+    { Orphaned after IDE menu rebuild — do not Free (may already be destroyed). }
+    LogExpert('SetupMenus: previous menu orphaned; creating a new item');
+    FTestExplorerMenu := nil;
+  end;
+
+  FTestExplorerMenu := TMenuItem.Create(nil);
+  FTestExplorerMenu.Name := 'DextTestExplorerMenuItem';
+  FTestExplorerMenu.Caption := 'Dext Test Explorer';
+  FTestExplorerMenu.OnClick := FMenuHelper.OnMenuClick;
+
+  { Name, Action=nil, Item, InsertAdjacent=False, InsertChild=True → under Tools. }
+  LNTAServices.AddActionMenu('ToolsMenu', nil, FTestExplorerMenu, False, True);
+  LogExpert(Format('SetupMenus: AddActionMenu done; Parent=%s',
+    [BoolToStr(Assigned(FTestExplorerMenu.Parent), True)]));
+  if Assigned(FTestExplorerMenu.Parent) then
+    LogExpert('SetupMenus: parent name=' + FTestExplorerMenu.Parent.Name);
+end;
+
+procedure TDextMenuHelper.OnMenuWatchTimer(Sender: TObject);
+begin
+  Inc(FMenuWatchTicks);
+  if MenuStillAttached then
+  begin
+    LogExpert('MenuWatch: still attached (tick ' + IntToStr(FMenuWatchTicks) + ')');
+    if FMenuWatchTicks >= 8 then
+    begin
+      FreeAndNil(FMenuWatchTimer);
+      LogExpert('MenuWatch: stopped (menu stable)');
+    end;
+    Exit;
+  end;
+
+  LogExpert('MenuWatch: menu missing — re-adding (tick ' + IntToStr(FMenuWatchTicks) + ')');
+  try
+    SetupMenus;
+  except
+    on E: Exception do
+      LogExpert('MenuWatch EXCEPTION: ' + E.Message);
+  end;
+
+  if FMenuWatchTicks >= 15 then
+  begin
+    FreeAndNil(FMenuWatchTimer);
+    LogExpert('MenuWatch: gave up after 15 ticks');
+  end;
+end;
+
+procedure StartMenuWatch;
+begin
+  if Assigned(FMenuWatchTimer) then
+    Exit;
+  if FMenuHelper = nil then
+    FMenuHelper := TDextMenuHelper.Create;
+  FMenuWatchTicks := 0;
+  FMenuWatchTimer := TTimer.Create(nil);
+  FMenuWatchTimer.Interval := 2000;
+  FMenuWatchTimer.OnTimer := FMenuHelper.OnMenuWatchTimer;
+  FMenuWatchTimer.Enabled := True;
+  LogExpert('MenuWatch: started (2s interval)');
 end;
 
 procedure RemoveMenus;
 begin
   LogExpert('RemoveMenus: Removing menu item');
+  FreeAndNil(FMenuWatchTimer);
   if Assigned(FTestExplorerMenu) then
   begin
-    FTestExplorerMenu.Free;
+    try
+      FTestExplorerMenu.Free;
+    except
+    end;
     FTestExplorerMenu := nil;
   end;
   if Assigned(FMenuHelper) then
@@ -133,6 +200,16 @@ begin
     FMenuHelper.Free;
     FMenuHelper := nil;
   end;
+end;
+
+function IsSourceModuleForRunOnSave(const AFileName: string): Boolean;
+var
+  Ext: string;
+begin
+  Ext := ExtractFileExt(AFileName);
+  Result := SameText(Ext, '.pas') or SameText(Ext, '.cpp') or SameText(Ext, '.h') or
+    SameText(Ext, '.hpp') or SameText(Ext, '.cc') or SameText(Ext, '.cxx') or
+    SameText(Ext, '.dpr') or SameText(Ext, '.dpk');
 end;
 
 procedure AttachNotifierToModule(const AFileName: string);
@@ -143,7 +220,10 @@ var
   LInfo: TModuleNotifierInfo;
   I: Integer;
 begin
-  if not SameText(ExtractFileExt(AFileName), '.pas') then Exit;
+  if not IsDextTestExplorerEnabled then
+    Exit;
+  { Was .pas-only — C++Builder saves never reached AfterSave / Run on Save. Not a DLL limit. }
+  if not IsSourceModuleForRunOnSave(AFileName) then Exit;
   if not Assigned(FAttachedNotifiers) then Exit;
   LogExpert('AttachNotifierToModule: ' + AFileName);
 
@@ -170,6 +250,8 @@ var
   LModule: IOTAModule;
   I: Integer;
 begin
+  if not IsDextTestExplorerEnabled then
+    Exit;
   if Supports(BorlandIDEServices, IOTAModuleServices, LModuleServices) then
   begin
     for I := 0 to LModuleServices.ModuleCount - 1 do
@@ -204,27 +286,80 @@ begin
   FAttachedNotifiers.Clear;
 end;
 
+procedure OnDextEnabledChanged(AEnabled: Boolean);
+begin
+  if AEnabled then
+  begin
+    LogExpert('ApplyEnabled: ON — gutter + module notifiers');
+    try
+      RegisterGutterVisualizer;
+    except
+    end;
+    AttachNotifiersToOpenModules;
+  end
+  else
+  begin
+    LogExpert('ApplyEnabled: OFF — remove module notifiers + gutter');
+    RemoveAllModuleNotifiers;
+    try
+      UnregisterGutterVisualizer;
+    except
+    end;
+  end;
+end;
+
+procedure ApplyDextTestExplorerEnabledState(AEnabled: Boolean);
+begin
+  SetDextTestExplorerEnabled(AEnabled);
+end;
+
 procedure RegisterExpert;
 var
   LOTAServices: IOTAServices;
 begin
-  LogExpert('RegisterExpert: Registering expert plugins');
+  LoadDextTestExplorerEnabledFromIni;
+  SetDextEnabledChangedHook(OnDextEnabledChanged);
+  LogExpert('RegisterExpert: begin');
+  LogExpert(Format('RegisterExpert: Enabled=%s BorlandIDEServices=%s',
+    [BoolToStr(IsDextTestExplorerEnabled, True),
+     BoolToStr(Assigned(BorlandIDEServices), True)]));
   if FNotifierIndex = -1 then
   begin
     if Supports(BorlandIDEServices, IOTAServices, LOTAServices) then
+    begin
       FNotifierIndex := LOTAServices.AddNotifier(TDextTestRunnerIDENotifier.Create);
-  end;
+      LogExpert('RegisterExpert: IDE notifier index=' + IntToStr(FNotifierIndex));
+    end
+    else
+      LogExpert('RegisterExpert: IOTAServices not available');
+  end
+  else
+    LogExpert('RegisterExpert: notifier already registered');
 
+  LogExpert('RegisterExpert: SetupMenus');
   SetupMenus;
+  StartMenuWatch;
+  LogExpert('RegisterExpert: RegisterDockableForm');
   RegisterDockableForm;
-  RegisterGutterVisualizer;
-  AttachNotifiersToOpenModules;
+  { Gutter / module notifiers only when enabled — disabled must be inert for IDE open. }
+  if IsDextTestExplorerEnabled then
+  begin
+    LogExpert('RegisterExpert: RegisterGutterVisualizer');
+    RegisterGutterVisualizer;
+    LogExpert('RegisterExpert: AttachNotifiersToOpenModules');
+    AttachNotifiersToOpenModules;
+  end
+  else
+    LogExpert('RegisterExpert: skipped gutter/notifiers (disabled in ini)');
+  LogExpert('RegisterExpert: done');
 end;
 
 { TDextTestRunnerIDENotifier }
 
 procedure TDextTestRunnerIDENotifier.AfterCompile(Succeeded: Boolean);
 begin
+  if not IsDextTestExplorerEnabled then
+    Exit;
   LogExpert('AfterCompile: Compilation finished. Success = ' + BoolToStr(Succeeded, True));
   if Assigned(FormDextTestRunner) then
     FormDextTestRunner.NotifyCompileComplete(Succeeded);
@@ -232,6 +367,13 @@ end;
 
 procedure TDextTestRunnerIDENotifier.AfterCompile(Succeeded, IsCodeInsight: Boolean);
 begin
+  { Code Insight / background parse must not drive Run All — it clears FWaitingForCompile
+    before the real project build finishes (common with C++Builder). }
+  if IsCodeInsight then
+  begin
+    LogExpert('AfterCompile: ignored (CodeInsight)');
+    Exit;
+  end;
   AfterCompile(Succeeded);
 end;
 
@@ -245,31 +387,31 @@ end;
 
 procedure TDextTestRunnerIDENotifier.FileNotification(NotifyCode: TOTAFileNotification; const FileName: string; var CanModify: Boolean);
 begin
-  if NotifyCode = ofnFileOpened then
-  begin
-    LogExpert('FileNotification: File Opened = ' + FileName);
-    TCoverageManager.GetInstance.RefreshActiveViews;
-    AttachNotifierToModule(FileName);
-  end;
+  { Do not assign CanModify — never veto IDE open. }
+  if not IsDextTestExplorerEnabled then
+    Exit;
 
-  if Assigned(FormDextTestRunner) then
+  { Do not AttachNotifier on ofnFileOpened — C++ MainSource open is aborted when
+    experts touch modules during Opening/Opened. Run-on-Save uses edit-view AfterSave. }
+
+  if not Assigned(FormDextTestRunner) then
+    Exit;
+
+  { Refresh project combo only after the group finishes — never on ofnFileOpened(.cbproj). }
+  if (NotifyCode = ofnActiveProjectChanged) or
+     (NotifyCode = ofnEndProjectGroupOpen) or
+     (NotifyCode = ofnEndProjectGroupClose) then
   begin
-    if (NotifyCode = ofnActiveProjectChanged) or 
-       ((NotifyCode in [ofnFileOpened, ofnFileClosing, ofnEndProjectGroupOpen, ofnEndProjectGroupClose]) and 
-        (SameText(ExtractFileExt(FileName), '.dproj') or SameText(ExtractFileExt(FileName), '.groupproj'))) then
-    begin
-      LogExpert('FileNotification: Project change/event for ' + FileName);
-      if IsTestingDesignShuttingDown then
-        Exit;
-      TThread.ForceQueue(nil, TThreadProcedure(procedure
-        begin
-          if IsTestingDesignShuttingDown then
-            Exit;
-          if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
-            FormDextTestRunner.RefreshProjects;
-          AttachNotifiersToOpenModules;
-        end));
-    end;
+    LogExpert('FileNotification: Project change/event for ' + FileName);
+    if IsTestingDesignShuttingDown then
+      Exit;
+    TThread.ForceQueue(nil, TThreadProcedure(procedure
+      begin
+        if IsTestingDesignShuttingDown or not IsDextTestExplorerEnabled then
+          Exit;
+        if Assigned(FormDextTestRunner) and not (csDestroying in FormDextTestRunner.ComponentState) then
+          FormDextTestRunner.RefreshProjects;
+      end));
   end;
 end;
 
@@ -288,8 +430,13 @@ end;
 
 procedure TDextModuleNotifier.AfterSave;
 begin
+  if not IsDextTestExplorerEnabled then
+    Exit;
+  LogExpert('AfterSave: ' + FFileName);
   if Assigned(FormDextTestRunner) then
-    FormDextTestRunner.HandleFileSaved(FFileName);
+    FormDextTestRunner.HandleFileSaved(FFileName)
+  else
+    LogExpert('AfterSave: FormDextTestRunner is nil (open Test Explorer once)');
 end;
 
 procedure TDextModuleNotifier.BeforeSave;

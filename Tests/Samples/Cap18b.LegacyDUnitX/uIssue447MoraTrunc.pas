@@ -1,4 +1,4 @@
-unit uIssue447MoraTrunc;
+﻿unit uIssue447MoraTrunc;
 
 { Cap. 18b demo fixture — DUnitX style, no Dext Testing attributes.
   Domain stays on Assert.*; the host wires Dext.Testing.DUnitX for the Explorer. }

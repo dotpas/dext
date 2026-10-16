@@ -36,6 +36,8 @@ history.json
 *.o
 *.dcp
 *.hpp
+!Sources/Testing/Cpp/**
+!Sources/Testing/Cpp/**/*.hpp
 dext-symbols.*
 *.deployproj
 /Benchmarks/

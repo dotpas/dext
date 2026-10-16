@@ -9,7 +9,8 @@ uses
   System.Math, Vcl.Graphics, Vcl.Controls, Vcl.Forms, ToolsAPI, System.IOUtils, Vcl.Menus;
 
 {$IFDEF DEXT_DELPHI13_UP}
-  {$DEFINE DEXT_COVERAGE_GUTTER_COLUMN}
+  { Temporarily off: RequestGutterColumn suspected of blocking C++ MainSource open. }
+  {.$DEFINE DEXT_COVERAGE_GUTTER_COLUMN}
 {$ENDIF}
 
 type
@@ -877,7 +878,20 @@ begin
 end;
 
 procedure TEditorViewNotifier.AfterSave;
+var
+  FileName: string;
 begin
+  { IOTAModuleNotifier.AfterSave does not fire reliably for C++Builder editors.
+    Edit-view AfterSave does — use it for Run on Save (Delphi + C++). }
+  if FView = nil then
+    Exit;
+  try
+    FileName := FView.Buffer.FileName;
+  except
+    Exit;
+  end;
+  if (FileName <> '') and Assigned(FormDextTestRunner) then
+    FormDextTestRunner.HandleFileSaved(FileName);
 end;
 
 procedure TEditorViewNotifier.BeforeSave; begin end;

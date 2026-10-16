@@ -102,6 +102,12 @@ function FormatStackTraceForDisplay(const AStack: string): string;
 /// </summary>
 function CleanStackMethodName(const AMethodName: string): string;
 
+/// <summary>
+///   Splits "Method @ File.cpp" / legacy "Method (File.cpp)" into columns.
+///   AMethod is never a path; AFileName is a leaf like SmokeDeep.cpp (may be '').
+/// </summary>
+procedure SplitStackMethodAndFile(const ARaw: string; out AMethod, AFileName: string);
+
 implementation
 
 uses
@@ -180,6 +186,45 @@ begin
     Exit(True);
   end;
 
+  // [0] Unit.Method + $XX (File.cpp) — C++ MAP: file without line
+  Match := TRegEx.Match(ALine,
+    '\[\s*\d+\s*\]\s*(.+?)\s*\+\s*\$[0-9A-Fa-f]+\s*\(([^:\)]+\.(?:cpp|h|hpp|pas|cc|cxx))\)\s*$',
+    [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := Trim(Match.Groups[1].Value);
+    AFrame.FileName := TPath.GetFileName(Trim(Match.Groups[2].Value));
+    Exit(True);
+  end;
+
+  // [0] Class::Method @ File.cpp — C++ MAP (optional :line from GTest fallback)
+  Match := TRegEx.Match(ALine,
+    '\[\s*\d+\s*\]\s*(.+?)\s*@\s*([^@:\r\n]+\.(?:cpp|h|hpp|pas|cc|cxx))(?::(\d+))?\s*$',
+    [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
+    AFrame.FileName := TPath.GetFileName(Trim(Match.Groups[2].Value));
+    if Match.Groups.Count >= 4 then
+      AFrame.Line := StrToIntDef(Match.Groups[3].Value, 0);
+    MarkResolved(AFrame);
+    Exit(True);
+  end;
+
+  // [0] Class::Method (File.cpp) — legacy C++ MAP format
+  Match := TRegEx.Match(ALine,
+    '\[\s*\d+\s*\]\s*(.+?)\s*\(([^:\)]+\.(?:cpp|h|hpp|pas|cc|cxx))\)\s*$',
+    [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
+    AFrame.FileName := TPath.GetFileName(Trim(Match.Groups[2].Value));
+    Exit(True);
+  end;
+
   // [0] Unit.Method + $XX  — symbol+offset, no (file:line) from MAP
   Match := TRegEx.Match(ALine,
     '\[\s*\d+\s*\]\s*(.+?)\s*\+\s*\$[0-9A-Fa-f]+\s*$',
@@ -187,7 +232,7 @@ begin
   if Match.Success then
   begin
     InitFrame(AFrame, ALine);
-    AFrame.MethodName := Trim(Match.Groups[1].Value);
+    AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
     Exit(True);
   end;
 
@@ -197,6 +242,69 @@ begin
   begin
     InitFrame(AFrame, ALine);
     AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
+    Exit(True);
+  end;
+end;
+
+function TryParseBareSymbolFrame(const ALine: string; out AFrame: TDextStackFrame): Boolean;
+var
+  Match: TMatch;
+  MethodPart, FilePart: string;
+begin
+  Result := False;
+  // C++ MAP: "TFoo::Bar @ SmokeTestCase.cpp" (optional :line)
+  Match := TRegEx.Match(ALine,
+    '^(.+?)\s*@\s*([^@:\r\n]+\.(?:cpp|h|hpp|pas|cc|cxx))(?::(\d+))?\s*$',
+    [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
+    AFrame.FileName := TPath.GetFileName(Trim(Match.Groups[2].Value));
+    if Match.Groups.Count >= 4 then
+      AFrame.Line := StrToIntDef(Match.Groups[3].Value, 0);
+    MarkResolved(AFrame);
+    Exit(True);
+  end;
+
+  // Legacy: "TFoo::Bar + $83 (SmokeTestCase.cpp)" or "TFoo::Bar (SmokeTestCase.cpp)"
+  Match := TRegEx.Match(ALine,
+    '^(.+?)\s*(?:\+\s*\$[0-9A-Fa-f]+\s*)?\(([^:\)]+\.(?:cpp|h|hpp|pas|cc|cxx))\)\s*$',
+    [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    MethodPart := Trim(Match.Groups[1].Value);
+    FilePart := Trim(Match.Groups[2].Value);
+    AFrame.MethodName := CleanStackMethodName(MethodPart);
+    AFrame.FileName := TPath.GetFileName(FilePart);
+    Exit(True);
+  end;
+
+  // "TFoo::Bar + $83" or Delphi-style "Unit.Method + $4BE"
+  Match := TRegEx.Match(ALine,
+    '^(.+?)\s*\+\s*\$[0-9A-Fa-f]+\s*$', [roIgnoreCase]);
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := CleanStackMethodName(Trim(Match.Groups[1].Value));
+    Exit(True);
+  end;
+
+  // Bare "$XXXXXXXX" address (unresolved AddressInfo)
+  Match := TRegEx.Match(ALine, '^\$[0-9A-Fa-f]{4,16}$');
+  if Match.Success then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := ALine;
+    Exit(True);
+  end;
+
+  // C++ qualified name without file hint
+  if ALine.Contains('::') then
+  begin
+    InitFrame(AFrame, ALine);
+    AFrame.MethodName := CleanStackMethodName(ALine);
     Exit(True);
   end;
 end;
@@ -231,6 +339,27 @@ begin
   AFrame.Line := StrToIntDef(Match.Groups[2].Value, 0);
   AFrame.MethodName := Trim(Match.Groups[3].Value);
   MarkResolved(AFrame);
+end;
+
+/// <summary>GTest / compiler: "SmokeGTestDeep.cpp:24" or "Foo.cpp(24)" — location only.</summary>
+function TryParseCppFileLineFrame(const ALine: string; out AFrame: TDextStackFrame): Boolean;
+var
+  Match: TMatch;
+begin
+  Result := False;
+  Match := TRegEx.Match(ALine,
+    '^([^:\(\r\n]+\.(?:cpp|h|hpp|cc|cxx)):(\d+)\s*$', [roIgnoreCase]);
+  if not Match.Success then
+    Match := TRegEx.Match(ALine,
+      '^([^:\(\r\n]+\.(?:cpp|h|hpp|cc|cxx))\((\d+)\)\s*$', [roIgnoreCase]);
+  if not Match.Success then
+    Exit;
+  InitFrame(AFrame, ALine);
+  AFrame.FileName := TPath.GetFileName(Trim(Match.Groups[1].Value));
+  AFrame.Line := StrToIntDef(Match.Groups[2].Value, 0);
+  AFrame.MethodName := ''; { caller fills from test name }
+  MarkResolved(AFrame);
+  Result := True;
 end;
 
 { TDextDefaultStackTraceProvider }
@@ -334,11 +463,14 @@ begin
 
       if TryParseIndexedFrame(Line, Frame) or
          TryParsePasParenFrame(Line, Frame) or
-         TryParsePasColonFrame(Line, Frame) then
+         TryParsePasColonFrame(Line, Frame) or
+         TryParseCppFileLineFrame(Line, Frame) or
+         TryParseBareSymbolFrame(Line, Frame) then
         List.Add(Frame)
       else
       begin
         InitFrame(Frame, Line);
+        Frame.MethodName := Line;
         List.Add(Frame);
       end;
     end;
@@ -350,17 +482,83 @@ end;
 
 { CleanStackMethodName }
 
+procedure SplitStackMethodAndFile(const ARaw: string; out AMethod, AFileName: string);
+var
+  Match: TMatch;
+  S: string;
+  AtPos: Integer;
+  FileHint: string;
+begin
+  AMethod := '';
+  AFileName := '';
+  S := Trim(ARaw);
+  if S = '' then
+    Exit;
+  // Drop leading "[n] "
+  Match := TRegEx.Match(S, '^\[\s*\d+\s*\]\s*(.*)$');
+  if Match.Success then
+    S := Trim(Match.Groups[1].Value);
+
+  // Preferred C++ MAP: "TFoo::Bar @ SmokeDeep.cpp" / "... @ File.cpp:24"
+  AtPos := Pos(' @ ', S);
+  if AtPos > 0 then
+  begin
+    AMethod := Trim(Copy(S, 1, AtPos - 1));
+    FileHint := Trim(Copy(S, AtPos + 3, MaxInt));
+    { Do NOT use TPath.GetFileName / ExtractFileName on "File.cpp:24" — Windows
+      treats the colon as a drive separator and returns "24". }
+    Match := TRegEx.Match(FileHint,
+      '^(.*\.(?:cpp|h|hpp|pas|cc|cxx|c))(?::\d+)?$', [roIgnoreCase]);
+    if Match.Success then
+      FileHint := Trim(Match.Groups[1].Value);
+    AtPos := FileHint.LastDelimiter('/\');
+    if AtPos >= 0 then
+      AFileName := FileHint.Substring(AtPos + 1)
+    else
+      AFileName := FileHint;
+  end
+  else
+  begin
+    // Legacy: "... (File.cpp)" at end
+    Match := TRegEx.Match(S,
+      '^(.+?)\s*\(([^:\)]+\.(?:cpp|h|hpp|pas|cc|cxx))\)\s*$', [roIgnoreCase]);
+    if Match.Success then
+    begin
+      AMethod := Trim(Match.Groups[1].Value);
+      AFileName := TPath.GetFileName(Trim(Match.Groups[2].Value));
+    end
+    else
+      AMethod := S;
+  end;
+
+  AMethod := CleanStackMethodName(AMethod);
+end;
+
 function CleanStackMethodName(const AMethodName: string): string;
 var
   Match: TMatch;
+  AtPos, ParenPos: Integer;
 begin
   Result := Trim(AMethodName);
   if Result = '' then
     Exit;
-  // "Unit.Method + $4BE" → "Unit.Method"
-  Match := TRegEx.Match(Result, '^(.+?)\s*\+\s*\$[0-9A-Fa-f]+\s*$', [roIgnoreCase]);
+  // "TFoo::Bar @ File.cpp" (Pos is 1-based)
+  AtPos := Pos(' @ ', Result);
+  if AtPos > 0 then
+    Result := Trim(Copy(Result, 1, AtPos - 1));
+  // "TFoo::Bar + $83 (File.cpp)" / "Unit.Method + $4BE (Unit.pas)" → method only
+  Match := TRegEx.Match(Result,
+    '^(.+?)\s*\+\s*\$[0-9A-Fa-f]+\s*(?:\([^)]+\))?\s*$', [roIgnoreCase]);
   if Match.Success then
     Result := Trim(Match.Groups[1].Value);
+  // "TFoo::Bar (File.cpp)" trailing file hint (legacy)
+  Match := TRegEx.Match(Result, '^(.+?)\s*\([^)]+\.(?:cpp|h|hpp|pas|cc|cxx)\)\s*$', [roIgnoreCase]);
+  if Match.Success then
+    Result := Trim(Match.Groups[1].Value);
+  // C++ args: "TFoo::Bar(int, char*)" → "TFoo::Bar"
+  ParenPos := Pos('(', Result);
+  if ParenPos > 0 then
+    Result := Trim(Copy(Result, 1, ParenPos - 1));
 end;
 
 { FormatStackTraceForDisplay }
