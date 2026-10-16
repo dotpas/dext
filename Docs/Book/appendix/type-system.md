@@ -36,8 +36,10 @@ end;
   objects (including ORM entities) are zero-initialized and are safe.
 - Rule: call `Clear` (or assign `Default(...)`) before reading a local
   `Nullable<T>` that was not assigned a value.
-- A framework-level fix is planned (spec S76): a `class operator Initialize`
-  for Delphi 10.4+. Older compilers will keep needing the explicit `Clear`.
+- A framework-level fix (`class operator Initialize`) was evaluated (spec S76)
+  and is **on hold**: making the record managed can break code that handles
+  records as raw bytes (`Move`, `FillChar`, offset-based access). The explicit
+  `Clear` is the supported rule.
 
 ## Entity Attributes
 

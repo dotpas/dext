@@ -53,9 +53,10 @@ end;
   objetos no heap (incluindo entidades do ORM) são zerados e são seguros.
 - Regra: chame `Clear` (ou atribua `Default(...)`) antes de ler um
   `Nullable<T>` local que não recebeu valor.
-- Uma correção no framework está planejada (spec S76): um
-  `class operator Initialize` para Delphi 10.4+. Compiladores mais antigos
-  continuarão precisando do `Clear` explícito.
+- Uma correção no framework (`class operator Initialize`) foi avaliada
+  (spec S76) e está **em espera**: tornar o record gerenciado pode quebrar
+  código que trata records como bytes (`Move`, `FillChar`, acesso por offset).
+  O `Clear` explícito é a regra suportada.
 
 ### Smart Properties (Prop<T>)
 Usado para definir propriedades de Entidade que permitem construção de queries fluentes e verificação em tempo de compilação.
