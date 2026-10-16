@@ -6,8 +6,6 @@ Você pode rodar suítes **DUnit**, **DUnitX** ou **DUnit2** no **Dext Test Expl
 
 [`Tests/Samples/Cap18b.LegacyDUnitX`](../../../Tests/Samples/Cap18b.LegacyDUnitX/) — projeto `LegacyCobrancaTests` (DUnitX clássico) + adapter `Dext.Testing.DUnitX`.
 
-Roteiro passo a passo (IDE): [Cap18b Explorer Demo](../../Plans/Dext-Testing-Cap18b-Explorer-Demo.md).
-
 ## Ideia
 
 1. Projeto de testes legado continua com o framework de asserts que já usa.  

@@ -1,6 +1,6 @@
 # Analysis of Dext Test Runner Implementation
 
-> **Update 2026-10:** Stale. `TTestRunner.ExecuteProcess` is fire-and-forget with stdout pipe capture and `BroadcastSSE`/`DashboardEvent` fan-out. Prefer `Docs/Plans/Dext-Testing-Phase4-Backlog.md` for current status.
+> **Update 2026-10:** Stale. `TTestRunner.ExecuteProcess` is fire-and-forget with stdout pipe capture and `BroadcastSSE`/`DashboardEvent` fan-out.
 
 ## Current State (historical)
 

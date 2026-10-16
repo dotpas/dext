@@ -1,6 +1,6 @@
 # S75 — C++Builder Test Explorer (mesma BPL + personalidade)
 
-**Status:** Discovery (Sprint F) — ver [Cpp-Discovery](../Plans/Dext-Testing-Cpp-Discovery.md)  
+**Status:** Discovery (Sprint F)  
 **Depends on:** S36 Expert estável (Delphi)
 
 ## Goal

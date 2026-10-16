@@ -6,8 +6,6 @@ You can run **DUnit**, **DUnitX**, or **DUnit2** suites in the **Dext Test Explo
 
 [`Tests/Samples/Cap18b.LegacyDUnitX`](../../../Tests/Samples/Cap18b.LegacyDUnitX/) — `LegacyCobrancaTests` (classic DUnitX) + `Dext.Testing.DUnitX` adapter.
 
-Step-by-step (IDE): [Cap18b Explorer Demo](../../Plans/Dext-Testing-Cap18b-Explorer-Demo.md).
-
 ## Idea
 
 1. Keep the legacy assert framework you already use.  

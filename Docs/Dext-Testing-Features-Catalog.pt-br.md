@@ -1,7 +1,6 @@
 # Catálogo de Features — Dext Testing (v1)
 
-Resumo em português do [catálogo EN](Dext-Testing-Features-Catalog.md).  
-**Pacote Embarcadero:** [Plans/Dext-Testing-Embarcadero-Roadmap.md](Plans/Dext-Testing-Embarcadero-Roadmap.md).
+Resumo em português do [catálogo EN](Dext-Testing-Features-Catalog.md).
 
 ## Separação honesta
 

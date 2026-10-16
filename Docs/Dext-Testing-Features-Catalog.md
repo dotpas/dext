@@ -1,9 +1,7 @@
 # Dext Testing Features Catalog v1
 
 **Audience:** Embarcadero, partners, book readers, product pitch  
-**Source of truth:** [Features_Implemented_Index.md](Features_Implemented_Index.md) §7 + this maturity split  
-**Embarcadero pack:** [Plans/Dext-Testing-Embarcadero-Roadmap.md](Plans/Dext-Testing-Embarcadero-Roadmap.md) · [Pitch](Plans/Dext-Testing-Embarcadero-Pitch.md)  
-**Draft history:** [Plans/Dext-Testing-Features-Catalog-Draft.md](Plans/Dext-Testing-Features-Catalog-Draft.md)
+**Source of truth:** [Features_Implemented_Index.md](Features_Implemented_Index.md) §7 + this maturity split
 
 ## Maturity model
 
@@ -71,10 +69,7 @@ Contract/consumer-driven tests · HTTP stub server · PR-scoped mutation · prop
 
 ## Related docs
 
-- [Embarcadero Roadmap](Plans/Dext-Testing-Embarcadero-Roadmap.md) — **contact pack**
 - [S36 IDE Test Runner](Specs/S36-IDE-Test-Runner.md)
 - [CLI/Sidecar dashboard book](Book/09-cli/dashboard.md)
-- [C++ Discovery](Plans/Dext-Testing-Cpp-Discovery.md)
-- [Sidecar LongTerm](Plans/Dext-Sidecar-LongTerm.md)
 - [infra/tests](../infra/tests/README.md)
 - PT-BR: [Dext-Testing-Features-Catalog.pt-br.md](Dext-Testing-Features-Catalog.pt-br.md)

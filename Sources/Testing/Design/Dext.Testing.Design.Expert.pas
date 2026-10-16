@@ -385,11 +385,45 @@ procedure TDextTestRunnerIDENotifier.BeforeCompile(const Project: IOTAProject; I
 begin
 end;
 
+function OtaFileNotifyName(NotifyCode: TOTAFileNotification): string;
+begin
+  case NotifyCode of
+    ofnFileOpening: Result := 'FileOpening';
+    ofnFileOpened: Result := 'FileOpened';
+    ofnFileClosing: Result := 'FileClosing';
+    ofnActiveProjectChanged: Result := 'ActiveProjectChanged';
+    ofnProjectDesktopLoad: Result := 'ProjectDesktopLoad';
+    ofnProjectDesktopSave: Result := 'ProjectDesktopSave';
+    ofnBeginProjectGroupOpen: Result := 'BeginProjectGroupOpen';
+    ofnEndProjectGroupOpen: Result := 'EndProjectGroupOpen';
+    ofnBeginProjectGroupClose: Result := 'BeginProjectGroupClose';
+    ofnEndProjectGroupClose: Result := 'EndProjectGroupClose';
+  else
+    Result := 'Notify' + IntToStr(Ord(NotifyCode));
+  end;
+end;
+
 procedure TDextTestRunnerIDENotifier.FileNotification(NotifyCode: TOTAFileNotification; const FileName: string; var CanModify: Boolean);
+var
+  Surface: string;
 begin
   { Do not assign CanModify — never veto IDE open. }
   if not IsDextTestExplorerEnabled then
     Exit;
+
+  if Assigned(FormDextTestRunner) then
+    Surface := Format(' visible=%s showing=%s floating=%s',
+      [BoolToStr(FormDextTestRunner.Visible, True),
+       BoolToStr(FormDextTestRunner.Showing, True),
+       BoolToStr(FormDextTestRunner.Floating, True)])
+  else
+    Surface := ' form=nil';
+  { Per-file open/close floods the log; project and desktop events are the ones that repaint. }
+  if not (NotifyCode in [ofnFileOpening, ofnFileOpened, ofnFileClosing]) or
+     SameText(ExtractFileExt(FileName), '.cbproj') or
+     SameText(ExtractFileExt(FileName), '.dproj') or
+     SameText(ExtractFileExt(FileName), '.groupproj') then
+    LogExpert('FileNotification: ' + OtaFileNotifyName(NotifyCode) + ' ' + FileName + Surface);
 
   { Do not AttachNotifier on ofnFileOpened — C++ MainSource open is aborted when
     experts touch modules during Opening/Opened. Run-on-Save uses edit-view AfterSave. }
@@ -397,12 +431,13 @@ begin
   if not Assigned(FormDextTestRunner) then
     Exit;
 
-  { Refresh project combo only after the group finishes — never on ofnFileOpened(.cbproj). }
+  { Refresh project combo only after a group finishes opening — never on
+    ofnFileOpened, and never on close. EndProjectGroupClose walks a dying
+    IOTAProjectGroup and the queued refresh re-enters DoHide (IDE stays up). }
   if (NotifyCode = ofnActiveProjectChanged) or
-     (NotifyCode = ofnEndProjectGroupOpen) or
-     (NotifyCode = ofnEndProjectGroupClose) then
+     (NotifyCode = ofnEndProjectGroupOpen) then
   begin
-    LogExpert('FileNotification: Project change/event for ' + FileName);
+    LogExpert('FileNotification: queue RefreshProjects for ' + FileName);
     if IsTestingDesignShuttingDown then
       Exit;
     TThread.ForceQueue(nil, TThreadProcedure(procedure

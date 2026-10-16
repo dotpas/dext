@@ -249,6 +249,13 @@ type
     FPendingSaveFiles: TStringList;
     { Ignore spurious edit-view AfterSave while the IDE opens modules (Run on Save). }
     FIgnoreSaveUntil: TDateTime;
+    { Desktop restore can flash the form undocked for about a second.
+      Refresh stays pending until the window is actually on screen: docked, left floating
+      on purpose, or opened from the menu. }
+    FRefreshWhenShown: Boolean;
+    FUserOpenedExplorer: Boolean;
+    FSurfaceSettled: Boolean;
+    FSurfaceSettleTimer: TTimer;
 
     // Execution Stopwatch & Counts
     FStopwatch: TStopwatch;
@@ -405,7 +412,15 @@ type
   protected
     procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
     procedure DoShow; override;
+    procedure DoHide; override;
+    procedure DoDock(NewDockSite: TWinControl; var ARect: TRect); override;
     procedure Resize; override;
+    function ExplorerSurfaceReady: Boolean;
+    procedure LogExplorerSurface(const AWhere: string);
+    procedure FlushRefreshWhenShown;
+    procedure ArmSurfaceSettle;
+    procedure CancelSurfaceSettle;
+    procedure SurfaceSettleTimerFired(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -436,7 +451,7 @@ implementation
 uses
   DeskUtil, Dext.Utils, System.Actions, Vcl.ActnList, Dext.Testing.Design.Coverage,
   Dext.Testing.Design.Coverage.Runner, Dext.Testing.Design.ProjectKinds,
-  Dext.Testing.CodeCoverage.Tool, System.IniFiles,
+  Dext.Testing.Design.ExpertTrace, Dext.Testing.CodeCoverage.Tool, System.IniFiles,
   Winapi.CommCtrl, Dext.Testing.Report, Dext.Testing.Runner, Dext.Testing.Integration,
   Dext.Testing.StackTrace;
 
@@ -935,6 +950,8 @@ procedure ShowDextTestExplorer;
 begin
   if not Assigned(FormDextTestRunner) then
     FormDextTestRunner := TFormDextTestRunner.Create(nil);
+  FormDextTestRunner.FUserOpenedExplorer := True;
+  FormDextTestRunner.LogExplorerSurface('ShowDextTestExplorer');
   ShowDockableForm(FormDextTestRunner);
 end;
 
@@ -1861,9 +1878,12 @@ begin
     FThemeNotifierIndex := ThemingServices.AddNotifier(TDextThemeNotifier.Create(Self) as INTAIDEThemingServicesNotifier);
   end;
 
+  LogExplorerSurface('Create end');
   if FEnabled then
   begin
-    RefreshProjects;
+    { Paint the combo only after the window stays on screen (docked or floating). }
+    FRefreshWhenShown := True;
+    LogExplorerSurface('Create: RefreshProjects deferred');
     FServer.Start(OnTestResultReceived);
   end;
   UpdateTabVisibility;
@@ -1887,6 +1907,11 @@ begin
   begin
     FIdleTimer.Enabled := False;
     FreeAndNil(FIdleTimer);
+  end;
+  if Assigned(FSurfaceSettleTimer) then
+  begin
+    FSurfaceSettleTimer.Enabled := False;
+    FreeAndNil(FSurfaceSettleTimer);
   end;
   if Assigned(FSaveTimer) then
   begin
@@ -2074,11 +2099,138 @@ begin
   end;
 end;
 
+function TFormDextTestRunner.ExplorerSurfaceReady: Boolean;
+begin
+  if csDestroying in ComponentState then
+    Exit(False);
+  if not (Visible and Showing) then
+    Exit(False);
+  { Menu open is intentional. A restored window counts after it stays up,
+    docked or floating. }
+  Result := FUserOpenedExplorer or FSurfaceSettled;
+end;
+
+procedure TFormDextTestRunner.CancelSurfaceSettle;
+begin
+  if Assigned(FSurfaceSettleTimer) then
+    FSurfaceSettleTimer.Enabled := False;
+end;
+
+procedure TFormDextTestRunner.ArmSurfaceSettle;
+begin
+  if FSurfaceSettleTimer = nil then
+  begin
+    FSurfaceSettleTimer := TTimer.Create(Self);
+    FSurfaceSettleTimer.Name := 'DextSurfaceSettleTimer';
+    FSurfaceSettleTimer.Interval := 1500;
+    FSurfaceSettleTimer.OnTimer := SurfaceSettleTimerFired;
+  end;
+  FSurfaceSettleTimer.Enabled := False;
+  FSurfaceSettleTimer.Enabled := True;
+end;
+
+procedure TFormDextTestRunner.SurfaceSettleTimerFired(Sender: TObject);
+begin
+  CancelSurfaceSettle;
+  if csDestroying in ComponentState then
+    Exit;
+  if not (Visible and Showing) then
+  begin
+    LogExplorerSurface('settle elapsed but hidden');
+    Exit;
+  end;
+  FSurfaceSettled := True;
+  LogExplorerSurface('settle elapsed — window stayed (docked or floating)');
+  FlushRefreshWhenShown;
+end;
+
+procedure TFormDextTestRunner.LogExplorerSurface(const AWhere: string);
+var
+  DockName: string;
+begin
+  if HostDockSite <> nil then
+    DockName := HostDockSite.Name
+  else
+    DockName := '-';
+  ExpertTrace(Format(
+    '[Explorer] %s ready=%s visible=%s showing=%s floating=%s dock=%s userOpen=%s bounds=%d,%d %dx%d',
+    [AWhere,
+     BoolToStr(ExplorerSurfaceReady, True),
+     BoolToStr(Visible, True),
+     BoolToStr(Showing, True),
+     BoolToStr(Floating, True),
+     DockName,
+     BoolToStr(FUserOpenedExplorer, True),
+     Left, Top, Width, Height]));
+end;
+
+procedure TFormDextTestRunner.FlushRefreshWhenShown;
+begin
+  if not FRefreshWhenShown then
+    Exit;
+  if not ExplorerSurfaceReady then
+  begin
+    LogExplorerSurface('FlushRefresh deferred');
+    Exit;
+  end;
+  if not FEnabled then
+  begin
+    FRefreshWhenShown := False;
+    Exit;
+  end;
+  FRefreshWhenShown := False;
+  LogExplorerSurface('FlushRefresh -> RefreshProjects');
+  RefreshProjects;
+end;
+
 procedure TFormDextTestRunner.DoShow;
 begin
+  LogExplorerSurface('DoShow enter');
   inherited DoShow;
   ApplyDpiScaling;
   ApplyIDETheme;
+  LogExplorerSurface('DoShow leave');
+  if FUserOpenedExplorer or ((HostDockSite <> nil) and not Floating) then
+  begin
+    CancelSurfaceSettle;
+    FSurfaceSettled := True;
+    FlushRefreshWhenShown;
+  end
+  else
+  begin
+    FSurfaceSettled := False;
+    ArmSurfaceSettle;
+    LogExplorerSurface('DoShow floating — refresh waits 1.5s to see if it stays');
+  end;
+end;
+
+procedure TFormDextTestRunner.DoHide;
+begin
+  if not (csDestroying in ComponentState) then
+  begin
+    CancelSurfaceSettle;
+    FSurfaceSettled := False;
+    FUserOpenedExplorer := False;
+    LogExplorerSurface('DoHide');
+  end;
+  inherited DoHide;
+end;
+
+procedure TFormDextTestRunner.DoDock(NewDockSite: TWinControl; var ARect: TRect);
+begin
+  inherited DoDock(NewDockSite, ARect);
+  if csDestroying in ComponentState then
+    Exit;
+  if NewDockSite <> nil then
+    LogExplorerSurface('DoDock ' + NewDockSite.ClassName + '.' + NewDockSite.Name)
+  else
+    LogExplorerSurface('DoDock undock');
+  if not (Visible and Showing) then
+    Exit;
+  { Undock while the window stays open is a real layout, same as docked. }
+  CancelSurfaceSettle;
+  FSurfaceSettled := True;
+  FlushRefreshWhenShown;
 end;
 
 function TFormDextTestRunner.GetProjectByFileName(const AFileName: string): IOTAProject;
@@ -3123,6 +3275,13 @@ var
   ProjFile: string;
   ProjInfo: TDextProjectInfo;
 begin
+  if not ExplorerSurfaceReady then
+  begin
+    FRefreshWhenShown := True;
+    LogExplorerSurface('RefreshProjects skipped');
+    Exit;
+  end;
+  LogExplorerSurface('RefreshProjects begin');
   PrevSelectedFile := FActiveProjectFile;
 
   // Clear existing items and free their TDextProjectInfo objects

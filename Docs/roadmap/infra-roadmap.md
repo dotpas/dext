@@ -120,7 +120,6 @@ Evolução da `Fluent Tasks API` para suportar cenários complexos de orquestra�
 ## 🧪 Testing Ecosystem & Quality Assurance (Dext.Testing)
 
 > Catálogo: [Dext-Testing-Features-Catalog.md](../Dext-Testing-Features-Catalog.md).  
-> Contato Embarcadero: [Embarcadero-Roadmap](../Plans/Dext-Testing-Embarcadero-Roadmap.md).  
 > Framework + coverage CLI = Stable · Explorer = Evolving (#1) · Sidecar essentials // · C++ / UIA / mutation / contracts = Planned.
 
 ### 1. Framework (shipped — Stable)
@@ -133,7 +132,7 @@ Evolução da `Fluent Tasks API` para suportar cenários complexos de orquestra�
 
 ### 2. IDE Test Explorer (S36 — Evolving) — prioridade #1
 
-> Backlog detalhado: [Dext-Testing-Explorer-Plan.md](../Plans/Dext-Testing-Explorer-Plan.md) · package `Packages/d13/Dext.Testing.Design.dproj`.
+> Package: `Packages/d13/Dext.Testing.Design.dproj`.
 
 - [x] MVP Presenter, async compile/run, Winsock shutdown with client close.
 - [x] Coverage gutter re-enabled with OTA lifetime management.
@@ -146,12 +145,12 @@ Evolução da `Fluent Tasks API` para suportar cenários complexos de orquestra�
 ### 3. Sidecar (essentials in parallel)
 
 - [x] http.sys + SignalR/SSE; `dext ui` removed.
-- [ ] Companion AutoAttach + session (see [Sidecar LongTerm](../Plans/Dext-Sidecar-LongTerm.md) S0.5) — **não bloqueia livro**.
+- [ ] Companion AutoAttach + session — **não bloqueia livro**.
 - [ ] Testcontainers-like + aba Sidecar ← evolve `infra/tests` (later).
 
 ### 4. C++Builder & UI Automation (Planned — strategic)
 
-- [ ] Expert como DLL/OTA + instalador (após [discovery](../Plans/Dext-Testing-Cpp-Discovery.md)).
+- [ ] Expert como DLL/OTA + instalador.
 - [ ] Spike UI Automation (Delphi 13 VCL UIA).
 
 ---

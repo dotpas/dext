@@ -676,7 +676,7 @@ In-process **MediatR**-style publish/subscribe (`Dext.Events`). Handlers respect
 ## 7. Testing & Quality
 
 > **Maturity:** Framework + `dext test --coverage` = **Stable**; IDE Explorer / gutter polish / suite trends = **Evolving** (#1); Sidecar essentials = **Evolving** (parallel); C++Builder / UIA / mutation / contracts = **Planned**.  
-> Canonical public map: [Dext-Testing-Features-Catalog.md](Dext-Testing-Features-Catalog.md) · [Embarcadero Roadmap](Plans/Dext-Testing-Embarcadero-Roadmap.md).
+> Canonical public map: [Dext-Testing-Features-Catalog.md](Dext-Testing-Features-Catalog.md).
 
 ### 7.1 Test Runner
 - **CLI Runner** — `dext test` runs the project suite. On Windows, `--coverage` produces HTML/XML plus `dext_coverage.xml` (SonarQube coverage) via Delphi Code Coverage. The live host for the suite is **Dext Test Explorer** (S36 / section 7.7), not an embedded web dashboard.

@@ -2,8 +2,6 @@
 
 Updated as part of the Dext Testing product track.
 
-**Living backlog (Plans):** [Dext-Testing-Explorer-Plan.md](../Plans/Dext-Testing-Explorer-Plan.md) — melhorias + refactor restantes do `Dext.Testing.Design`.
-
 ## Done
 
 | Item | Status |
