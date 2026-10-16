@@ -180,8 +180,9 @@ type
       const ASettings: TJsonSettings): string; static;
     /// <summary>
     ///   True when a date is written as null: a TDateTime or TDate that is 0
-    ///   ("no date") with ZeroDateAsNull, the default. A TTime never is: 0 is
-    ///   midnight there. Every path that writes a date asks this first.
+    ///   ("no date") with ZeroDateAsNull, the default, or one of the
+    ///   NullDates. A TTime never is: 0 is midnight there. Every path that
+    ///   writes a date asks this first.
     /// </summary>
     class function IsNoDate(const AValue: TDateTime; AType: PTypeInfo;
       const ASettings: TJsonSettings): Boolean; static; inline;
@@ -777,8 +778,10 @@ end;
 class function TJsonUtils.IsNoDate(const AValue: TDateTime; AType: PTypeInfo;
   const ASettings: TJsonSettings): Boolean;
 begin
-  Result := ASettings.FZeroDateAsNull and (AValue = 0) and
-    (AType <> TypeInfo(TTime));
+  // The list is looked at only when there is one: the default costs a nil check
+  Result := (AType <> TypeInfo(TTime)) and
+    (((AValue = 0) and ASettings.FZeroDateAsNull) or
+     ((ASettings.FNullDates <> nil) and ASettings.IsNullDate(AValue)));
 end;
 
 class function TJsonUtils.DateToJsonText(const AValue: TDateTime; AType: PTypeInfo;
