@@ -127,8 +127,10 @@
         <DCCReference Include="Dext.Entity.Validation.Tests.pas"/>
         <DCCReference Include="Dext.Entity.BulkBatchSize.Tests.pas"/>
         <DCCReference Include="Dext.Entity.DynamicQueryFilter.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.LikeLiteral.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Sequences.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SaveChanges.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.PersistOwnership.Tests.pas"/>
         <DCCReference Include="Dext.Grpc.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

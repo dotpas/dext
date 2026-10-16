@@ -2042,7 +2042,14 @@ var
   Sql, Id: string;
   Val: TValue;
   Span: TSpan;
+  Tracked: T;
 begin
+  // Adopt the instance up front so it is owned whether the UPDATE succeeds or raises
+  Id := GetEntityId(T(AEntity));
+  if not (FIdentityMap.TryGetValue(Id, Tracked) and (TObject(Tracked) = AEntity)) then
+    if not FOrphans.Contains(T(AEntity)) then
+      FOrphans.Add(T(AEntity));
+
   Span := TTracer.BeginSpan('DbSet.Update', 'SQL');
   Span.SetAttribute('entity', string(PTypeInfo(TypeInfo(T)).Name));
   HandleTimestamps(AEntity, False);

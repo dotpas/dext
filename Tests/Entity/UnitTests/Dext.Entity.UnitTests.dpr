@@ -36,6 +36,7 @@ uses
   Dext.Entity.LikeLiteral.Tests in 'Dext.Entity.LikeLiteral.Tests.pas',
   Dext.Entity.Sequences.Tests in 'Dext.Entity.Sequences.Tests.pas',
   Dext.Entity.SaveChanges.Tests in 'Dext.Entity.SaveChanges.Tests.pas',
+  Dext.Entity.PersistOwnership.Tests in 'Dext.Entity.PersistOwnership.Tests.pas',
   Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas';
 
 begin
@@ -86,6 +87,7 @@ begin
         TLikeLiteralDbTests,
         TEntitySequencesTests,
         TSaveChangesTests,
+        TPersistUpdateOwnershipTests,
         TGrpcTests
       ]));
   except
