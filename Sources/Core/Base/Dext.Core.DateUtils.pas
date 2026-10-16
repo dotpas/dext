@@ -48,6 +48,10 @@ function TryParseCommonDate(const Value: string; out DateTime: TDateTime; const 
 const
   /// <summary>The room FormatJsonDateTimeBuffer needs, in characters.</summary>
   JsonDateTimeMaxChars = 29;
+  /// <summary>The characters FormatJsonDateBuffer writes: "yyyy-mm-dd".</summary>
+  JsonDateChars = 10;
+  /// <summary>The characters FormatJsonTimeBuffer writes: "hh:nn:ss.zzz".</summary>
+  JsonTimeChars = 12;
 
 /// <summary>
 ///   A TDateTime as JSON text, RFC 3339 / ISO 8601: the LOCAL time with its
@@ -74,8 +78,20 @@ function FormatJsonDateTimeBuffer(const AValue: TDateTime; ABuffer: PChar): Inte
 /// <summary>A TDate as JSON text: the calendar day, "2026-07-15".</summary>
 function FormatJsonDate(const AValue: TDateTime): string;
 
+/// <summary>
+///   FormatJsonDate written into ABuffer, which must hold at least
+///   JsonDateChars characters. Returns JsonDateChars.
+/// </summary>
+function FormatJsonDateBuffer(const AValue: TDateTime; ABuffer: PChar): Integer;
+
 /// <summary>A TTime as JSON text: the wall clock, "10:30:00.000".</summary>
 function FormatJsonTime(const AValue: TDateTime): string;
+
+/// <summary>
+///   FormatJsonTime written into ABuffer, which must hold at least
+///   JsonTimeChars characters. Returns JsonTimeChars.
+/// </summary>
+function FormatJsonTimeBuffer(const AValue: TDateTime; ABuffer: PChar): Integer;
 
 /// <summary>
 ///   The offset of a LOCAL date and time from UTC, in whole minutes (local
@@ -351,18 +367,30 @@ begin
   SetString(Result, PChar(@Buffer[0]), FormatJsonDateTimeBuffer(AValue, @Buffer[0]));
 end;
 
-function FormatJsonDate(const AValue: TDateTime): string;
+function FormatJsonDateBuffer(const AValue: TDateTime; ABuffer: PChar): Integer;
 var
   Year: Word;
 begin
-  SetLength(Result, 10);
-  PutDate(AValue, PChar(Result), Year);
+  PutDate(AValue, ABuffer, Year);
+  Result := JsonDateChars;
+end;
+
+function FormatJsonDate(const AValue: TDateTime): string;
+begin
+  SetLength(Result, JsonDateChars);
+  FormatJsonDateBuffer(AValue, PChar(Result));
+end;
+
+function FormatJsonTimeBuffer(const AValue: TDateTime; ABuffer: PChar): Integer;
+begin
+  PutTime(AValue, ABuffer);
+  Result := JsonTimeChars;
 end;
 
 function FormatJsonTime(const AValue: TDateTime): string;
 begin
-  SetLength(Result, 12);
-  PutTime(AValue, PChar(Result));
+  SetLength(Result, JsonTimeChars);
+  FormatJsonTimeBuffer(AValue, PChar(Result));
 end;
 
 function ReadDigits(const S: string; AStart, ACount: Integer; out AValue: Integer): Boolean;

@@ -62,6 +62,8 @@ type
     procedure Date_And_Time;
     [Test('The buffer form writes the same text')]
     procedure Buffer_SameText;
+    [Test('The buffer forms of a date and of a time write the same text, and no more')]
+    procedure Buffer_DateAndTime_SameText;
     // #255
     [Test('DateTimeToISO8601: whole minutes, not +01:59 (#255)')]
     procedure DriverOffset_WholeMinutes;
@@ -280,6 +282,41 @@ begin
   Count := FormatJsonDateTimeBuffer(V, @Buffer[0]);
   SetString(Text, PChar(@Buffer[0]), Count);
   Should(Text).Be(FormatJsonDateTime(V));
+end;
+
+procedure TJsonDatesTests.Buffer_DateAndTime_SameText;
+var
+  Buffer: array[0..15] of Char;
+  Count, I, J, Wrong: Integer;
+  V: TDateTime;
+  Text: string;
+begin
+  RandSeed := 20261016;
+  Wrong := 0;
+  for I := 1 to 20000 do
+  begin
+    // the whole calendar, negative values (before 1899-12-30) included
+    V := -693593 + Random * (2958465 + 693593);
+    for J := 0 to High(Buffer) do
+      Buffer[J] := '#';
+    Count := FormatJsonDateBuffer(V, @Buffer[0]);
+    SetString(Text, PChar(@Buffer[0]), Count);
+    if (Count <> JsonDateChars) or (Text <> FormatJsonDate(V)) or (Buffer[Count] <> '#') then
+      Inc(Wrong);
+    for J := 0 to High(Buffer) do
+      Buffer[J] := '#';
+    Count := FormatJsonTimeBuffer(V, @Buffer[0]);
+    SetString(Text, PChar(@Buffer[0]), Count);
+    if (Count <> JsonTimeChars) or (Text <> FormatJsonTime(V)) or (Buffer[Count] <> '#') then
+      Inc(Wrong);
+  end;
+  Should(Wrong).Be(0);
+  Count := FormatJsonTimeBuffer(EncodeTime(9, 5, 7, 42), @Buffer[0]);
+  SetString(Text, PChar(@Buffer[0]), Count);
+  Should(Text).Be('09:05:07.042');
+  Count := FormatJsonDateBuffer(EncodeDate(2026, 7, 5), @Buffer[0]);
+  SetString(Text, PChar(@Buffer[0]), Count);
+  Should(Text).Be('2026-07-05');
 end;
 
 procedure TJsonDatesTests.DriverOffset_WholeMinutes;
