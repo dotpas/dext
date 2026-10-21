@@ -166,6 +166,9 @@
         <DCCReference Include="Dext.MM.Tests.pas"/>
         <DCCReference Include="Dext.Json.Nullable.Tests.pas"/>
         <DCCReference Include="Dext.Json.Dates.Tests.pas"/>
+        <DCCReference Include="Dext.Json.NoDate.Tests.pas"/>
+        <DCCReference Include="Dext.Json.NullDates.Tests.pas"/>
+        <DCCReference Include="Dext.RecordDefaults.Tests.pas"/>
         <DCCReference Include="Dext.Json.RecordProperties.Tests.pas"/>
         <DCCReference Include="Dext.Resilience.Tests.pas"/>
         <DCCReference Include="Dext.Validation.Fluent.Tests.pas"/>

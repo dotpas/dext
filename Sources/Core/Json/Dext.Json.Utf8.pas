@@ -354,7 +354,12 @@ begin
        // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z' on
        // the local time
        if TJsonUtils.IsDateType(AVal.TypeInfo) then
-         Result := '"' + TJsonUtils.DateToJsonText(AVal.AsExtended, AVal.TypeInfo, ASettings) + '"'
+       begin
+         if TJsonUtils.IsNoDate(AVal.AsExtended, AVal.TypeInfo, ASettings) then
+           Result := 'null'
+         else
+           Result := '"' + TJsonUtils.DateToJsonText(AVal.AsExtended, AVal.TypeInfo, ASettings) + '"';
+       end
        else
          Result := FloatToStr(AVal.AsExtended, TFormatSettings.Invariant);
      end;
@@ -959,19 +964,9 @@ begin
 end;
 
 procedure TUtf8JsonWriter.WriteNumber(AValue: Double);
-var
-  TextBuffer: array[0..63] of Char;
-  Utf8Buffer: array[0..63] of Byte;
-  CharacterCount: Integer;
-  i: Integer;
 begin
   CheckComma;
-  CharacterCount := FloatToText(PChar(@TextBuffer[0]), AValue, fvExtended,
-    ffGeneral, 15, 0, TFormatSettings.Invariant);
-  for i := 0 to CharacterCount - 1 do
-    Utf8Buffer[i] := Byte(Ord(TextBuffer[i]));
-  if CharacterCount > 0 then
-    WriteBytes(@Utf8Buffer[0], CharacterCount);
+  WriteRaw(FloatToStr(AValue, TFormatSettings.Invariant));
 end;
 
 procedure TUtf8JsonWriter.WriteBoolean(AValue: Boolean);
@@ -1027,7 +1022,12 @@ begin
         // A date as in Dext.Json: DateToISO8601 with its defaults put a 'Z'
         // on the local time
         if TJsonUtils.IsDateType(AValue.TypeInfo) then
-          WriteString(TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings))
+        begin
+          if TJsonUtils.IsNoDate(AValue.AsExtended, AValue.TypeInfo, FSettings) then
+            WriteNull
+          else
+            WriteString(TJsonUtils.DateToJsonText(AValue.AsExtended, AValue.TypeInfo, FSettings));
+        end
         else
           WriteNumber(AValue.AsType<Double>);
       end;

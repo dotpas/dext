@@ -1,6 +1,6 @@
 # S76: Nullable<T> Uninitialized Local Variables
 
-**Status**: Draft (deferred, to be implemented later)
+**Status**: Draft (deferred). Option D is on hold after field evidence (see 3.1); option C is the current rule
 **Authors**: Cesar Romero, Antigravity
 **Date**: 2026-10-16
 **Related**: S22 (Prop<T> and Nullable<T> Convergence), issue #267 (found while adding its regression tests)
@@ -64,7 +64,7 @@ Same runtime cost as A, but keeps `property HasValue: Boolean`.
 - Cons: remains a trap for every user; failures are intermittent. Only
   acceptable as a documented rule.
 
-### D. `class operator Initialize` (Delphi 10.4+) — **chosen direction**
+### D. `class operator Initialize` (Delphi 10.4+) — **on hold, see 3.1**
 Make `Nullable<T>` a custom managed record and zero `FHasValue` in
 `Initialize`, keeping `FHasValue: Boolean` and `FValue: T`.
 
@@ -95,27 +95,53 @@ end;
     (non-managed) record, such as `FillChar`/`Move` based paths, `TArray` and
     `IList` storage, and fast-path ORM hydration (see S57).
 
-## 4. Decision
-Implement **D**, guarded by a compiler-version directive, and document the
-`Clear` rule (option C) for Delphi versions before 10.4.
+### 3.1. Field evidence against D (Stefano, 2026-10-16)
+An external framework with the same layout (`FValue: T; FHasValue: Boolean`)
+tried exactly option D (an `Initialize` that only sets `FHasValue := False`)
+and backed it out twice:
 
-## 5. Implementation Plan (later)
-1. Add `Initialize` to `Nullable<T>` under `{$IF CompilerVersion >= 34.0}`.
-2. Add a comment in `Dext.Types.Nullable.pas` documenting the pre-10.4 caveat
-   and the `Clear` workaround.
-3. Add a unit test: an uninitialized local `Nullable<Int64>` (and `Integer`,
-   `Double`, `TDateTime`) must report `IsNull = True`. Run it with the stack
+- May: access violation ("Read of address 0x8") in a batch UPDATE path that
+  builds parameter arrays by reading entity fields by offset, using `Move`.
+- Re-checked on current code (1,676-test suite): with the same one-line
+  `Initialize`, the test executable dies at startup with runtime error 217
+  (access violation) before running any test. The exact spot was not chased;
+  the change was the only difference.
+
+Cause: once the record is managed, the compiler adds initialize/finalize/copy
+calls, and code that treats records or fields as raw bytes (`Move`,
+`FillChar`, offset-based reads and writes, arrays of records filled by memory
+copy) stops matching what the compiler expects. The reporter chose option C.
+
+This confirms the risk already listed under D and shows it is not only
+theoretical: Dext also reads `FHasValue` by RTTI offset
+(`Dext.Types.Nullable.pas`) and has ORM fast paths (S57).
+
+## 4. Decision
+Option **C** is the current rule: `Nullable<T>` stays a plain record and locals
+are cleared explicitly (`X.Clear`), documented in the Book. Option **D** is
+**on hold**. It may only be reconsidered if the validation in section 5 passes.
+
+## 5. Validation Required Before Any Attempt at D
+1. Add `Initialize` under `{$IF CompilerVersion >= 34.0}` on a branch only.
+2. Run the full unit test suite first; a startup crash (runtime error 217) is
+   a blocker.
+3. Audit every place that handles `Nullable<T>` or entity fields as raw
+   memory: `Move`, `FillChar`, offset-based reads and writes, arrays of
+   records filled by memory copy, the `FHasValueOffset` RTTI access, and the
+   ORM fast paths (S57).
+4. Benchmark before/after, covering the ORM fast paths and not only plain
+   hydration (see S18, S57).
+5. Check that third-party code doing the same keeps working. The reporter
+   offered to run the branch against their 1,676-test suite.
+6. Add a unit test: an uninitialized local `Nullable<Int64>` (and `Integer`,
+   `Double`, `TDateTime`) must report `IsNull = True`, with the stack
    deliberately dirtied by a prior call to avoid a false pass.
-4. Benchmark before/after: hydrate a large list of entities with
-   `Nullable<Int64>` properties and compare time and memory (see S18, S57).
-5. Run the full unit test suite, especially RTTI/hydration paths that read
-   `FHasValue` by offset.
-6. Revisit `Issue_192_...` and remove the `Clear` workaround only if the
-   test must prove the default state.
 
 ## 6. Open Questions
-- Is the measured hydration cost of the managed record acceptable? If not,
-  fall back to option C plus documentation.
+- Is it worth changing the type at all, given that C has zero cost and no
+  surprises in offset-based hot paths?
 - Does the fast-path hydration (S57) bypass `Initialize` by writing records
   through raw pointers?
 - Should `Prop<Nullable<T>>` (S22) get the same treatment?
+- Could a static check (compiler hint, lint or review rule) flag a local
+  `Nullable<T>` that is read before `Clear`?

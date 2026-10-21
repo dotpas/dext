@@ -175,6 +175,9 @@ implementation
 
 class function TDextTLSOptions.DefaultClient: TDextTLSOptions;
 begin
+  // Result is the caller's storage, already initialized: release its managed
+  // fields before zeroing it, or the strings and interfaces it held are leaked.
+  Finalize(Result);
   FillChar(Result, SizeOf(Result), 0);
   Result.Enabled := True;
   Result.Mode := tlsmClient;
@@ -185,6 +188,9 @@ end;
 
 class function TDextTLSOptions.DefaultServer(const ACertFile, AKeyFile: string): TDextTLSOptions;
 begin
+  // Result is the caller's storage, already initialized: release its managed
+  // fields before zeroing it, or the strings and interfaces it held are leaked.
+  Finalize(Result);
   FillChar(Result, SizeOf(Result), 0);
   Result.Enabled := True;
   Result.Mode := tlsmServer;

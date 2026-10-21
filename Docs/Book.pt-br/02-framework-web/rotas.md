@@ -130,6 +130,43 @@ Principais características:
   de RTTI/TValue ao resolver metadados de endpoint, atribuindo os valores
   diretamente por meio da propriedade `IHttpContext.EndpointMetadata`.
 
+## Versionamento de API (API Versioning)
+
+O Dext oferece suporte nativo e flexível a versionamento de rotas e APIs:
+
+- **Precedência Determinística**: Se um caminho possui uma rota versionada (ex: `2.0`) e uma sem versão, a rota com correspondência exata de versão sempre vence a rota sem versão, independente da ordem em que foram registradas. A rota sem versão atua como fallback.
+- **Respostas RFC 9457**: Caso uma rota exija versão e nenhuma seja enviada, ou seja solicitada uma versão não atendida pelo endpoint, o Dext responde **HTTP 400 Bad Request** com problem details (`application/problem+json`), usando os códigos `ApiVersionUnspecified` ou `UnsupportedApiVersion`.
+- **Estratégias Plugáveis (`IApiVersionReader`)**: O roteador aceita leitores customizados para extrair a versão solicitada da requisição HTTP:
+
+```pascal
+uses
+  Dext.Web,
+  Dext.Web.Versioning;
+
+// 1. Configurar leitor customizado no pipeline (Query String ?v=...)
+App.Builder.UseApiVersionReader(TQueryStringApiVersionReader.Create('v'));
+
+// 2. Ou leitor por cabeçalho customizado (X-Api-Version: ...)
+App.Builder.UseApiVersionReader(THeaderApiVersionReader.Create('X-Api-Version'));
+
+// 3. Ou leitor composto com prioridade (Header -> Query String)
+App.Builder.UseApiVersionReader(
+  TCompositeApiVersionReader.Create([
+    THeaderApiVersionReader.Create('X-Api-Version'),
+    TQueryStringApiVersionReader.Create('api-version')
+  ])
+);
+
+// Mapeando rotas versionadas
+App.MapGet('/items', ItemsV1Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '1.0');
+
+App.MapGet('/items', ItemsV2Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '2.0');
+```
+
+Por padrão, caso nenhum leitor customizado seja definido, o Dext busca a versão na query string `api-version` e depois no cabeçalho `X-Version`.
+
 ---
 
 [← Model Binding](model-binding.md) | [Próximo: Middleware →](middleware.md)

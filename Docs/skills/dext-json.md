@@ -33,9 +33,24 @@ Configure serialization styling dynamically using fluent `TJsonSettings`:
 var Settings := JsonSettings
   .CamelCase
   .IgnoreNullValues
-  .EnumAsString;
+  .EnumAsString
+  .MaxDepth(64); // Default is 64; use UNLIMITED_JSON_DEPTH (-1) to disable
 
 var CustomJson := TDextJson.Serialize(User, Settings);
+```
+
+### Security: Recursion Depth Limit (`MaxDepth`)
+
+To protect against Denial-of-Service (DoS) attacks via deeply nested payloads, Dext JSON parsers enforce a maximum nesting depth (`DEFAULT_MAX_JSON_DEPTH = 64`). Exceeding this limit raises `EJsonParserException` safely without causing an uncatchable stack overflow crash.
+
+```pascal
+// Catch parser exceptions:
+try
+  var Node := TDextJson.Provider.Parse(Payload);
+except
+  on E: EJsonParserException do
+    Writeln('Invalid JSON or depth exceeded: ', E.Message);
+end;
 ```
 
 ## JSON DOM Parsing & Traversal

@@ -239,8 +239,14 @@ var
 begin
   R := EmptyRow;
   try
-    // A TDateTime with its UTC offset, a TDate the day, a TTime the clock
-    Should(TDextJson.Serialize(R)).Be('{"Name":"","When":"' + FormatJsonDateTime(0) + '",' +
+    // A zero TDateTime and TDate are "no date" (ZeroDateAsNull, on by
+    // default), a zero TTime is midnight
+    Should(TDextJson.Serialize(R)).Be('{"Name":"","When":null,' +
+      '"Day":null,"Time":"00:00:00.000",' +
+      '"Count":0,"Big":0,"Amount":0,"Active":false}');
+    // Turned off: a TDateTime with its UTC offset, a TDate the day
+    Should(TDextJson.Serialize(R, TJsonSettings.Default.ZeroDateAsNull(False))).Be(
+      '{"Name":"","When":"' + FormatJsonDateTime(0) + '",' +
       '"Day":"1899-12-30","Time":"00:00:00.000",' +
       '"Count":0,"Big":0,"Amount":0,"Active":false}');
   finally
@@ -323,6 +329,10 @@ end;
 procedure TJsonDefaultsTests.Default_Record_Unchanged;
 begin
   Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord))).Be(
+    '{"Name":"","Count":0,"Amount":0,"When":null,' +
+    '"Active":false,"Status":"jdsDraft"}');
+  Should(TDextJson.Serialize<TJsonDefaultsRecord>(Default(TJsonDefaultsRecord),
+    TJsonSettings.Default.ZeroDateAsNull(False))).Be(
     '{"Name":"","Count":0,"Amount":0,"When":"' + FormatJsonDateTime(0) + '",' +
     '"Active":false,"Status":"jdsDraft"}');
 end;

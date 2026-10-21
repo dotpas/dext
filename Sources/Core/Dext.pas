@@ -454,7 +454,7 @@ type
   TJsonArray = Dext.Core.Json.NextGen.TJsonArray;
   EJsonCastException = Dext.Core.Json.NextGen.EJsonException;
   EJsonPathException = Dext.Core.Json.NextGen.EJsonException;
-  EJsonParserException = Dext.Core.Json.NextGen.EJsonException;
+  EJsonParserException = Dext.Core.Json.NextGen.EJsonParserException;
   TJsonSerializationConfig = Dext.Json.Types.TJsonSettings;
   TJsonDataType = Dext.Json.Types.TDextJsonNodeType;
 
@@ -483,6 +483,8 @@ const
   Indented = Dext.Json.Types.Indented;
   ISO8601 = Dext.Json.Types.ISO8601;
   UnixTimestamp = Dext.Json.Types.UnixTimestamp;
+  DEFAULT_MAX_JSON_DEPTH = Dext.Json.Types.DEFAULT_MAX_JSON_DEPTH;
+  UNLIMITED_JSON_DEPTH = Dext.Json.Types.UNLIMITED_JSON_DEPTH;
   CustomFormat = Dext.Json.Types.CustomFormat;
   // Dext.Json.Types
   jntNull = Dext.Json.Types.jntNull;

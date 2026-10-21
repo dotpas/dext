@@ -70,6 +70,7 @@ type
     FRoutes: IList<TRouteDefinition>; // Changed to List of Definitions
     FServiceProvider: IServiceProvider;
     FDisposables: IList<TObject>; // Objects to dispose on shutdown
+    FApiVersionReader: IApiVersionReader;
 
     function CreateMiddlewarePipeline(const ARegistration: TMiddlewareRegistration; ANext: TRequestDelegate): TRequestDelegate;
   public
@@ -100,6 +101,10 @@ type
     function GetRoutes: TArray<TEndpointMetadata>;
     procedure UpdateLastRouteMetadata(const AMetadata: TEndpointMetadata);
     procedure SetServiceProvider(const AProvider: IServiceProvider);
+    /// <summary>Configures the API version reader strategy for incoming requests.</summary>
+    function UseApiVersionReader(const AReader: IApiVersionReader): IApplicationBuilder;
+    /// <summary>Gets the configured API version reader strategy, if any.</summary>
+    function GetApiVersionReader: IApiVersionReader;
     procedure RegisterForDisposal(AObject: TObject);
   end;
 
@@ -496,7 +501,7 @@ begin
     end;
 
   // Create RouteMatcher (interface - self-managed)
-  RouteMatcher := TRouteMatcher.Create(FRoutes);
+  RouteMatcher := TRouteMatcher.Create(FRoutes, FApiVersionReader);
 
   // Create RoutingMiddleware with the interface
   RoutingMiddleware := TRoutingMiddleware.Create(RouteMatcher);
@@ -536,6 +541,17 @@ end;
 procedure TApplicationBuilder.SetServiceProvider(const AProvider: IServiceProvider);
 begin
   FServiceProvider := AProvider;
+end;
+
+function TApplicationBuilder.UseApiVersionReader(const AReader: IApiVersionReader): IApplicationBuilder;
+begin
+  FApiVersionReader := AReader;
+  Result := Self;
+end;
+
+function TApplicationBuilder.GetApiVersionReader: IApiVersionReader;
+begin
+  Result := FApiVersionReader;
 end;
 
 procedure TApplicationBuilder.RegisterForDisposal(AObject: TObject);

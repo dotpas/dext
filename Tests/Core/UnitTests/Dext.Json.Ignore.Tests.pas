@@ -36,6 +36,7 @@ type
     property Hidden: string read FHidden write FHidden;
   end;
 
+  {$M+}
   /// Only the published properties reach the JSON, in both directions.
   {$M+}
   [JsonPublishedOnly]

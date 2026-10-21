@@ -1,4 +1,4 @@
-﻿(*****************************************************************************
+(*****************************************************************************
 The MIT License (MIT)
 
 Copyright (c) 2015-2025 Andreas Hausladen
@@ -168,6 +168,13 @@ uses
   {$ENDIF HAS_UNIT_SCOPE}
 
 {$HPPEMIT '#pragma link "Jsondataobjects"'}
+
+const
+  DEFAULT_MAX_JSON_DEPTH = 64;
+  UNLIMITED_JSON_DEPTH = -1;
+
+var
+  JsonDefaultMaxDepth: Integer = DEFAULT_MAX_JSON_DEPTH;
 
 type
   TJsonBaseObject = class;
@@ -622,18 +629,22 @@ type
     class function NewInstance: TObject {$IFDEF AUTOREFCOUNT} unsafe {$ENDIF}; override;
     {$ENDIF USE_FAST_NEWINSTANCE}
 
+    class function GetDefaultMaxDepth: Integer; static;
+    class procedure SetDefaultMaxDepth(const Value: Integer); static;
+    class property DefaultMaxDepth: Integer read GetDefaultMaxDepth write SetDefaultMaxDepth;
+
     // ParseXxx returns nil if the JSON string is empty or consists only of white chars.
     // If the JSON string starts with a "[" then the returned object is a TJsonArray otherwise
     // it is a TJsonObject.
-    class function ParseUtf8(S: PAnsiChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; overload; static; inline;
+    class function ParseUtf8(S: PAnsiChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; overload; static; inline;
     {$IFDEF SUPPORTS_UTF8STRING}
-    class function ParseUtf8(const S: UTF8String; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; overload; static; inline;
+    class function ParseUtf8(const S: UTF8String; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; overload; static; inline;
     {$ENDIF SUPPORTS_UTF8STRING}
-    class function ParseUtf8Bytes(S: PByte; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; static;
-    class function Parse(S: PWideChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; overload; static;
-    class function Parse(const S: string; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; overload; static; inline;
+    class function ParseUtf8Bytes(S: PByte; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; static;
+    class function Parse(S: PWideChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; overload; static;
+    class function Parse(const S: string; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; overload; static; inline;
     class function Parse(const Bytes: TBytes; Encoding: TEncoding = nil; ByteIndex: Integer = 0;
-      ByteCount: Integer = -1; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; overload; static;
+      ByteCount: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0): TJsonBaseObject; overload; static;
     class function ParseFromFile(const FileName: string; Utf8WithoutBOM: Boolean = True; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; static;
     class function ParseFromStream(Stream: TStream; Encoding: TEncoding = nil; Utf8WithoutBOM: Boolean = True; AProgress: PJsonReaderProgressRec = nil): TJsonBaseObject; static;
 
@@ -649,12 +660,12 @@ type
     // FromXxxJSON() raises an EJsonParserException if you try to parse an array JSON string into a
     // TJsonObject or a object JSON string into a TJsonArray.
     {$IFDEF SUPPORTS_UTF8STRING}
-    procedure FromUtf8JSON(const S: UTF8String; AProgress: PJsonReaderProgressRec = nil); overload; inline;
+    procedure FromUtf8JSON(const S: UTF8String; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0); overload; inline;
     {$ENDIF SUPPORTS_UTF8STRING}
-    procedure FromUtf8JSON(S: PAnsiChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil); overload; inline;
-    procedure FromUtf8JSON(S: PByte; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil); overload;
-    procedure FromJSON(const S: UnicodeString; AProgress: PJsonReaderProgressRec = nil); overload;
-    procedure FromJSON(S: PWideChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil); overload;
+    procedure FromUtf8JSON(S: PAnsiChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0); overload; inline;
+    procedure FromUtf8JSON(S: PByte; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0); overload;
+    procedure FromJSON(const S: UnicodeString; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0); overload;
+    procedure FromJSON(S: PWideChar; Len: Integer = -1; AProgress: PJsonReaderProgressRec = nil; AMaxDepth: Integer = 0); overload;
 
     function ToJSON(Compact: Boolean = True): string; overload; inline;
     function ToJSON(const Config: TJsonSerializationConfig; Compact: Boolean = True): string; overload;
@@ -1061,6 +1072,7 @@ type
 {$IFEND}
 
 resourcestring
+  RsMaxDepthExceeded = 'JSON max nesting depth of %d exceeded';
   RsUnsupportedFileEncoding = 'File encoding is not supported';
   RsUnexpectedEndOfFile = 'Unexpected end of file where %s was expected';
   RsUnexpectedToken = 'Expected %s but found %s';
@@ -1203,6 +1215,10 @@ type
     FIdents: TStringIntern;
     {$ENDIF USE_STRINGINTERN_FOR_NAMES}
     FPropName: string;
+    FDepth: Integer;
+    FMaxDepth: Integer;
+    class var FDefaultMaxDepth: Integer;
+    procedure CheckDepth; inline;
     procedure Accept(TokenKind: TJsonTokenKind);
     procedure ParseObjectBody(const Data: TJsonObject);
     procedure ParseObjectProperty(const Data: TJsonObject);
@@ -1236,9 +1252,12 @@ type
     procedure FreeInstance; override;
     {$ENDIF USE_FAST_NEWINSTANCE}
 
-    constructor Create(AStart: Pointer; ASize: NativeInt; AProgress: PJsonReaderProgressRec);
+    constructor Create(AStart: Pointer; ASize: NativeInt; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer = 0);
     destructor Destroy; override;
     procedure Parse(Data: TJsonBaseObject);
+
+    property MaxDepth: Integer read FMaxDepth write FMaxDepth;
+    class property DefaultMaxDepth: Integer read FDefaultMaxDepth write FDefaultMaxDepth;
   end;
 
   TUtf8JsonReader = class sealed(TJsonReader)
@@ -1254,7 +1273,7 @@ type
     procedure LexNumber(P: PByte{$IFDEF CPUARM}; EndP: PByte{$ENDIF});
     procedure LexIdent(P: PByte{$IFDEF CPUARM}; EndP: PByte{$ENDIF});
   public
-    constructor Create(S: PByte; Len: NativeInt; AProgress: PJsonReaderProgressRec);
+    constructor Create(S: PByte; Len: NativeInt; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer = 0);
   end;
 
   TStringJsonReader = class sealed(TJsonReader)
@@ -1270,7 +1289,7 @@ type
     procedure LexNumber(P: PChar{$IFDEF CPUARM}; EndP: PChar{$ENDIF});
     procedure LexIdent(P: PChar{$IFDEF CPUARM}; EndP: PChar{$ENDIF});
   public
-    constructor Create(S: PChar; Len: Integer; AProgress: PJsonReaderProgressRec);
+    constructor Create(S: PChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer = 0);
   end;
 
   TMemoryStreamAccess = class(TMemoryStream);
@@ -1841,7 +1860,14 @@ begin
 end;
 {$ENDIF ~USE_FAST_NEWINSTANCE}
 
-constructor TJsonReader.Create(AStart: Pointer; ASize: NativeInt; AProgress: PJsonReaderProgressRec);
+procedure TJsonReader.CheckDepth;
+begin
+  if (FMaxDepth > 0) and (FDepth >= FMaxDepth) then
+    raise EJsonParserException.CreateResFmt(@RsMaxDepthExceeded, [FMaxDepth], FLineNum, GetLineColumn, GetPosition);
+  Inc(FDepth);
+end;
+
+constructor TJsonReader.Create(AStart: Pointer; ASize: NativeInt; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
   //inherited Create;
   {$IFDEF USE_FAST_NEWINSTANCE}
@@ -1864,6 +1890,11 @@ begin
   FSize := ASize;
   FProgress := AProgress;
   FLastProgressValue := 0; // class is not zero-filled
+  FDepth := 0;
+  if AMaxDepth <> 0 then
+    FMaxDepth := AMaxDepth
+  else
+    FMaxDepth := FDefaultMaxDepth;
   if (FProgress <> nil) and Assigned(FProgress.Progress) then
     FProgress.Progress(FProgress.Data, 0, 0, FSize);
 end;
@@ -2107,7 +2138,12 @@ begin
     TJsonObject(Data).Clear;
     Next; // initialize Lexer
     Accept(jtkLBrace);
-    ParseObjectBody(TJsonObject(Data));
+    CheckDepth;
+    try
+      ParseObjectBody(TJsonObject(Data));
+    finally
+      Dec(FDepth);
+    end;
     Accept(jtkRBrace);
   end
   else if Data is TJsonArray then
@@ -2115,7 +2151,12 @@ begin
     TJsonArray(Data).Clear;
     Next; // initialize Lexer
     Accept(jtkLBracket);
-    ParseArrayBody(TJsonArray(Data));
+    CheckDepth;
+    try
+      ParseArrayBody(TJsonArray(Data));
+    finally
+      Dec(FDepth);
+    end;
     Accept(jtkRBracket)
   end 
   else if Data is TJsonPrimitiveValue then
@@ -2192,14 +2233,24 @@ begin
     jtkLBrace:
       begin
         Accept(jtkLBrace);
-        ParseObjectBody(Data.InternAddObject(FPropName));
+        CheckDepth;
+        try
+          ParseObjectBody(Data.InternAddObject(FPropName));
+        finally
+          Dec(FDepth);
+        end;
         Accept(jtkRBrace);
       end;
 
     jtkLBracket:
       begin
         Accept(jtkLBracket);
-        ParseArrayBody(Data.InternAddArray(FPropName));
+        CheckDepth;
+        try
+          ParseArrayBody(Data.InternAddArray(FPropName));
+        finally
+          Dec(FDepth);
+        end;
         Accept(jtkRBracket);
       end;
 
@@ -2285,14 +2336,24 @@ begin
     jtkLBrace:
       begin
         Accept(jtkLBrace);
-        ParseObjectBody(Data.AddObject);
+        CheckDepth;
+        try
+          ParseObjectBody(Data.AddObject);
+        finally
+          Dec(FDepth);
+        end;
         Accept(jtkRBrace);
       end;
 
     jtkLBracket:
       begin
         Accept(jtkLBracket);
-        ParseArrayBody(Data.AddArray);
+        CheckDepth;
+        try
+          ParseArrayBody(Data.AddArray);
+        finally
+          Dec(FDepth);
+        end;
         Accept(jtkRBracket);
       end;
 
@@ -3617,19 +3678,30 @@ begin
   end;
 end;
 
-class function TJsonBaseObject.ParseUtf8(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+class function TJsonBaseObject.GetDefaultMaxDepth: Integer;
 begin
-  Result := ParseUtf8Bytes(PByte(S), Len, AProgress);
+  Result := TJsonReader.DefaultMaxDepth;
+end;
+
+class procedure TJsonBaseObject.SetDefaultMaxDepth(const Value: Integer);
+begin
+  TJsonReader.DefaultMaxDepth := Value;
+  JsonDefaultMaxDepth := Value;
+end;
+
+class function TJsonBaseObject.ParseUtf8(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
+begin
+  Result := ParseUtf8Bytes(PByte(S), Len, AProgress, AMaxDepth);
 end;
 
 {$IFDEF SUPPORTS_UTF8STRING}
-class function TJsonBaseObject.ParseUtf8(const S: UTF8String; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+class function TJsonBaseObject.ParseUtf8(const S: UTF8String; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
 begin
-  Result := ParseUtf8Bytes(PByte(S), Length(S), AProgress);
+  Result := ParseUtf8Bytes(PByte(S), Length(S), AProgress, AMaxDepth);
 end;
 {$ENDIF SUPPORTS_UTF8STRING}
 
-class function TJsonBaseObject.ParseUtf8Bytes(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+class function TJsonBaseObject.ParseUtf8Bytes(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
 var
   P: PByte;
   L: Integer;
@@ -3663,10 +3735,10 @@ begin
         Result := TJsonObject.Create;
 
       {$IFDEF AUTOREFCOUNT}
-      Result.FromUtf8JSON(S, Len, AProgress);
+      Result.FromUtf8JSON(S, Len, AProgress, AMaxDepth);
       {$ELSE}
       try
-        Result.FromUtf8JSON(S, Len, AProgress);
+        Result.FromUtf8JSON(S, Len, AProgress, AMaxDepth);
       except
         Result.Free;
         raise;
@@ -3676,12 +3748,12 @@ begin
   end;
 end;
 
-class function TJsonBaseObject.Parse(const S: string; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+class function TJsonBaseObject.Parse(const S: string; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
 begin
-  Result := Parse(PChar(Pointer(S)), Length(S), AProgress);
+  Result := Parse(PChar(Pointer(S)), Length(S), AProgress, AMaxDepth);
 end;
 
-class function TJsonBaseObject.Parse(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+class function TJsonBaseObject.Parse(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
 var
   P: PWideChar;
   L: Integer;
@@ -3711,10 +3783,10 @@ begin
         Result := TJsonPrimitiveValue.Create;
 
       {$IFDEF AUTOREFCOUNT}
-      Result.FromJSON(S, Len, AProgress);
+      Result.FromJSON(S, Len, AProgress, AMaxDepth);
       {$ELSE}
       try
-        Result.FromJSON(S, Len, AProgress);
+        Result.FromJSON(S, Len, AProgress, AMaxDepth);
       except
         Result.Free;
         raise;
@@ -3725,7 +3797,7 @@ begin
 end;
 
 class function TJsonBaseObject.Parse(const Bytes: TBytes; Encoding: TEncoding; ByteIndex: Integer;
-  ByteCount: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject;
+  ByteCount: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject;
 var
   L: Integer;
 begin
@@ -3737,11 +3809,11 @@ begin
   else
   begin
     if (Encoding = TEncoding.UTF8) or (Encoding = nil) then
-      Result := ParseUtf8Bytes(PByte(@Bytes[ByteIndex]), ByteCount, AProgress)
+      Result := ParseUtf8Bytes(PByte(@Bytes[ByteIndex]), ByteCount, AProgress, AMaxDepth)
     else if Encoding = TEncoding.Unicode then
-      Result := Parse(PWideChar(@Bytes[ByteIndex]), ByteCount div SizeOf(WideChar), AProgress)
+      Result := Parse(PWideChar(@Bytes[ByteIndex]), ByteCount div SizeOf(WideChar), AProgress, AMaxDepth)
     else
-      Result := Parse(Encoding.GetString(Bytes, ByteIndex, ByteCount), AProgress);
+      Result := Parse(Encoding.GetString(Bytes, ByteIndex, ByteCount), AProgress, AMaxDepth);
   end;
 end;
 
@@ -3793,18 +3865,18 @@ begin
 end;
 
 {$IFDEF SUPPORTS_UTF8STRING}
-procedure TJsonBaseObject.FromUtf8JSON(const S: UTF8String; AProgress: PJsonReaderProgressRec);
+procedure TJsonBaseObject.FromUtf8JSON(const S: UTF8String; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
-  FromUtf8JSON(PAnsiChar(Pointer(S)), Length(S), AProgress);
+  FromUtf8JSON(PAnsiChar(Pointer(S)), Length(S), AProgress, AMaxDepth);
 end;
 {$ENDIF SUPPORTS_UTF8STRING}
 
-procedure TJsonBaseObject.FromUtf8JSON(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec);
+procedure TJsonBaseObject.FromUtf8JSON(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
-  FromUtf8JSON(PByte(S), Len, AProgress);
+  FromUtf8JSON(PByte(S), Len, AProgress, AMaxDepth);
 end;
 
-procedure TJsonBaseObject.FromUtf8JSON(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec);
+procedure TJsonBaseObject.FromUtf8JSON(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 var
   Reader: TJsonReader;
 begin
@@ -3816,7 +3888,7 @@ begin
     Len := StrLen(PAnsiChar(S));
     {$ENDIF NEXTGEN}
   end;
-  Reader := TUtf8JsonReader.Create(S, Len, AProgress);
+  Reader := TUtf8JsonReader.Create(S, Len, AProgress, AMaxDepth);
   try
     Reader.Parse(Self);
   finally
@@ -3824,18 +3896,18 @@ begin
   end;
 end;
 
-procedure TJsonBaseObject.FromJSON(const S: UnicodeString; AProgress: PJsonReaderProgressRec);
+procedure TJsonBaseObject.FromJSON(const S: UnicodeString; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
-  FromJSON(PWideChar(S), Length(S), AProgress);
+  FromJSON(PWideChar(S), Length(S), AProgress, AMaxDepth);
 end;
 
-procedure TJsonBaseObject.FromJSON(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec);
+procedure TJsonBaseObject.FromJSON(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 var
   Reader: TJsonReader;
 begin
   if Len < 0 then
     Len := StrLen(S);
-  Reader := TStringJsonReader.Create(S, Len, AProgress);
+  Reader := TStringJsonReader.Create(S, Len, AProgress, AMaxDepth);
   try
     Reader.Parse(Self);
   finally
@@ -6871,9 +6943,9 @@ end;
 
 { TUtf8JsonReader }
 
-constructor TUtf8JsonReader.Create(S: PByte; Len: NativeInt; AProgress: PJsonReaderProgressRec);
+constructor TUtf8JsonReader.Create(S: PByte; Len: NativeInt; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
-  inherited Create(S, Len * SizeOf(Byte), AProgress);
+  inherited Create(S, Len * SizeOf(Byte), AProgress, AMaxDepth);
   FText := S;
   FTextEnd := S + Len;
 end;
@@ -7454,9 +7526,9 @@ end;
 
 { TStringJsonReader }
 
-constructor TStringJsonReader.Create(S: PChar; Len: Integer; AProgress: PJsonReaderProgressRec);
+constructor TStringJsonReader.Create(S: PChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer);
 begin
-  inherited Create(S, Len * SizeOf(WideChar), AProgress);
+  inherited Create(S, Len * SizeOf(WideChar), AProgress, AMaxDepth);
   FText := S;
   FTextEnd := S + Len;
 end;
@@ -9414,6 +9486,7 @@ initialization
   UniqueString(sTrue);
   UniqueString(sFalse);
   JSONFormatSettings.DecimalSeparator := '.';
+  TJsonReader.FDefaultMaxDepth := DEFAULT_MAX_JSON_DEPTH;
 
 end.
 

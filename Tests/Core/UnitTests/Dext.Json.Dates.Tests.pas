@@ -3,12 +3,12 @@ unit Dext.Json.Dates.Tests;
 interface
 
 uses
-  System.SysUtils,
   System.DateUtils,
+  System.Rtti,
+  System.SysUtils,
   System.TimeSpan,
   Dext.Testing.Attributes,
   Dext.Assertions,
-  System.Rtti,
   Dext.Core.Span,
   Dext.Core.DateUtils,
   Dext.Core.Reflection,
@@ -55,10 +55,16 @@ type
     procedure DateTime_ManyValues_OffsetOfTheSystem;
     [Test('Every minute of the days the offset changes: the same text as JsonDataObjects')]
     procedure DateTime_DaysOfChange_SameAsJsonDataObjects;
+    [Test('Every year from 1900 to 2100, twice: the offset of the system (more years than places in the cache)')]
+    procedure DateTime_EveryYear_OffsetOfTheSystem;
+    [Test('The days around every change from 1970 to 2040: the same text as JsonDataObjects')]
+    procedure DateTime_AroundEveryChange_SameAsJsonDataObjects;
     [Test('A TDate is the calendar day, a TTime the wall clock')]
     procedure Date_And_Time;
     [Test('The buffer form writes the same text')]
     procedure Buffer_SameText;
+    [Test('The buffer forms of a date and of a time write the same text, and no more')]
+    procedure Buffer_DateAndTime_SameText;
     // #255
     [Test('DateTimeToISO8601: whole minutes, not +01:59 (#255)')]
     procedure DriverOffset_WholeMinutes;
@@ -69,6 +75,8 @@ type
     procedure Read_DateAndLocal;
     [Test('Reading: Z and an offset are converted to local time')]
     procedure Read_ZoneToLocal;
+    [Test('Reading every three hours from 1970 to 2040, with the local offset, Z and two others: the value of TTimeZone.ToLocalTime, to the bit')]
+    procedure Read_ManyZones_SameAsToLocalTime;
     [Test('Reading: what is not a JSON date is refused')]
     procedure Read_Refused;
     [Test('Reading a time of day')]
@@ -110,18 +118,30 @@ begin
   Result := Result + Format('%.2d:%.2d', [AMinutes div 60, AMinutes mod 60]);
 end;
 
-// The offset the system gives for a local time, in whole minutes, through
-// TTimeZone: a way of its own, to compare with.
 function ExpectedOffset(const AValue: TDateTime): Integer;
 begin
-  Result := Round(TTimeZone.Local.GetUtcOffset(AValue).TotalMinutes);
+  try
+    Result := Round(TTimeZone.Local.GetUtcOffset(AValue).TotalMinutes);
+  except
+    on ELocalTimeInvalid do
+      Result := MaxInt; // Sentinel for invalid local time (DST gap)
+  end;
 end;
 
-// True when the offset is the same at the start and at the end of the day
+// True when the offset is the same at the start and at the end of the day,
+// and neither end falls within a DST missing gap.
 function QuietDay(const AValue: TDateTime): Boolean;
+var
+  offsetAtStart, offsetAtEnd: Integer;
 begin
-  Result := ExpectedOffset(Trunc(AValue)) =
-    ExpectedOffset(Trunc(AValue) + EncodeTime(23, 59, 59, 0));
+  offsetAtStart := ExpectedOffset(Trunc(AValue));
+  if offsetAtStart = MaxInt then
+    Exit(False);
+  offsetAtEnd := ExpectedOffset(Trunc(AValue) + EncodeTime(23, 59, 59, 0));
+  if offsetAtEnd = MaxInt then
+    Exit(False);
+  // Also check if noon or the middle of the day has any issue or different offset
+  Result := (offsetAtStart = offsetAtEnd) and (ExpectedOffset(Trunc(AValue) + 0.5) = offsetAtStart);
 end;
 
 function Digits(const AValue: TDateTime): string;
@@ -194,6 +214,67 @@ begin
   Should(Days <= 4).BeTrue;
 end;
 
+procedure TJsonDatesTests.DateTime_EveryYear_OffsetOfTheSystem;
+var
+  Pass, Year, Month, Wrong, Count: Integer;
+  V: TDateTime;
+
+  procedure Check(const AValue: TDateTime);
+  begin
+    if not QuietDay(AValue) then
+      Exit;
+    Inc(Count);
+    if FormatJsonDateTime(AValue) <> Digits(AValue) + OffsetText(ExpectedOffset(AValue)) then
+      Inc(Wrong);
+  end;
+
+begin
+  // 201 years, more than the places in the per-thread cache: years that
+  // share a place push each other out, and the second round builds them again
+  Wrong := 0;
+  Count := 0;
+  for Pass := 1 to 2 do
+    for Year := 1900 to 2100 do
+    begin
+      for Month := 1 to 12 do
+      begin
+        V := EncodeDate(Year, Month, 15) + EncodeTime(10, 30, 0, 0);
+        Check(V);
+      end;
+      Check(EncodeDate(Year, 1, 1));
+      Check(EncodeDate(Year, 12, 31) + EncodeTime(23, 59, 59, 999));
+    end;
+  Should(Wrong).Be(0);
+  Should(Count > 5000).BeTrue;
+end;
+
+procedure TJsonDatesTests.DateTime_AroundEveryChange_SameAsJsonDataObjects;
+var
+  Day, V: TDateTime;
+  Step, Wrong: Integer;
+begin
+  // The day before, the day of the change and the day after, every ten
+  // minutes: the cache keeps the change days apart and must not move them
+  Wrong := 0;
+  Day := EncodeDate(1970, 1, 1);
+  while Day < EncodeDate(2041, 1, 1) do
+  begin
+    if not QuietDay(Day) then
+    begin
+      V := Day - 1;
+      for Step := 0 to 3 * 144 - 1 do
+      begin
+        if FormatJsonDateTime(V + 17.5 / SecsPerDay) <>
+           TJsonBaseObject.DateTimeToJSON(V + 17.5 / SecsPerDay, False) then
+          Inc(Wrong);
+        V := V + 10 / MinsPerDay;
+      end;
+    end;
+    Day := Day + 1;
+  end;
+  Should(Wrong).Be(0);
+end;
+
 procedure TJsonDatesTests.Date_And_Time;
 begin
   Should(FormatJsonDate(EncodeDateTime(2026, 7, 5, 23, 59, 59, 999))).Be('2026-07-05');
@@ -214,6 +295,41 @@ begin
   Count := FormatJsonDateTimeBuffer(V, @Buffer[0]);
   SetString(Text, PChar(@Buffer[0]), Count);
   Should(Text).Be(FormatJsonDateTime(V));
+end;
+
+procedure TJsonDatesTests.Buffer_DateAndTime_SameText;
+var
+  Buffer: array[0..15] of Char;
+  Count, I, J, Wrong: Integer;
+  V: TDateTime;
+  Text: string;
+begin
+  RandSeed := 20261016;
+  Wrong := 0;
+  for I := 1 to 20000 do
+  begin
+    // the whole calendar, negative values (before 1899-12-30) included
+    V := -693593 + Random * (2958465 + 693593);
+    for J := 0 to High(Buffer) do
+      Buffer[J] := '#';
+    Count := FormatJsonDateBuffer(V, @Buffer[0]);
+    SetString(Text, PChar(@Buffer[0]), Count);
+    if (Count <> JsonDateChars) or (Text <> FormatJsonDate(V)) or (Buffer[Count] <> '#') then
+      Inc(Wrong);
+    for J := 0 to High(Buffer) do
+      Buffer[J] := '#';
+    Count := FormatJsonTimeBuffer(V, @Buffer[0]);
+    SetString(Text, PChar(@Buffer[0]), Count);
+    if (Count <> JsonTimeChars) or (Text <> FormatJsonTime(V)) or (Buffer[Count] <> '#') then
+      Inc(Wrong);
+  end;
+  Should(Wrong).Be(0);
+  Count := FormatJsonTimeBuffer(EncodeTime(9, 5, 7, 42), @Buffer[0]);
+  SetString(Text, PChar(@Buffer[0]), Count);
+  Should(Text).Be('09:05:07.042');
+  Count := FormatJsonDateBuffer(EncodeDate(2026, 7, 5), @Buffer[0]);
+  SetString(Text, PChar(@Buffer[0]), Count);
+  Should(Text).Be('2026-07-05');
 end;
 
 procedure TJsonDatesTests.DriverOffset_WholeMinutes;
@@ -276,6 +392,54 @@ begin
   // Across midnight
   ShouldDate(Parse('2026-07-16T01:00:00+09:00')).Be(
     TTimeZone.Local.ToLocalTime(EncodeDateTime(2026, 7, 15, 16, 0, 0, 0)));
+end;
+
+procedure TJsonDatesTests.Read_ManyZones_SameAsToLocalTime;
+var
+  V: TDateTime;
+  Wrong, Count: Integer;
+
+  // The digits of V with the offset AOffset (minutes), read back, against
+  // the instant converted by TTimeZone
+  procedure Check(AOffset: Integer);
+  var
+    Read: TDateTime;
+    Expected: TDateTime;
+  begin
+    Inc(Count);
+    if not TryParseJsonDateTime(Digits(V) + OffsetText(AOffset), Read) then
+    begin
+      Inc(Wrong);
+      Exit;
+    end;
+    try
+      Expected := TTimeZone.Local.ToLocalTime(V - AOffset / MinsPerDay);
+    except
+      on ELocalTimeInvalid do
+        Exit; // The instant lands in a skipped local DST gap where TTimeZone throws
+    end;
+    if Read <> Expected then
+      Inc(Wrong);
+  end;
+
+begin
+  // Every three hours plus 17.123 seconds: the days the offset changes included
+  Wrong := 0;
+  Count := 0;
+  V := EncodeDate(1970, 1, 1) + EncodeTime(0, 0, 17, 123);
+  while V < EncodeDate(2041, 1, 1) do
+  begin
+    if ExpectedOffset(V) <> MaxInt then
+    begin
+      Check(ExpectedOffset(V));
+      Check(0);
+      Check(330);
+      Check(-300);
+    end;
+    V := IncHour(V, 3);
+  end;
+  Should(Wrong).Be(0);
+  Should(Count > 800000).BeTrue;
 end;
 
 procedure TJsonDatesTests.Read_Refused;
