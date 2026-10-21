@@ -3,11 +3,12 @@ unit Dext.Json.Dates.Tests;
 interface
 
 uses
-  System.SysUtils,
   System.DateUtils,
+  System.Rtti,
+  System.SysUtils,
+  System.TimeSpan,
   Dext.Testing.Attributes,
   Dext.Assertions,
-  System.Rtti,
   Dext.Core.Span,
   Dext.Core.DateUtils,
   Dext.Core.Reflection,
@@ -117,18 +118,30 @@ begin
   Result := Result + Format('%.2d:%.2d', [AMinutes div 60, AMinutes mod 60]);
 end;
 
-// The offset the system gives for a local time, in whole minutes, through
-// TTimeZone: a way of its own, to compare with.
 function ExpectedOffset(const AValue: TDateTime): Integer;
 begin
-  Result := Round(TTimeZone.Local.GetUtcOffset(AValue).TotalMinutes);
+  try
+    Result := Round(TTimeZone.Local.GetUtcOffset(AValue).TotalMinutes);
+  except
+    on ELocalTimeInvalid do
+      Result := MaxInt; // Sentinel for invalid local time (DST gap)
+  end;
 end;
 
-// True when the offset is the same at the start and at the end of the day
+// True when the offset is the same at the start and at the end of the day,
+// and neither end falls within a DST missing gap.
 function QuietDay(const AValue: TDateTime): Boolean;
+var
+  offsetAtStart, offsetAtEnd: Integer;
 begin
-  Result := ExpectedOffset(Trunc(AValue)) =
-    ExpectedOffset(Trunc(AValue) + EncodeTime(23, 59, 59, 0));
+  offsetAtStart := ExpectedOffset(Trunc(AValue));
+  if offsetAtStart = MaxInt then
+    Exit(False);
+  offsetAtEnd := ExpectedOffset(Trunc(AValue) + EncodeTime(23, 59, 59, 0));
+  if offsetAtEnd = MaxInt then
+    Exit(False);
+  // Also check if noon or the middle of the day has any issue or different offset
+  Result := (offsetAtStart = offsetAtEnd) and (ExpectedOffset(Trunc(AValue) + 0.5) = offsetAtStart);
 end;
 
 function Digits(const AValue: TDateTime): string;
@@ -391,10 +404,21 @@ var
   procedure Check(AOffset: Integer);
   var
     Read: TDateTime;
+    Expected: TDateTime;
   begin
     Inc(Count);
-    if not TryParseJsonDateTime(Digits(V) + OffsetText(AOffset), Read) or
-       (Read <> TTimeZone.Local.ToLocalTime(V - AOffset / MinsPerDay)) then
+    if not TryParseJsonDateTime(Digits(V) + OffsetText(AOffset), Read) then
+    begin
+      Inc(Wrong);
+      Exit;
+    end;
+    try
+      Expected := TTimeZone.Local.ToLocalTime(V - AOffset / MinsPerDay);
+    except
+      on ELocalTimeInvalid do
+        Exit; // The instant lands in a skipped local DST gap where TTimeZone throws
+    end;
+    if Read <> Expected then
       Inc(Wrong);
   end;
 
@@ -405,10 +429,13 @@ begin
   V := EncodeDate(1970, 1, 1) + EncodeTime(0, 0, 17, 123);
   while V < EncodeDate(2041, 1, 1) do
   begin
-    Check(ExpectedOffset(V));
-    Check(0);
-    Check(330);
-    Check(-300);
+    if ExpectedOffset(V) <> MaxInt then
+    begin
+      Check(ExpectedOffset(V));
+      Check(0);
+      Check(330);
+      Check(-300);
+    end;
     V := IncHour(V, 3);
   end;
   Should(Wrong).Be(0);

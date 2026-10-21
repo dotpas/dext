@@ -29,6 +29,8 @@ type
     procedure ShouldWriteUnicodeStrings;
     [Test]
     procedure ShouldWriteInt64Limits;
+    [Test]
+    procedure ShouldWriteDoubleNumbers;
   end;
 
 implementation
@@ -90,6 +92,25 @@ begin
     Writer.WriteEndArray;
     Should(StreamText(Stream)).Be(
       '[-9223372036854775808,9223372036854775807]');
+  finally
+    Stream.Free;
+  end;
+end;
+
+procedure TUtf8JsonWriterTests.ShouldWriteDoubleNumbers;
+var
+  Stream: TMemoryStream;
+  Writer: TUtf8JsonWriter;
+begin
+  Stream := TMemoryStream.Create;
+  try
+    Writer := TUtf8JsonWriter.Create(Stream);
+    Writer.WriteStartArray;
+    Writer.WriteNumber(0.0);
+    Writer.WriteNumber(123.456);
+    Writer.WriteNumber(-0.5);
+    Writer.WriteEndArray;
+    Should(StreamText(Stream)).Be('[0,123.456,-0.5]');
   finally
     Stream.Free;
   end;

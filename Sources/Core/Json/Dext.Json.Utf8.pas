@@ -964,19 +964,9 @@ begin
 end;
 
 procedure TUtf8JsonWriter.WriteNumber(AValue: Double);
-var
-  TextBuffer: array[0..63] of Char;
-  Utf8Buffer: array[0..63] of Byte;
-  CharacterCount: Integer;
-  i: Integer;
 begin
   CheckComma;
-  CharacterCount := FloatToText(PChar(@TextBuffer[0]), AValue, fvExtended,
-    ffGeneral, 15, 0, TFormatSettings.Invariant);
-  for i := 0 to CharacterCount - 1 do
-    Utf8Buffer[i] := Byte(Ord(TextBuffer[i]));
-  if CharacterCount > 0 then
-    WriteBytes(@Utf8Buffer[0], CharacterCount);
+  WriteRaw(FloatToStr(AValue, TFormatSettings.Invariant));
 end;
 
 procedure TUtf8JsonWriter.WriteBoolean(AValue: Boolean);
