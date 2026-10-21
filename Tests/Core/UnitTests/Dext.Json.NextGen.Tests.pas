@@ -48,9 +48,27 @@ type
 
     [Test('Should keep characters from U+0800 up in TDextJson.Serialize')]
     procedure TestSerializeKeepsMultiByteChars;
+
+    [Test('NextGen: Should enforce default maximum nesting depth (64)')]
+    procedure TestMaxDepthDefaultLimitNextGen;
+
+    [Test('NextGen: Should enforce custom maximum nesting depth')]
+    procedure TestMaxDepthCustomLimitNextGen;
+
+    [Test('NextGen: Should allow deep nesting when MaxDepth is unlimited')]
+    procedure TestMaxDepthUnlimitedNextGen;
+
+    [Test('JsonDataObjects: Should enforce maximum nesting depth and prevent stack overflow')]
+    procedure TestMaxDepthJsonDataObjects;
+
+    [Test('DextJson: Deeply nested JSON should raise EJsonParserException without stack overflow')]
+    procedure TestMaxDepthDeeplyNestedNoCrash;
   end;
 
 implementation
+
+uses
+  DextJsonDataObjects;
 
 { TJsonNextGenTests }
 
@@ -117,8 +135,8 @@ end;
 
 procedure TJsonNextGenTests.TestPoolRentReturn;
 var
-  Obj: TJsonObject;
-  Arr: TJsonArray;
+  Obj: Dext.Core.Json.NextGen.TJsonObject;
+  Arr: Dext.Core.Json.NextGen.TJsonArray;
 begin
   Obj := TNextGenJsonPool.RentObject;
   Should(Obj <> nil).BeTrue;
@@ -283,6 +301,193 @@ var
 begin
   Json := TDextJson.Serialize<TArray<string>>([Text]);
   Should(Json).Be('["' + Text + '"]');
+end;
+
+function BuildNestedArrayJson(ADepth: Integer): string;
+begin
+  Result := StringOfChar('[', ADepth) + '1' + StringOfChar(']', ADepth);
+end;
+
+function BuildNestedObjectJson(ADepth: Integer): string;
+var
+  i: Integer;
+  Sb: TStringBuilder;
+begin
+  Sb := TStringBuilder.Create;
+  try
+    for i := 1 to ADepth do
+      Sb.Append('{"a":');
+    Sb.Append('1');
+    for i := 1 to ADepth do
+      Sb.Append('}');
+    Result := Sb.ToString;
+  finally
+    Sb.Free;
+  end;
+end;
+
+procedure AssertRaisesParserException(const AProc: TProc);
+var
+  Passed: Boolean;
+begin
+  Passed := False;
+  try
+    AProc();
+  except
+    on E: Dext.Core.Json.NextGen.EJsonParserException do
+      Passed := True;
+    on E: DextJsonDataObjects.EJsonParserException do
+      Passed := True;
+  end;
+  Should(Passed).BeTrue;
+end;
+
+procedure TJsonNextGenTests.TestMaxDepthDefaultLimitNextGen;
+var
+  ValidJson: string;
+  InvalidJson: string;
+  Bytes: TBytes;
+  Node: IDextJsonNode;
+begin
+  // Array: depth 64 should succeed
+  ValidJson := BuildNestedArrayJson(64);
+  Bytes := TEncoding.UTF8.GetBytes(ValidJson);
+  Node := TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes));
+  Should(Node <> nil).BeTrue;
+
+  // Array: depth 65 should raise EJsonParserException
+  InvalidJson := BuildNestedArrayJson(65);
+  Bytes := TEncoding.UTF8.GetBytes(InvalidJson);
+  AssertRaisesParserException(
+    procedure
+    begin
+      TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes));
+    end
+  );
+
+  // Object: depth 64 should succeed
+  ValidJson := BuildNestedObjectJson(64);
+  Bytes := TEncoding.UTF8.GetBytes(ValidJson);
+  Node := TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes));
+  Should(Node <> nil).BeTrue;
+
+  // Object: depth 65 should raise EJsonParserException
+  InvalidJson := BuildNestedObjectJson(65);
+  Bytes := TEncoding.UTF8.GetBytes(InvalidJson);
+  AssertRaisesParserException(
+    procedure
+    begin
+      TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes));
+    end
+  );
+end;
+
+procedure TJsonNextGenTests.TestMaxDepthCustomLimitNextGen;
+var
+  ValidJson: string;
+  InvalidJson: string;
+  Bytes: TBytes;
+  Node: IDextJsonNode;
+begin
+  // Custom limit of 3
+  ValidJson := BuildNestedArrayJson(3);
+  Bytes := TEncoding.UTF8.GetBytes(ValidJson);
+  Node := TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes), nil, 3);
+  Should(Node <> nil).BeTrue;
+
+  InvalidJson := BuildNestedArrayJson(4);
+  Bytes := TEncoding.UTF8.GetBytes(InvalidJson);
+  AssertRaisesParserException(
+    procedure
+    begin
+      TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes), nil, 3);
+    end
+  );
+end;
+
+procedure TJsonNextGenTests.TestMaxDepthUnlimitedNextGen;
+var
+  DeepJson: string;
+  Bytes: TBytes;
+  Node: IDextJsonNode;
+begin
+  // Depth 100 with UNLIMITED_JSON_DEPTH (-1)
+  DeepJson := BuildNestedArrayJson(100);
+  Bytes := TEncoding.UTF8.GetBytes(DeepJson);
+  Node := TNextGenJsonParser.Parse(TByteSpan.FromBytes(Bytes), nil, UNLIMITED_JSON_DEPTH);
+  Should(Node <> nil).BeTrue;
+end;
+
+procedure TJsonNextGenTests.TestMaxDepthJsonDataObjects;
+var
+  ValidJson: string;
+  InvalidJson: string;
+  Obj: DextJsonDataObjects.TJsonObject;
+begin
+  // Default limit 64 on TJsonObject.Parse
+  ValidJson := BuildNestedObjectJson(64);
+  Obj := DextJsonDataObjects.TJsonObject.Parse(ValidJson) as DextJsonDataObjects.TJsonObject;
+  try
+    Should(Obj <> nil).BeTrue;
+  finally
+    Obj.Free;
+  end;
+
+  // Depth 65 exceeds default 64
+  InvalidJson := BuildNestedObjectJson(65);
+  AssertRaisesParserException(
+    procedure
+    begin
+      DextJsonDataObjects.TJsonObject.Parse(InvalidJson);
+    end
+  );
+
+  // Custom limit 5
+  InvalidJson := BuildNestedObjectJson(6);
+  AssertRaisesParserException(
+    procedure
+    begin
+      DextJsonDataObjects.TJsonObject.Parse(InvalidJson, nil, 5);
+    end
+  );
+end;
+
+procedure TJsonNextGenTests.TestMaxDepthDeeplyNestedNoCrash;
+var
+  DeepArray: string;
+  DeepObject: string;
+begin
+  // 5000 nested brackets would previously blow stack and crash process
+  DeepArray := StringOfChar('[', 5000) + StringOfChar(']', 5000);
+  AssertRaisesParserException(
+    procedure
+    begin
+      TNextGenJsonParser.Parse(TByteSpan.FromBytes(TEncoding.UTF8.GetBytes(DeepArray)));
+    end
+  );
+
+  AssertRaisesParserException(
+    procedure
+    begin
+      DextJsonDataObjects.TJsonObject.Parse(DeepArray);
+    end
+  );
+
+  // 2000 nested objects
+  DeepObject := BuildNestedObjectJson(2000);
+  AssertRaisesParserException(
+    procedure
+    begin
+      TNextGenJsonParser.Parse(TByteSpan.FromBytes(TEncoding.UTF8.GetBytes(DeepObject)));
+    end
+  );
+
+  AssertRaisesParserException(
+    procedure
+    begin
+      DextJsonDataObjects.TJsonObject.Parse(DeepObject);
+    end
+  );
 end;
 
 end.

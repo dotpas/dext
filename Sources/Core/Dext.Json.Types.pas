@@ -117,6 +117,18 @@ type
     property Count: NativeInt read GetCount;
   end;
 
+const
+  /// <summary>
+  ///   Default maximum allowed nesting depth for JSON parsers to prevent stack overflow DoS attacks.
+  /// </summary>
+  DEFAULT_MAX_JSON_DEPTH = 64;
+
+  /// <summary>
+  ///   Special nesting depth value to disable recursion depth checking in JSON parsers.
+  /// </summary>
+  UNLIMITED_JSON_DEPTH = -1;
+
+type
   /// <summary>
   ///   Configuration settings for the JSON serializer.
   /// </summary>
@@ -130,6 +142,7 @@ type
     FKeepDefaultEnums: Boolean;
     FBytesAsBase64: Boolean;
     FNullDates: TArray<TDateTime>;
+    FMaxDepth: Integer;
     Formatting: TJsonFormatting;
     IgnoreDefaultValues: Boolean;
     DateFormat: string;
@@ -149,6 +162,16 @@ type
     function IgnoreNullValues: TJsonSettings;
     function CaseInsensitive: TJsonSettings;
     function SmartRecordMapping(AValue: Boolean = True): TJsonSettings;
+    /// <summary>
+    ///   Configures the maximum allowed depth of nested JSON structures (objects and arrays).
+    ///   Default is 64. Pass UNLIMITED_JSON_DEPTH (-1) to disable depth checks.
+    /// </summary>
+    function MaxDepth(AValue: Integer): TJsonSettings; overload;
+    /// <summary>
+    ///   Returns the effective maximum depth limit. Defaults to 64 if not set.
+    /// </summary>
+    function MaxDepth: Integer; overload;
+
     /// <summary>
     ///   A TDateTime or TDate that is 0 (1899-12-30, "no date") is written as
     ///   null instead of "1899-12-30T00:00:00.000" (dropped with
@@ -274,6 +297,21 @@ begin
   Result.FZeroDateAsNull := True;
   Result.FKeepDefaultEnums := False;
   Result.FBytesAsBase64 := True;
+  Result.FMaxDepth := DEFAULT_MAX_JSON_DEPTH;
+end;
+
+function TJsonSettings.MaxDepth(AValue: Integer): TJsonSettings;
+begin
+  Result := Self;
+  Result.FMaxDepth := AValue;
+end;
+
+function TJsonSettings.MaxDepth: Integer;
+begin
+  if FMaxDepth = 0 then
+    Result := DEFAULT_MAX_JSON_DEPTH
+  else
+    Result := FMaxDepth;
 end;
 
 function TJsonSettings.EnumAsNumber: TJsonSettings;

@@ -160,7 +160,18 @@ type
   ///   Provider implementation using the external DextJsonDataObjects library.
   /// </summary>
   TJsonDataObjectsProvider = class(TInterfacedObject, IDextJsonProvider)
+  private
+    FMaxDepth: Integer;
   public
+    /// <summary>
+    ///   Initializes the JsonDataObjects provider with a custom or default maximum nesting depth.
+    /// </summary>
+    constructor Create(AMaxDepth: Integer = DEFAULT_MAX_JSON_DEPTH);
+    /// <summary>
+    ///   Gets or sets the maximum nesting depth for JSON parsing.
+    /// </summary>
+    property MaxDepth: Integer read FMaxDepth write FMaxDepth;
+
     function CreateObject: IDextJsonObject;
     function CreateArray: IDextJsonArray;
     function Parse(const Json: string): IDextJsonNode;
@@ -768,6 +779,12 @@ end;
 
 { TJsonDataObjectsProvider }
 
+constructor TJsonDataObjectsProvider.Create(AMaxDepth: Integer);
+begin
+  inherited Create;
+  FMaxDepth := AMaxDepth;
+end;
+
 function TJsonDataObjectsProvider.CreateObject: IDextJsonObject;
 begin
   Result := TJsonDataObjectAdapter.Create(TJsonObject.Create, True);
@@ -782,7 +799,7 @@ function TJsonDataObjectsProvider.Parse(const Json: string): IDextJsonNode;
 var
   JsonBase: TJsonBaseObject;
 begin
-  JsonBase := TJsonBaseObject.Parse(Json);
+  JsonBase := TJsonBaseObject.Parse(Json, nil, FMaxDepth);
   if JsonBase is TJsonObject then
     Result := TJsonDataObjectAdapter.Create(TJsonObject(JsonBase), True)
   else if JsonBase is TJsonArray then

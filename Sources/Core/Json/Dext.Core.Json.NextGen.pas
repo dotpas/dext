@@ -41,6 +41,12 @@ type
   EJsonException = class(Exception)
   end;
 
+  /// <summary>
+  ///   Exception raised when JSON syntax is invalid or maximum nesting depth is exceeded.
+  /// </summary>
+  EJsonParserException = class(EJsonException)
+  end;
+
   IJSONBufferOwner = interface
     ['{E3C2A1B0-9F8E-7D6C-5B4A-3C2B1A0F9E8D}']
   end;
@@ -141,6 +147,9 @@ type
     FStart: PByte;
     FPtr: PByte;
     FEnd: PByte;
+    FDepth: Integer;
+    FMaxDepth: Integer;
+    procedure CheckDepth; inline;
     procedure ScanString(var APtr: PByte); inline;
     class function ParseNumber(const ASpan: TByteSpan): Double; static;
     class function ParseInt64(const ASpan: TByteSpan): Int64; static;
@@ -165,7 +174,8 @@ type
 
     class function Parse(
       const AData: TByteSpan;
-      const AKeepAlive: IInterface = nil
+      const AKeepAlive: IInterface = nil;
+      AMaxDepth: Integer = DEFAULT_MAX_JSON_DEPTH
     ): IDextJsonNode; static;
   end;
 
@@ -406,7 +416,18 @@ type
   ///   Provedor padrão de JSON NextGen.
   /// </summary>
   TNextGenJsonProvider = class(TInterfacedObject, IDextJsonProvider)
+  private
+    FMaxDepth: Integer;
   public
+    /// <summary>
+    ///   Initializes the NextGen JSON provider with a custom or default maximum nesting depth.
+    /// </summary>
+    constructor Create(AMaxDepth: Integer = DEFAULT_MAX_JSON_DEPTH);
+    /// <summary>
+    ///   Gets or sets the maximum nesting depth for JSON parsing.
+    /// </summary>
+    property MaxDepth: Integer read FMaxDepth write FMaxDepth;
+
     function CreateObject: IDextJsonObject;
     function CreateArray: IDextJsonArray;
     function Parse(const Json: string): IDextJsonNode;
@@ -1041,6 +1062,13 @@ begin
 end;
 {$ENDIF}
 
+procedure TNextGenJsonParser.CheckDepth;
+begin
+  if (FMaxDepth > 0) and (FDepth >= FMaxDepth) then
+    raise EJsonParserException.CreateFmt('JSON max nesting depth of %d exceeded', [FMaxDepth]);
+  Inc(FDepth);
+end;
+
 function TNextGenJsonParser.ParseObject: IDextJsonObject;
 var
   Obj: IDextJsonObject;
@@ -1049,78 +1077,83 @@ var
   Val: TNextGenJsonValue;
   StartKey: PByte;
 begin
-  Obj := TNextGenJsonPool.RentObject;
-  ObjClass := TJsonObject(Obj);
-  Inc(FPtr); // Pula '{'
-
-  while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
-    Inc(FPtr);
-
-  if (FPtr < FEnd) and (FPtr^ = Ord('}')) then
-  begin
-    Inc(FPtr);
-    Exit(Obj);
-  end;
-
-  while FPtr < FEnd do
-  begin
-    while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
-      Inc(FPtr);
-
-    if FPtr >= FEnd then
-      raise EJsonException.Create('Expected key string or "}"');
-
-    if FPtr^ <> Ord('"') then
-      raise EJsonException.Create('Key string must be quoted');
-
-    Inc(FPtr); // skip '"'
-    StartKey := FPtr;
-    ScanString(FPtr);
-    KeySpan := TByteSpan.Create(StartKey, FPtr - StartKey);
-    Inc(FPtr); // skip '"'
+  CheckDepth;
+  try
+    Obj := TNextGenJsonPool.RentObject;
+    ObjClass := TJsonObject(Obj);
+    Inc(FPtr); // Pula '{'
 
     while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
       Inc(FPtr);
 
-    if FPtr >= FEnd then
-      raise EJsonException.Create('Expected ":" after key');
-
-    if FPtr^ <> Ord(':') then
-      raise EJsonException.Create('Expected ":" after key, found ' +
-        Char(FPtr^));
-
-    Inc(FPtr); // skip ':'
-
-    Val := ParseValue;
-    ObjClass.AddPair(KeySpan, Val);
-
-    while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
-      Inc(FPtr);
-
-    if FPtr >= FEnd then
-      raise EJsonException.Create('Expected "," or "}"');
-
-    if FPtr^ = Ord(',') then
+    if (FPtr < FEnd) and (FPtr^ = Ord('}')) then
     begin
-      Inc(FPtr); // skip ','
+      Inc(FPtr);
+      Exit(Obj);
+    end;
+
+    while FPtr < FEnd do
+    begin
       while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
         Inc(FPtr);
-      if (FPtr < FEnd) and (FPtr^ = Ord('}')) then
-        raise EJsonException.Create('Trailing comma in object');
-    end
-    else if FPtr^ = Ord('}') then
-    begin
-      Inc(FPtr); // skip '}'
-      if ObjClass.FCount < Length(ObjClass.FPairs) then
-        SetLength(ObjClass.FPairs, ObjClass.FCount);
-      Exit(Obj);
-    end
-    else
-    begin
-      raise EJsonException.Create('Expected "," or "}"');
+
+      if FPtr >= FEnd then
+        raise EJsonException.Create('Expected key string or "}"');
+
+      if FPtr^ <> Ord('"') then
+        raise EJsonException.Create('Key string must be quoted');
+
+      Inc(FPtr); // skip '"'
+      StartKey := FPtr;
+      ScanString(FPtr);
+      KeySpan := TByteSpan.Create(StartKey, FPtr - StartKey);
+      Inc(FPtr); // skip '"'
+
+      while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
+        Inc(FPtr);
+
+      if FPtr >= FEnd then
+        raise EJsonException.Create('Expected ":" after key');
+
+      if FPtr^ <> Ord(':') then
+        raise EJsonException.Create('Expected ":" after key, found ' +
+          Char(FPtr^));
+
+      Inc(FPtr); // skip ':'
+
+      Val := ParseValue;
+      ObjClass.AddPair(KeySpan, Val);
+
+      while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
+        Inc(FPtr);
+
+      if FPtr >= FEnd then
+        raise EJsonException.Create('Expected "," or "}"');
+
+      if FPtr^ = Ord(',') then
+      begin
+        Inc(FPtr); // skip ','
+        while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
+          Inc(FPtr);
+        if (FPtr < FEnd) and (FPtr^ = Ord('}')) then
+          raise EJsonException.Create('Trailing comma in object');
+      end
+      else if FPtr^ = Ord('}') then
+      begin
+        Inc(FPtr); // skip '}'
+        if ObjClass.FCount < Length(ObjClass.FPairs) then
+          SetLength(ObjClass.FPairs, ObjClass.FCount);
+        Exit(Obj);
+      end
+      else
+      begin
+        raise EJsonException.Create('Expected "," or "}"');
+      end;
     end;
+    raise EJsonException.Create('Unclosed object');
+  finally
+    Dec(FDepth);
   end;
-  raise EJsonException.Create('Unclosed object');
 end;
 
 function TNextGenJsonParser.ParseArray: IDextJsonArray;
@@ -1129,54 +1162,59 @@ var
   ArrClass: TJsonArray;
   Val: TNextGenJsonValue;
 begin
-  Arr := TNextGenJsonPool.RentArray;
-  ArrClass := TJsonArray(Arr);
-  Inc(FPtr); // Pula '['
-
-  while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
-    Inc(FPtr);
-
-  if (FPtr < FEnd) and (FPtr^ = Ord(']')) then
-  begin
-    Inc(FPtr);
-    Exit(Arr);
-  end;
-
-  while FPtr < FEnd do
-  begin
-    if FPtr^ = Ord(',') then
-      raise EJsonException.Create('Expected value, found ","');
-
-    Val := ParseValue;
-    ArrClass.AddValue(Val);
+  CheckDepth;
+  try
+    Arr := TNextGenJsonPool.RentArray;
+    ArrClass := TJsonArray(Arr);
+    Inc(FPtr); // Pula '['
 
     while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
       Inc(FPtr);
 
-    if FPtr >= FEnd then
-      raise EJsonException.Create('Expected "," or "]"');
-
-    if FPtr^ = Ord(',') then
+    if (FPtr < FEnd) and (FPtr^ = Ord(']')) then
     begin
-      Inc(FPtr); // skip ','
+      Inc(FPtr);
+      Exit(Arr);
+    end;
+
+    while FPtr < FEnd do
+    begin
+      if FPtr^ = Ord(',') then
+        raise EJsonException.Create('Expected value, found ","');
+
+      Val := ParseValue;
+      ArrClass.AddValue(Val);
+
       while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
         Inc(FPtr);
-      if (FPtr < FEnd) and (FPtr^ = Ord(']')) then
-        raise EJsonException.Create('Trailing comma in array');
-    end
-    else if FPtr^ = Ord(']') then
-    begin
-      Inc(FPtr); // skip ']'
-      if ArrClass.FCount < Length(ArrClass.FValues) then
-        SetLength(ArrClass.FValues, ArrClass.FCount);
-      Exit(Arr);
-    end
-    else
-    begin
-      raise EJsonException.Create('Expected "," or "]"');
+
+      if FPtr >= FEnd then
+        raise EJsonException.Create('Expected "," or "]"');
+
+      if FPtr^ = Ord(',') then
+      begin
+        Inc(FPtr); // skip ','
+        while (FPtr < FEnd) and (GWhitespace[FPtr^] <> 0) do
+          Inc(FPtr);
+        if (FPtr < FEnd) and (FPtr^ = Ord(']')) then
+          raise EJsonException.Create('Trailing comma in array');
+      end
+      else if FPtr^ = Ord(']') then
+      begin
+        Inc(FPtr); // skip ']'
+        if ArrClass.FCount < Length(ArrClass.FValues) then
+          SetLength(ArrClass.FValues, ArrClass.FCount);
+        Exit(Arr);
+      end
+      else
+      begin
+        raise EJsonException.Create('Expected "," or "]"');
+      end;
     end;
+    raise EJsonException.Create('Unclosed array');
+  finally
+    Dec(FDepth);
   end;
-  raise EJsonException.Create('Unclosed array');
 end;
 
 function TNextGenJsonParser.ParseValue: TNextGenJsonValue;
@@ -1327,7 +1365,8 @@ end;
 
 class function TNextGenJsonParser.Parse(
   const AData: TByteSpan;
-  const AKeepAlive: IInterface
+  const AKeepAlive: IInterface;
+  AMaxDepth: Integer
 ): IDextJsonNode;
 var
   Parser: TNextGenJsonParser;
@@ -1336,6 +1375,8 @@ begin
   Parser.FStart := AData.Data;
   Parser.FPtr := AData.Data;
   Parser.FEnd := AData.Data + AData.Length;
+  Parser.FDepth := 0;
+  Parser.FMaxDepth := AMaxDepth;
 
   while (Parser.FPtr < Parser.FEnd) and (GWhitespace[Parser.FPtr^] <> 0) do
     Inc(Parser.FPtr);
@@ -2877,6 +2918,12 @@ end;
 
 { TNextGenJsonProvider }
 
+constructor TNextGenJsonProvider.Create(AMaxDepth: Integer);
+begin
+  inherited Create;
+  FMaxDepth := AMaxDepth;
+end;
+
 function TNextGenJsonProvider.CreateObject: IDextJsonObject;
 begin
   Result := TNextGenJsonPool.RentObject;
@@ -2898,7 +2945,7 @@ begin
   Bytes := TEncoding.UTF8.GetBytes(Json);
   Span := TByteSpan.FromBytes(Bytes);
   Owner := TJSONBufferOwner.Create(Bytes);
-  Result := TNextGenJsonParser.Parse(Span, Owner);
+  Result := TNextGenJsonParser.Parse(Span, Owner, FMaxDepth);
 end;
 
 const

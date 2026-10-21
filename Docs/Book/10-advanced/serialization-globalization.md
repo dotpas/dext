@@ -241,6 +241,21 @@ type
 
 `[JsonFormat]` reads back formats made of `yyyy yy mm m dd d hh h nn n ss s zzz z` and fixed text (`TJsonUtils.TryParseDateWithFormat`). A format that cannot be read back (month names, `am/pm`), two of these attributes on one member, or an attribute on a type it cannot change raise `EDextJsonException` when the class or record is first serialized: an attribute that does nothing is never silent.
 
+### Parser Nesting Depth Limit (`MaxDepth`)
+To protect against Denial of Service (DoS) attacks via stack overflow (where an unauthenticated client sends thousands of deeply nested arrays `[[[[...]]]]` or objects `{"a":{"a":...}}`), Dext parsers enforce a configurable recursion depth limit:
+
+- **Default Limit**: `DEFAULT_MAX_JSON_DEPTH = 64` (plenty for standard REST payloads).
+- **Behavior**: When recursion exceeds the configured depth, an `EJsonParserException` is raised immediately, terminating parsing safely instead of exhausting the OS stack / guard page.
+- **Fluent Configuration**:
+```pascal
+// Configure custom max depth on settings:
+var Settings := TJsonSettings.Default.MaxDepth(32);
+var User := TDextJson.Deserialize<TUser>(JsonStr, Settings);
+
+// Disable nesting depth limit:
+var Unrestricted := TJsonSettings.Default.MaxDepth(UNLIMITED_JSON_DEPTH);
+```
+
 > [!TIP]
 > Use **Dext DOM** for your daily API development. Switch to **Dext UTF-8** only when memory consumption becomes a bottleneck or when processing massive data streams.
 

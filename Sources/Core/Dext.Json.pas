@@ -532,6 +532,7 @@ type
     function ResolveFieldName(Item: PRecordPlanItem): string;
     function SerializeObjectWithPlan(Obj: TObject; const Plan: TSerializationPlan): IDextJsonObject;
     function TryReadBytesRoot(const AJson: string; AType: PTypeInfo; out AValue: TValue): Boolean;
+    function ParseJson(const AJson: string): IDextJsonNode;
   protected
     function GetFieldName(AField: TRttiField): string;
     function GetRecordName(ARttiType: TRttiType): string;
@@ -665,7 +666,8 @@ uses
   Dext.Core.Reflection,
   Dext.Core.DateUtils,
   Dext.Json.Utf8,
-  Dext.Core.Json.NextGen; // Default driver NextGen
+  Dext.Core.Json.NextGen, // Default driver NextGen
+  Dext.Json.Driver.DextJsonDataObjects;
 
 type
   TRecordCacheEntry = record
@@ -1355,7 +1357,7 @@ begin
     // A byte array as the root: a Base64 string (an array goes on below)
     if Serializer.TryReadBytesRoot(AJson, AType, Result) then
       Exit;
-    JsonNode := TDextJson.Provider.Parse(AJson);
+    JsonNode := Serializer.ParseJson(AJson);
     if JsonNode.GetNodeType = jntObject then
     begin
       if AType.Kind = tkRecord then
@@ -1388,7 +1390,7 @@ var
 begin
   Serializer := TDextSerializer.Create(GetDefaultSettings);
   try
-    JsonNode := TDextJson.Provider.Parse(AJson);
+    JsonNode := Serializer.ParseJson(AJson);
     if JsonNode.GetNodeType = jntObject then
       Result := Serializer.DeserializeRecord(JsonNode as IDextJsonObject, AType)
     else
@@ -2434,6 +2436,44 @@ begin
     Result := TActivator.CreateInstanceRttiOnly(AType);
 end;
 
+function TDextSerializer.ParseJson(const AJson: string): IDextJsonNode;
+var
+  Prov: IDextJsonProvider;
+  NextGenProv: TNextGenJsonProvider;
+  DataObjectsProv: TJsonDataObjectsProvider;
+  OldDepth: Integer;
+begin
+  Prov := TDextJson.Provider;
+  if FSettings.FMaxDepth <> 0 then
+  begin
+    if Prov is TNextGenJsonProvider then
+    begin
+      NextGenProv := TNextGenJsonProvider(Prov);
+      OldDepth := NextGenProv.MaxDepth;
+      NextGenProv.MaxDepth := FSettings.MaxDepth;
+      try
+        Result := NextGenProv.Parse(AJson);
+      finally
+        NextGenProv.MaxDepth := OldDepth;
+      end;
+      Exit;
+    end
+    else if Prov is TJsonDataObjectsProvider then
+    begin
+      DataObjectsProv := TJsonDataObjectsProvider(Prov);
+      OldDepth := DataObjectsProv.MaxDepth;
+      DataObjectsProv.MaxDepth := FSettings.MaxDepth;
+      try
+        Result := DataObjectsProv.Parse(AJson);
+      finally
+        DataObjectsProv.MaxDepth := OldDepth;
+      end;
+      Exit;
+    end;
+  end;
+  Result := Prov.Parse(AJson);
+end;
+
 function TDextSerializer.Deserialize<T>(const AJson: string): T;
 var
   JsonNode: IDextJsonNode;
@@ -2443,7 +2483,7 @@ begin
   if TryReadBytesRoot(AJson, TypeInfo(T), Value) then
     Exit(Value.AsType<T>);
 
-  JsonNode := TDextJson.Provider.Parse(AJson);
+  JsonNode := ParseJson(AJson);
   try
     if JsonNode.GetNodeType = jntObject then
       Value := JsonToValue(JsonNode as IDextJsonObject, TypeInfo(T))
@@ -3570,7 +3610,7 @@ var
   Node: IDextJsonNode;
 begin
   if (AInstance = nil) or (AJson = '') then Exit;
-  Node := TDextJson.Provider.Parse(AJson);
+  Node := ParseJson(AJson);
   if (Node <> nil) and (Node.GetNodeType = jntObject) then
     DeserializeObject(Node as IDextJsonObject, AInstance.ClassInfo, AInstance);
 end;
