@@ -37,6 +37,12 @@ type
     procedure ExactVersionWins_Parameter;
     [Test('The unversioned route is the fallback: no version, or a version no route declares')]
     procedure Unversioned_IsTheFallback;
+    [Test('Custom query version reader (?v=2.0)')]
+    procedure CustomQueryVersionReader;
+    [Test('Custom header version reader (X-Api-Version: 2.0)')]
+    procedure CustomHeaderVersionReader;
+    [Test('Custom composite version reader (Header X-Custom-Ver, fallback query ?ver=)')]
+    procedure CustomCompositeVersionReader;
   end;
 
 implementation
@@ -218,6 +224,98 @@ begin
   Should(Get('/m?api-version=3.0').Body).Be('mplain');
   Should(Get('/j/1?api-version=3.0').Body).Be('jplain');
   Should(Get('/u?api-version=9.0').Body).Be('u');
+end;
+
+procedure TApiVersionRoutingTests.CustomQueryVersionReader;
+var
+  Factory: TDextApplicationFactory<TObject>;
+  Client: IDextTestHttpClient;
+begin
+  Factory := TDextApplicationFactory<TObject>.Create
+    .WithConfigure(
+      procedure(App: TWebApplication)
+      begin
+        App.GetApplicationBuilder.UseApiVersionReader(
+          TQueryStringApiVersionReader.Create('v')
+        );
+        MapNamed(App, 'GET', '/custom', 'v1', '1.0');
+        MapNamed(App, 'GET', '/custom', 'v2', '2.0');
+      end);
+  try
+    Client := Factory.CreateClient;
+    Should(Client.Get('/custom?v=2.0').Body).Be('v2');
+    Should(Client.Get('/custom?v=1.0').Body).Be('v1');
+    // Using default api-version should NOT be recognized now
+    ShouldBeVersionProblem(Client.Get('/custom?api-version=2.0'), 'ApiVersionUnspecified');
+  finally
+    Factory.Free;
+  end;
+end;
+
+procedure TApiVersionRoutingTests.CustomHeaderVersionReader;
+  function CallHeader(const AHeader, AValue: string): IDextTestHttpResponse;
+  var
+    Factory: TDextApplicationFactory<TObject>;
+  begin
+    Factory := TDextApplicationFactory<TObject>.Create
+      .WithConfigure(
+        procedure(App: TWebApplication)
+        begin
+          App.GetApplicationBuilder.UseApiVersionReader(
+            THeaderApiVersionReader.Create('X-Api-Version')
+          );
+          MapNamed(App, 'GET', '/header-ver', 'v1', '1.0');
+          MapNamed(App, 'GET', '/header-ver', 'v2', '2.0');
+        end);
+    try
+      Result := Factory.CreateClient.Header(AHeader, AValue).Get('/header-ver');
+    finally
+      Factory.Free;
+    end;
+  end;
+begin
+  Should(CallHeader('X-Api-Version', '2.0').Body).Be('v2');
+  Should(CallHeader('X-Api-Version', '1.0').Body).Be('v1');
+  // Default X-Version header should not be recognized
+  ShouldBeVersionProblem(CallHeader('X-Version', '2.0'), 'ApiVersionUnspecified');
+end;
+
+procedure TApiVersionRoutingTests.CustomCompositeVersionReader;
+  function CallComposite(const APath: string; const AHeader: string = '';
+    const AValue: string = ''): IDextTestHttpResponse;
+  var
+    Factory: TDextApplicationFactory<TObject>;
+    Client: IDextTestHttpClient;
+  begin
+    Factory := TDextApplicationFactory<TObject>.Create
+      .WithConfigure(
+        procedure(App: TWebApplication)
+        begin
+          App.GetApplicationBuilder.UseApiVersionReader(
+            TCompositeApiVersionReader.Create([
+              THeaderApiVersionReader.Create('X-Custom-Ver'),
+              TQueryStringApiVersionReader.Create('ver')
+            ])
+          );
+          MapNamed(App, 'GET', '/comp', 'v1', '1.0');
+          MapNamed(App, 'GET', '/comp', 'v2', '2.0');
+        end);
+    try
+      Client := Factory.CreateClient;
+      if AHeader <> '' then
+        Client := Client.Header(AHeader, AValue);
+      Result := Client.Get(APath);
+    finally
+      Factory.Free;
+    end;
+  end;
+begin
+  // 1. Matched by Header
+  Should(CallComposite('/comp', 'X-Custom-Ver', '1.0').Body).Be('v1');
+  // 2. Matched by Query string
+  Should(CallComposite('/comp?ver=2.0').Body).Be('v2');
+  // 3. Header takes priority over Query
+  Should(CallComposite('/comp?ver=1.0', 'X-Custom-Ver', '2.0').Body).Be('v2');
 end;
 
 end.

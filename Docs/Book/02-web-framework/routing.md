@@ -167,6 +167,43 @@ Key features:
   wrapping when resolving endpoint metadata by directly assigning values via
   the `IHttpContext.EndpointMetadata` property.
 
+## API Versioning
+
+Dext provides native, flexible API and route versioning support:
+
+- **Deterministic Precedence**: If a path declares a versioned route (e.g. `2.0`) alongside an unversioned route, the exact version match always takes precedence over the unversioned route regardless of registration order. The unversioned route acts strictly as a fallback.
+- **RFC 9457 Problem Details**: If a route requires a version and none is provided, or a requested version is not served by any route on that path, Dext answers **HTTP 400 Bad Request** with problem details (`application/problem+json`), using either `ApiVersionUnspecified` or `UnsupportedApiVersion`.
+- **Pluggable Readers (`IApiVersionReader`)**: The router integrates directly with pluggable version readers configured in the application pipeline:
+
+```pascal
+uses
+  Dext.Web,
+  Dext.Web.Versioning;
+
+// 1. Configure custom query string reader (?v=...)
+App.Builder.UseApiVersionReader(TQueryStringApiVersionReader.Create('v'));
+
+// 2. Or custom header reader (X-Api-Version: ...)
+App.Builder.UseApiVersionReader(THeaderApiVersionReader.Create('X-Api-Version'));
+
+// 3. Or composite reader with priority (Header -> Query String fallback)
+App.Builder.UseApiVersionReader(
+  TCompositeApiVersionReader.Create([
+    THeaderApiVersionReader.Create('X-Api-Version'),
+    TQueryStringApiVersionReader.Create('api-version')
+  ])
+);
+
+// Mapping versioned routes
+App.MapGet('/items', ItemsV1Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '1.0');
+
+App.MapGet('/items', ItemsV2Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '2.0');
+```
+
+By default, when no custom reader is configured, Dext looks for `api-version` in query string parameters and `X-Version` in request headers.
+
 ---
 
 [← Model Binding](model-binding.md) | [Next: Middleware →](middleware.md)

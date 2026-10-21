@@ -36,10 +36,7 @@ type
   /// <summary>
   ///   Contract for reading the API version from an HTTP request.
   /// </summary>
-  IApiVersionReader = interface
-    ['{12312312-1234-1234-1234-1234567890AA}']
-    function Read(const Context: IHttpContext): string;
-  end;
+  IApiVersionReader = Dext.Web.Interfaces.IApiVersionReader;
 
   /// <summary>
   ///   Version reader via Query String (e.g. ?api-version=1.0).

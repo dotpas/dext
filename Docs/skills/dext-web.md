@@ -396,6 +396,26 @@ var Mgr: IFeatureManager := TFeatureManager.Create(Config);
 if Mgr.IsEnabled('NewUI') then ;
 ```
 
+### API Versioning
+```pascal
+uses Dext.Web, Dext.Web.Versioning;
+
+// Configure custom reader strategy in the pipeline
+App.Builder.UseApiVersionReader(
+  TCompositeApiVersionReader.Create([
+    THeaderApiVersionReader.Create('X-Api-Version'),
+    TQueryStringApiVersionReader.Create('api-version')
+  ])
+);
+
+// Map versioned routes (exact version match wins over unversioned fallback)
+App.MapGet('/api/items', ItemsV1Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '1.0');
+
+App.MapGet('/api/items', ItemsV2Handler);
+TWebRouteHelpers.HasApiVersion(App.GetApplicationBuilder, '2.0');
+```
+
 ## Common Mistakes
 
 | Wrong | Correct |

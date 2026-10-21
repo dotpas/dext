@@ -36,17 +36,8 @@ uses
   Dext.Collections,
   Dext.Collections.Dict,
   Dext.Web.Interfaces;
-  // Note: We don't import Versioning here to avoid circular dep if possible, 
-  // or we define IApiVersionReader in Interfaces? 
-  // For now, let's assume simple string matching or header reading inside logic if we pass Context.
-  // Actually, we can just extract version in Middleware and pass it?
-  // No, the interface change allows passing Context.
-  
+
 type
-  // Forward delcaration if needed, but IApiVersionReader is in another unit.
-  // Let's rely on manually checking context headers/query for now to minimize dependencies,
-  // OR assume the Caller (Middleware) passes the Version string?
-  // Ideally: FindMatchingRoute(Context).
 
   TRouteSegment = record
   public
@@ -185,6 +176,7 @@ type
     FRoot: TRouteNode;
     FCompiledRoot: TDextCompiledRouteNode;
     FExactRoutes: IDictionary<string, IDictionary<string, TRouteLeaf>>;
+    FApiVersionReader: IApiVersionReader;
     // True if at least one route declares API versions. Without any, the
     // requested version never changes the match (an empty list matches every
     // version), so FindMatchingRoute does not read it.
@@ -204,7 +196,8 @@ type
       var AParams: TRouteValueDictionary
     ): Boolean;
   public
-    constructor Create(const ARoutes: IList<TRouteDefinition>);
+    constructor Create(const ARoutes: IList<TRouteDefinition>;
+      const AApiVersionReader: IApiVersionReader = nil);
     destructor Destroy; override;
     function FindMatchingRoute(const AContext: IHttpContext;
       out AHandler: TRequestDelegate;
@@ -850,12 +843,14 @@ end;
 
 { TRouteMatcher }
 
-constructor TRouteMatcher.Create(const ARoutes: IList<TRouteDefinition>);
+constructor TRouteMatcher.Create(const ARoutes: IList<TRouteDefinition>;
+  const AApiVersionReader: IApiVersionReader);
 var
   Route: TRouteDefinition;
   NewRoute: TRouteDefinition;
 begin
   inherited Create;
+  FApiVersionReader := AApiVersionReader;
   FRoutes := TCollections.CreateList<TRouteDefinition>(True);
   FRoot := TRouteNode.Create('');
   FExactRoutes := TCollections.CreateDictionary<string,
@@ -878,6 +873,7 @@ end;
 
 destructor TRouteMatcher.Destroy;
 begin
+  FApiVersionReader := nil;
   FRoot.Free;
   FExactRoutes := nil;
   FRoutes := nil;
@@ -963,6 +959,12 @@ function TRouteMatcher.GetRequestedApiVersion(
   const AContext: IHttpContext
 ): string;
 begin
+  if FApiVersionReader <> nil then
+  begin
+    Result := FApiVersionReader.Read(AContext);
+    Exit;
+  end;
+
   if AContext.Request.Query.TryGetValue('api-version', Result) then
     Exit;
   if AContext.Request.Headers.TryGetValue('X-Version', Result) then

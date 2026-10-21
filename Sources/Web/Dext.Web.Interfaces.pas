@@ -63,6 +63,14 @@ type
   IWebHost = interface;
   IWebHostBuilder = interface;
 
+  /// <summary>
+  ///   Contract for reading the API version from an HTTP request.
+  /// </summary>
+  IApiVersionReader = interface
+    ['{12312312-1234-1234-1234-1234567890AA}']
+    function Read(const Context: IHttpContext): string;
+  end;
+
   TRequestDelegate = reference to procedure(AContext: IHttpContext);
   TDextFastRouteHandler = reference to procedure(const Req: IHttpRequest; const Res: IHttpResponse);
   TDextFastContextRouteHandler<T: class> = reference to procedure(Ctx: T; const Req: IHttpRequest; const Res: IHttpResponse);
@@ -481,6 +489,11 @@ type
     procedure UpdateLastRouteMetadata(const AMetadata: TEndpointMetadata); // ? For fluent API
     procedure SetServiceProvider(const AProvider: IServiceProvider); // ? Update Provider before Build
     
+    /// <summary>Configures the API version reader strategy for incoming requests.</summary>
+    function UseApiVersionReader(const AReader: IApiVersionReader): IApplicationBuilder;
+    /// <summary>Gets the configured API version reader strategy, if any.</summary>
+    function GetApiVersionReader: IApiVersionReader;
+
     /// <summary>
     ///   Registers an object to be disposed when the host shuts down.
     ///   Use for objects that should live for the lifetime of the application.
@@ -514,6 +527,10 @@ type
   public
     constructor Create(ABuilder: IApplicationBuilder);
     function Unwrap: IApplicationBuilder;
+    /// <summary>Configures the API version reader strategy for incoming requests.</summary>
+    function UseApiVersionReader(const AReader: IApiVersionReader): TAppBuilder;
+    /// <summary>Gets the configured API version reader strategy, if any.</summary>
+    function GetApiVersionReader: IApiVersionReader;
     class operator Implicit(const A: TAppBuilder): IApplicationBuilder;
   end;
 
@@ -644,6 +661,21 @@ end;
 function TAppBuilder.Unwrap: IApplicationBuilder;
 begin
   Result := FBuilder;
+end;
+
+function TAppBuilder.UseApiVersionReader(const AReader: IApiVersionReader): TAppBuilder;
+begin
+  if FBuilder <> nil then
+    FBuilder.UseApiVersionReader(AReader);
+  Result := Self;
+end;
+
+function TAppBuilder.GetApiVersionReader: IApiVersionReader;
+begin
+  if FBuilder <> nil then
+    Result := FBuilder.GetApiVersionReader
+  else
+    Result := nil;
 end;
 
 class operator TAppBuilder.Implicit(const A: TAppBuilder): IApplicationBuilder;
