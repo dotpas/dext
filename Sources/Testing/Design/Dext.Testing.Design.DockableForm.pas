@@ -7978,6 +7978,8 @@ var
   WorkDir: string;
   SourceRoot: string;
   ProjDir: string;
+  ExeFile: string;
+  ExeReportDir: string;
   XmlFile: string;
   XmlFiles: TArray<string>;
   ScanDirs: TArray<string>;
@@ -8024,11 +8026,17 @@ begin
   if SourceRoot = '' then
     SourceRoot := TPath.GetDirectoryName(ProjDir);
 
-  { Only load reports owned by this project (WorkDir / ProjDir / last wrap dir under ProjDir).
-    Do NOT walk to repo-wide Tests\Output\report — that reloads another project's Delphi coverage. }
+  ExeReportDir := '';
+  if ResolveActiveProjectExe(ExeFile) then
+    ExeReportDir := TPath.Combine(ExtractFilePath(ExeFile), 'report');
+
+  { Report next to the exe (Tests\Output\report) is this project's wrap output.
+    Also keep the project-local report folders. Do not scan a foreign tree. }
   Candidates := [
     TPath.Combine(FLastCoverageReportDir, 'CodeCoverage_Summary.xml'),
     TPath.Combine(FLastCoverageReportDir, 'dext_coverage.xml'),
+    TPath.Combine(ExeReportDir, 'CodeCoverage_Summary.xml'),
+    TPath.Combine(ExeReportDir, 'dext_coverage.xml'),
     TPath.Combine(TPath.Combine(WorkDir, 'report'), 'CodeCoverage_Summary.xml'),
     TPath.Combine(TPath.Combine(WorkDir, 'report'), 'dext_coverage.xml'),
     TPath.Combine(TPath.Combine(ProjDir, 'report'), 'CodeCoverage_Summary.xml'),
@@ -8036,15 +8044,6 @@ begin
     TPath.Combine(TPath.Combine(ProjDir, 'Win32\Debug\report'), 'CodeCoverage_Summary.xml'),
     TPath.Combine(TPath.Combine(ProjDir, 'Win64\Debug\report'), 'CodeCoverage_Summary.xml')
   ];
-
-  // Drop last-report candidates that are outside the active project tree.
-  if (FLastCoverageReportDir <> '') and (ProjDir <> '') and
-     not FLastCoverageReportDir.ToLower.StartsWith(ProjDir.ToLower) and
-     not FLastCoverageReportDir.ToLower.StartsWith(WorkDir.ToLower) then
-  begin
-    Candidates[0] := '';
-    Candidates[1] := '';
-  end;
 
   // CodeCoverage writes linehits last — retry briefly if wrap just finished.
   for Attempt := 1 to 15 do
@@ -8062,6 +8061,7 @@ begin
 
     ScanDirs := [
       FLastCoverageReportDir,
+      ExeReportDir,
       TPath.Combine(WorkDir, 'report'),
       TPath.Combine(ProjDir, 'report')
     ];
@@ -8070,7 +8070,9 @@ begin
       if (Candidate = '') or not TDirectory.Exists(Candidate) then
         Continue;
       if (ProjDir <> '') and not Candidate.ToLower.StartsWith(ProjDir.ToLower) and
-         not Candidate.ToLower.StartsWith(WorkDir.ToLower) then
+         not Candidate.ToLower.StartsWith(WorkDir.ToLower) and
+         not SameText(Candidate, FLastCoverageReportDir) and
+         not SameText(Candidate, ExeReportDir) then
         Continue;
       try
         XmlFiles := TDirectory.GetFiles(Candidate, '*.xml');

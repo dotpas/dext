@@ -6,7 +6,7 @@
         <Projects Include="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj">
+        <Projects Include="Cpp.GTestSmoke\DextGTestSmokeTests.cbproj">
             <Dependencies/>
         </Projects>
     </ItemGroup>
@@ -26,23 +26,23 @@
     <Target Name="DextDUnitSmokeTestsP:Make">
         <MSBuild Projects="Cpp.DUnitSmoke\DextDUnitSmokeTestsP.cbproj" Targets="Make"/>
     </Target>
-    <Target Name="DextGTestSmokeTestsP">
-        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj"/>
+    <Target Name="DextGTestSmokeTests">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTests.cbproj"/>
     </Target>
-    <Target Name="DextGTestSmokeTestsP:Clean">
-        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj" Targets="Clean"/>
+    <Target Name="DextGTestSmokeTests:Clean">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTests.cbproj" Targets="Clean"/>
     </Target>
-    <Target Name="DextGTestSmokeTestsP:Make">
-        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTestsP.cbproj" Targets="Make"/>
+    <Target Name="DextGTestSmokeTests:Make">
+        <MSBuild Projects="Cpp.GTestSmoke\DextGTestSmokeTests.cbproj" Targets="Make"/>
     </Target>
     <Target Name="Build">
-        <CallTarget Targets="DextDUnitSmokeTestsP;DextGTestSmokeTestsP"/>
+        <CallTarget Targets="DextDUnitSmokeTestsP;DextGTestSmokeTests"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="DextDUnitSmokeTestsP:Clean;DextGTestSmokeTestsP:Clean"/>
+        <CallTarget Targets="DextDUnitSmokeTestsP:Clean;DextGTestSmokeTests:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="DextDUnitSmokeTestsP:Make;DextGTestSmokeTestsP:Make"/>
+        <CallTarget Targets="DextDUnitSmokeTestsP:Make;DextGTestSmokeTests:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

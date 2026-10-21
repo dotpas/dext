@@ -6,6 +6,10 @@
 library Dext.Testing.Design.ExpertLib;
 
 {$E dll}
+{ Win32 keeps the registered name. Win64 gets a platform suffix so the two DLLs can sit side by side. }
+{$IFDEF WIN64}
+{$LIBSUFFIX '64'}
+{$ENDIF}
 
 uses
   System.SysUtils,

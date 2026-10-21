@@ -9,7 +9,8 @@
   BDS version folder, e.g. 23.0 (RAD Studio 12), 22.0 (11), 37.0 (13).
 
 .PARAMETER DllPath
-  Source DLL (build output). Default: newest Output\*\Win32|Win64\Release\Dext.Testing.Design.ExpertLib.dll
+  Source DLL (build output). Default: newest Output\*\Win32\Release\Dext.Testing.Design.ExpertLib.dll
+  or, with -Ide64, Dext.Testing.Design.ExpertLib64.dll. {$LIBSUFFIX '64'} on Win64.
   relative to the repo, matching -Ide64.
 
 .PARAMETER Ide64
@@ -19,7 +20,7 @@
   Remove the registry value (does not delete the Apps copy).
 
 Example:
- powershell -ExecutionPolicy Bypass -File .\Install-DextTestExplorer.ps1 -StudioVersion 37.0 -DllPath 'C:\dev\Dext\DextRepository\Output\37.0\Win32\Release\Dext.Testing.Design.ExpertLib.dll'  
+ powershell -ExecutionPolicy Bypass -File .\Install-DextTestExplorer.ps1 -StudioVersion 37.0 -DllPath '.\Output\37.0\Win32\Release\Dext.Testing.Design.ExpertLib.dll'  
 #>
 param(
   [Parameter(Mandatory = $true)]
@@ -37,7 +38,8 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = $PSScriptRoot
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path
 $Platform = if ($Ide64) { 'Win64' } else { 'Win32' }
-$DllName = 'Dext.Testing.Design.ExpertLib.dll'
+$DllSuffix = if ($Ide64) { '64' } else { '' }
+$DllName = "Dext.Testing.Design.ExpertLib$DllSuffix.dll"
 $InstallDir = Join-Path $RepoRoot "Apps\TestExplorerExpert\bin\$Platform"
 $InstallDll = Join-Path $InstallDir $DllName
 
