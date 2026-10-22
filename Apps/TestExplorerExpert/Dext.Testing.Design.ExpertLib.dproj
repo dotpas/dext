@@ -46,7 +46,6 @@
         <DCC_DcuOutput>..\..\Output\$(ProductVersion)\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>..\..\Output\$(ProductVersion)\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
-        <!-- Validated: Design search path + packages rtl;designide;vcl (no ToolsAPI source path). -->
         <DCC_UsePackage>rtl;designide;vcl;$(DCC_UsePackage)</DCC_UsePackage>
         <UsePackages>true</UsePackages>
         <GenDll>true</GenDll>
@@ -69,9 +68,6 @@
         <UsePackages>true</UsePackages>
         <Manifest_File>(None)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Platform)'=='Win64'">
-        <DllSuffix>64</DllSuffix>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>

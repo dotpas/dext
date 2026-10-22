@@ -28,7 +28,7 @@ If the file is missing, the DLL was not loaded (registry path / bitness). If it 
    - **64-bit IDE** (RAD Studio 13+) → Win64 Release → register under `Experts X64` (`-Ide64`)
 
 Build output: `Output\<ProductVersion>\Win32\Release\Dext.Testing.Design.ExpertLib.dll`  
-Win64 output: `Output\<ProductVersion>\Win64\Release\Dext.Testing.Design.ExpertLib64.dll` (`{$LIBSUFFIX '64'}`)  
+Win64 output: `Output\<ProductVersion>\Win64\Release\Dext.Testing.Design.ExpertLibx64.dll` (`{$LIBSUFFIX 'x64'}`)  
 Installed copy (registry): `Apps\TestExplorerExpert\bin\<Win32|Win64>\` with that same file name.
 
 ## Install

@@ -10,7 +10,7 @@
 
 .PARAMETER DllPath
   Source DLL (build output). Default: newest Output\*\Win32\Release\Dext.Testing.Design.ExpertLib.dll
-  or, with -Ide64, Dext.Testing.Design.ExpertLib64.dll. {$LIBSUFFIX '64'} on Win64.
+  or, with -Ide64, Dext.Testing.Design.ExpertLibx64.dll. {$LIBSUFFIX 'x64'} on Win64.
   relative to the repo, matching -Ide64.
 
 .PARAMETER Ide64
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = $PSScriptRoot
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path
 $Platform = if ($Ide64) { 'Win64' } else { 'Win32' }
-$DllSuffix = if ($Ide64) { '64' } else { '' }
+$DllSuffix = if ($Ide64) { 'x64' } else { '' }
 $DllName = "Dext.Testing.Design.ExpertLib$DllSuffix.dll"
 $InstallDir = Join-Path $RepoRoot "Apps\TestExplorerExpert\bin\$Platform"
 $InstallDll = Join-Path $InstallDir $DllName

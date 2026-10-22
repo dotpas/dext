@@ -465,8 +465,8 @@ inline void RegisterDunitTestCase(const System::UnicodeString& suiteName)
 }
 
 /**
- * --port N [--discover] [-no-wait]
- * Without --port: plain TextTestRunner (console).
+ * --port N [--discover] [-no-wait]  — Explorer
+ * Without --port: plain TextTestRunner. -no-wait is ignored.
  */
 inline int RunDextDUnitWithListener(const std::shared_ptr<DextDUnitReporter>& rep)
 {
@@ -482,8 +482,8 @@ inline int RunDextDUnitWithListener(const std::shared_ptr<DextDUnitReporter>& re
 inline int RunDextDUnit(int argc, char** argv)
 {
   ReportSink::CaptureArgv(argc, argv);
-  int port = 0;
-  const bool hasPort = ParsePortFromArgv(argc, argv, port);
+  const HostLaunch launch = TakeHostLaunch(argc, argv);
+  const bool hasPort = launch.Port > 0;
   if (!hasPort && !ReportSink::Instance().Enabled()) {
     Testframework::TTestResult* r =
       Texttestrunner::RunRegisteredTests(Texttestrunner::rxbContinue);
@@ -491,13 +491,13 @@ inline int RunDextDUnit(int argc, char** argv)
     return (r->WasSuccessful()) ? 0 : 1;
   }
 
-  auto rep = std::make_shared<DextDUnitReporter>(hasPort ? port : 0);
+  auto rep = std::make_shared<DextDUnitReporter>(hasPort ? launch.Port : 0);
   if (hasPort && !rep->Ok() && !ReportSink::Instance().Enabled()) {
     Texttestrunner::RunRegisteredTests(Texttestrunner::rxbContinue);
     return 2;
   }
 
-  if (HasArgvFlag(argc, argv, "--discover") || HasArgvFlag(argc, argv, "-discover"))
+  if (launch.Discover)
     return DiscoverRegisteredTests(rep);
 
   return RunDextDUnitWithListener(rep);

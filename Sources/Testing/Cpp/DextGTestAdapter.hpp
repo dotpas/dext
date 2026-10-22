@@ -283,23 +283,23 @@ inline int DiscoverGTests(const std::shared_ptr<HostClient>& host)
 inline int RunDextGTest(int argc, char** argv)
 {
   ReportSink::CaptureArgv(argc, argv);
+  const HostLaunch launch = TakeHostLaunch(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
 
-  int port = 0;
-  if (!ParsePortFromArgv(argc, argv, port)) {
+  if (launch.Port <= 0) {
     StackDiagRunBanner("RunDextGTest/console");
     auto* listener = new DextGTestListener(std::shared_ptr<HostClient>());
     ::testing::UnitTest::GetInstance()->listeners().Append(listener);
     return RUN_ALL_TESTS();
   }
 
-  auto host = std::make_shared<HostClient>(port);
+  auto host = std::make_shared<HostClient>(launch.Port);
   if (!host->Ok()) {
     StackDiagRunBanner("RunDextGTest/host-fail-console");
     return RUN_ALL_TESTS();
   }
 
-  if (HasArgvFlag(argc, argv, "--discover") || HasArgvFlag(argc, argv, "-discover")) {
+  if (launch.Discover) {
     StackDiagRunBanner("RunDextGTest/discover");
     return DiscoverGTests(host);
   }

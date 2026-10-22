@@ -1,4 +1,28 @@
-﻿unit Dext.Testing.Design.DockableForm;
+﻿{***************************************************************************}
+{                                                                           }
+{           Dext Framework                                                  }
+{                                                                           }
+{           Copyright (c) 2024 Dext Framework                               }
+{                                                                           }
+{           https://github.com/dext-framework/dext                          }
+{                                                                           }
+{***************************************************************************}
+{                                                                           }
+{  Licensed under the Apache License, Version 2.0 (the "License");          }
+{  you may not use this file except in compliance with the License.         }
+{  You may obtain a copy of the License at                                  }
+{                                                                           }
+{      http://www.apache.org/licenses/LICENSE-2.0                           }
+{                                                                           }
+{  Unless required by applicable law or agreed to in writing, software      }
+{  distributed under the License is distributed on an "AS IS" BASIS,        }
+{  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. }
+{  See the License for the specific language governing permissions and      }
+{  limitations under the License.                                           }
+{                                                                           }
+{***************************************************************************}
+
+unit Dext.Testing.Design.DockableForm;
 
 { Always write %TEMP%\DextExpert.log while diagnosing C++ Run All / Host. }
 {$DEFINE DEXT_TEST_EXPLORER_LOG_FILE_ENABLED}
@@ -205,6 +229,8 @@ type
     FLastCoverageReportDir: string;
     FLastCoverageSourceRoot: string;
     FCoverageWrapActive: Boolean;
+    /// <summary>C++ Run All with coverage: read llvm-cov after the process exits.</summary>
+    FCppLlvmCoverage: Boolean;
     /// <summary>True while a C++ --discover Host launch is in flight (Refresh).</summary>
     FDiscoverMode: Boolean;
     FDiscoverAfterCompile: Boolean;
@@ -246,6 +272,8 @@ type
     // Configurations/Startup Tab
     FIdleTimer: TTimer;
     FSaveTimer: TTimer;
+    FCoveragePlatformTimer: TTimer;
+    FLastCoveragePlatformKey: string;
     FPendingSaveFiles: TStringList;
     { Ignore spurious edit-view AfterSave while the IDE opens modules (Run on Save). }
     FIgnoreSaveUntil: TDateTime;
@@ -285,6 +313,7 @@ type
     FStackHintLabel: TLabel;
 
     function ActiveFilterEdit: TEdit;
+    function CompileCppProject(const AProjFile: string): Boolean;
     function CompileProjectDirect(const AProjFile: string): Boolean;
     function FindMethodImplementationLine(const AFileName, AClassName, AMethodName: string; ADefaultLine: Integer): Integer;
     function FindNodeByPath(const APath: string): TTreeNode;
@@ -312,6 +341,7 @@ type
     procedure EnsureCoverageToolClick(Sender: TObject);
     procedure CollectCoverageMenuClick(Sender: TObject);
     procedure UpdateCoverageUiState;
+    procedure ApplyCoverageForActivePlatform;
     function IsCodeCoverageToolAvailable(out AToolPath: string): Boolean;
     procedure SetupListViewClipboard(AListView: TListView);
     procedure ListViewCopySelectedClick(Sender: TObject);
@@ -335,6 +365,7 @@ type
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure GroupingMenuClick(Sender: TObject);
     procedure IdleTimerTimer(Sender: TObject);
+    procedure CoveragePlatformTimerTimer(Sender: TObject);
     procedure InitializeGroupSummaries;
     procedure InvalidateGroupNode(const ATestName: string);
     procedure LaunchTestExe(const ATestFilter: string);
@@ -1820,6 +1851,11 @@ begin
   FSaveTimer.Enabled := False;
   FSaveTimer.OnTimer := SaveTimerTimer;
 
+  FCoveragePlatformTimer := TTimer.Create(Self);
+  FCoveragePlatformTimer.Interval := 1500;
+  FCoveragePlatformTimer.Enabled := True;
+  FCoveragePlatformTimer.OnTimer := CoveragePlatformTimerTimer;
+
   FPendingSaveFiles := TStringList.Create;
   FPendingSaveFiles.Sorted := True;
   FPendingSaveFiles.Duplicates := dupIgnore;
@@ -1917,6 +1953,11 @@ begin
   begin
     FSaveTimer.Enabled := False;
     FreeAndNil(FSaveTimer);
+  end;
+  if Assigned(FCoveragePlatformTimer) then
+  begin
+    FCoveragePlatformTimer.Enabled := False;
+    FreeAndNil(FCoveragePlatformTimer);
   end;
 
   if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
@@ -3377,6 +3418,7 @@ begin
   FActiveProjectFile := Proj.FileName;
   if FActiveSession <> nil then
     FActiveSession.ActiveProjectFile := FActiveProjectFile;
+  ApplyCoverageForActivePlatform;
 
   // Unregister old project notifier
   if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
@@ -3423,6 +3465,7 @@ begin
       FormDextTestRunner.FLastCoverageReportDir := '';
       FormDextTestRunner.FLastCoverageSourceRoot := '';
       FormDextTestRunner.FCoverageWrapActive := False;
+      FormDextTestRunner.FCppLlvmCoverage := False;
       TCoverageManager.GetInstance.Clear;
       if Assigned(FormDextTestRunner.FCoverageListView) then
         FormDextTestRunner.FCoverageListView.Items.Clear;
@@ -3433,6 +3476,7 @@ begin
       if Assigned(FormDextTestRunner.FCoverageTab) then
         FormDextTestRunner.FCoverageTab.Caption := 'Coverage';
       FormDextTestRunner.TryLoadCoverage(False);
+      FormDextTestRunner.ApplyCoverageForActivePlatform;
       FormDextTestRunner.RefreshActiveProjectTestsList;
     end));
 end;
@@ -4129,7 +4173,13 @@ begin
       AnalyticsLines.Free;
     end;
     CollapseSuccessAndFocusFailures;
-    if FCoverageWrapActive then
+    if FCppLlvmCoverage then
+    begin
+      LogMsg('Coverage: reading .profraw with llvm-cov…');
+      FCppLlvmCoverage := False;
+      TryLoadCoverage(True);
+    end
+    else if FCoverageWrapActive then
     begin
       LogMsg('Coverage: CodeCoverage.exe exited — loading report…');
       FCoverageWrapActive := False;
@@ -4845,6 +4895,7 @@ begin
 
   FDiscoverMode := True;
   FCoverageWrapActive := False;
+  FCppLlvmCoverage := False;
   FServer.SelectedTestsJSON := '[]';
   FTotalTests := 0;
   FCompletedTests := 0;
@@ -5102,6 +5153,8 @@ var
   PI: TProcessInformation;
   PlatformVal: string;
   ProcessHandle: THandle;
+  ProfFile: string;
+  ProfFiles: TArray<string>;
   Proj: IOTAProject;
   SI: TStartupInfo;
   UseCoverage: Boolean;
@@ -5133,6 +5186,13 @@ begin
   end
   else
     LogMsg('[Launch] WARNING: IOTAProject not found for active file');
+
+  if SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') and
+     not SameText(PlatformVal, 'Win64x') then
+    LogMsg(Format(
+      'Coverage: Win32 and classic Win64 do not support code coverage. Active platform is %s.',
+      [PlatformVal]));
+  ApplyCoverageForActivePlatform;
 
   { OTA often returns "." for C++ FinalOutputDir — treat as empty and read .cbproj tags. }
   if (Output = '') or (Output = '.') or (Output = '.\') or (Output = './') then
@@ -5201,7 +5261,27 @@ begin
   end;
 
   UseCoverage := Assigned(FCoverageCheckBox) and FCoverageCheckBox.Checked;
-  if UseCoverage then
+  FCppLlvmCoverage := False;
+  if UseCoverage and SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') and
+     SameText(PlatformVal, 'Win64x') then
+  begin
+    FCoverageWrapActive := False;
+    FCppLlvmCoverage := True;
+    CmdLine := Format('"%s" %s', [ExeFile, Params]);
+    LogMsg('Coverage: C++ line hits come from llvm-cov after this run.');
+    try
+      ProfFiles := TDirectory.GetFiles(ExtractFilePath(ExeFile), '*.profraw');
+      for ProfFile in ProfFiles do
+        TFile.Delete(ProfFile);
+    except
+    end;
+  end
+  else if UseCoverage and SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') then
+  begin
+    FCoverageWrapActive := False;
+    CmdLine := Format('"%s" %s', [ExeFile, Params]);
+  end
+  else if UseCoverage then
   begin
     FCoverageWrapActive := False;
     if TDextCoverageRunner.PrepareRun(FActiveProjectFile, ExeFile, PlatformVal,
@@ -7820,6 +7900,46 @@ begin
   end;
 end;
 
+function TFormDextTestRunner.CompileCppProject(const AProjFile: string): Boolean;
+const
+  ProfileCc1 = '-fprofile-instrument=clang -fcoverage-mapping';
+  ProfileLib = '-lclang_rt.profile-x86_64';
+var
+  ApplyLlvm: Boolean;
+  Configs: IOTAProjectOptionsConfigurations;
+  LinkOpts: string;
+  PlatformName: string;
+  Proj: IOTAProject;
+  UserOpts: string;
+begin
+  PlatformName := 'Win32';
+  Proj := GetProjectByFileName(AProjFile);
+  if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+    PlatformName := Configs.ActivePlatformName;
+  ApplyLlvm := SameText(PlatformName, 'Win64x') and Assigned(FCoverageCheckBox) and
+    FCoverageCheckBox.Checked;
+  if ApplyLlvm and Assigned(Proj) then
+  begin
+    { The IDE calls bcc64x -cc1, so the driver flag -fprofile-instr-generate is rejected.
+      -fprofile-instrument=clang is the cc1 form. The profile runtime is an lld library. }
+    try
+      UserOpts := VarToStr(Proj.ProjectOptions.Values['BCC_UserSuppliedOptions']);
+      if not UserOpts.Contains('-fprofile-instrument=clang') then
+        Proj.ProjectOptions.Values['BCC_UserSuppliedOptions'] :=
+          Trim(ProfileCc1 + ' ' + UserOpts);
+      LinkOpts := VarToStr(Proj.ProjectOptions.Values['ILINK_AdditionalOptions']);
+      if not LinkOpts.Contains('clang_rt.profile') then
+        Proj.ProjectOptions.Values['ILINK_AdditionalOptions'] :=
+          Trim(ProfileLib + ' ' + LinkOpts);
+      LogMsg('Coverage: Win64x compile uses -fprofile-instrument=clang and -fcoverage-mapping.');
+    except
+      on E: Exception do
+        LogMsg('Coverage: could not set the Win64x profile options. ' + E.Message, dckWarn);
+    end;
+  end;
+  Result := CompileProjectViaOTA(AProjFile);
+end;
+
 function TFormDextTestRunner.CompileProjectDirect(const AProjFile: string): Boolean;
 var
   DccExe: string;
@@ -7862,7 +7982,7 @@ begin
   if SameText(ExtractFileExt(AProjFile), '.cbproj') then
   begin
     LogMsg('Compiling C++Builder project via IDE: ' + ExtractFileName(AProjFile));
-    Result := CompileProjectViaOTA(AProjFile);
+    Result := CompileCppProject(AProjFile);
     if not Result then
       LogMsg('Error: C++Builder compile failed (IOTAProjectBuilder).');
     Exit;
@@ -7984,6 +8104,10 @@ var
   XmlFiles: TArray<string>;
   ScanDirs: TArray<string>;
   Attempt: Integer;
+  LcovPath: string;
+  PlatformName: string;
+  Proj: IOTAProject;
+  Configs: IOTAProjectOptionsConfigurations;
 
   function LooksLikeCoverageXml(const APath: string): Boolean;
   var
@@ -8019,6 +8143,41 @@ var
   end;
 
 begin
+  if SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') then
+  begin
+    if not AReportExpected then
+      Exit;
+    PlatformName := 'Win32';
+    Proj := GetProjectByFileName(FActiveProjectFile);
+    if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+      PlatformName := Configs.ActivePlatformName;
+    if not SameText(PlatformName, 'Win64x') then
+    begin
+      LogMsg('Coverage: C++ line coverage is Win64x (bcc64x).');
+      Exit;
+    end;
+    if ResolveActiveProjectExe(ExeFile) and
+       TDextCoverageRunner.TryExportLlvmLcov(ExeFile,
+         procedure(AMsg: string)
+         begin
+           LogMsg(AMsg);
+         end, LcovPath) then
+    begin
+      TCoverageManager.GetInstance.LoadCoverageFromLcov(LcovPath);
+      LogMsg(Format('Coverage loaded: %s (%d file(s))',
+        [LcovPath, TCoverageManager.GetInstance.LoadedFileCount]));
+      LogMsg('Coverage: open the Coverage tab (or one of the listed units) to see gutter colors.');
+      RefreshCoverageReportTab;
+      if Assigned(DetailsPageControl) and Assigned(FCoverageTab) then
+        DetailsPageControl.ActivePage := FCoverageTab;
+    end
+    else
+      SetCoverageProblem(
+        'Coverage unavailable: llvm-cov did not produce a report. ' +
+        'The Win64x build needs -fprofile-instrument=clang, -fcoverage-mapping and -lclang_rt.profile-x86_64, then Run All.');
+    Exit;
+  end;
+
   CovPath := '';
   ProjDir := ExtractFilePath(FActiveProjectFile);
   WorkDir := TDextCoverageRunner.CoverageWorkDir(FActiveProjectFile);
@@ -8610,6 +8769,82 @@ begin
   Result := (AToolPath <> '') and (FileExists(AToolPath) or (ExtractFilePath(AToolPath) = ''));
 end;
 
+procedure TFormDextTestRunner.CoveragePlatformTimerTimer(Sender: TObject);
+begin
+  if csDestroying in ComponentState then
+    Exit;
+  ApplyCoverageForActivePlatform;
+end;
+
+procedure TFormDextTestRunner.ApplyCoverageForActivePlatform;
+var
+  CppProject, Win64x, ShowConfig, ShowDelphiOnly: Boolean;
+  Configs: IOTAProjectOptionsConfigurations;
+  i: Integer;
+  PlatformName, Key: string;
+  Proj: IOTAProject;
+
+  procedure ShowItem(AItem: TMenuItem; AVisible: Boolean);
+  begin
+    if Assigned(AItem) then
+      AItem.Visible := AVisible;
+  end;
+
+begin
+  CppProject := SameText(ExtractFileExt(FActiveProjectFile), '.cbproj');
+  PlatformName := 'Win32';
+  Proj := GetProjectByFileName(FActiveProjectFile);
+  if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) then
+    PlatformName := Configs.ActivePlatformName;
+  Win64x := CppProject and SameText(PlatformName, 'Win64x');
+  Key := FActiveProjectFile + '|' + PlatformName + '|' + BoolToStr(Win64x, True);
+  if Key = FLastCoveragePlatformKey then
+    Exit;
+  FLastCoveragePlatformKey := Key;
+
+  { Delphi keeps coverage. C++ shows it only on Win64x. }
+  ShowConfig := (not CppProject) or Win64x;
+  ShowDelphiOnly := ShowConfig and not CppProject;
+
+  if Assigned(FCoverageCheckBox) then
+  begin
+    FCoverageCheckBox.Visible := ShowConfig;
+    if Win64x then
+    begin
+      FCoverageCheckBox.Enabled := True;
+      FCoverageCheckBox.Hint :=
+        'Win64x only. After the run, llvm-cov reads the .profraw next to the exe.';
+    end
+    else if ShowConfig then
+      FCoverageCheckBox.Hint :=
+        'Wraps the test exe with Delphi Code Coverage (⋯ Actions). Requires MAP (Debug Trace) and CodeCoverage.exe.';
+  end;
+  if Assigned(FGenerateHtmlCheckBox) then
+    FGenerateHtmlCheckBox.Visible := ShowDelphiOnly;
+  if Assigned(FCoverageTab) and Assigned(DetailsPageControl) then
+  begin
+    if not ShowConfig and (DetailsPageControl.ActivePage = FCoverageTab) then
+      for i := 0 to DetailsPageControl.PageCount - 1 do
+        if DetailsPageControl.Pages[i] <> FCoverageTab then
+        begin
+          DetailsPageControl.ActivePageIndex := I;
+          Break;
+        end;
+    FCoverageTab.TabVisible := ShowConfig;
+  end;
+
+  ShowItem(FCollectCoverageMenuItem, ShowConfig);
+  ShowItem(FReloadCoverageMenuItem, ShowConfig);
+  ShowItem(FClearCoverageArtifactsMenuItem, ShowConfig);
+  ShowItem(FInstallCoverageMenuItem, ShowDelphiOnly);
+  ShowItem(FGenerateHtmlMenuItem, ShowDelphiOnly);
+  ShowItem(FOpenCoverageHtmlMenuItem, ShowDelphiOnly);
+  ShowItem(FOpenCoverageHtmlContextMenuItem, ShowDelphiOnly);
+
+  if Win64x and Assigned(FCollectCoverageMenuItem) then
+    FCollectCoverageMenuItem.Enabled := True;
+end;
+
 procedure TFormDextTestRunner.UpdateCoverageUiState;
 var
   ToolPath: string;
@@ -8617,6 +8852,17 @@ var
   HasHtml: Boolean;
   HasArtifacts: Boolean;
 begin
+  ApplyCoverageForActivePlatform;
+  if SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') then
+  begin
+    if Assigned(FCollectCoverageMenuItem) and Assigned(FCoverageCheckBox) then
+    begin
+      FCollectCoverageMenuItem.Enabled := FCoverageCheckBox.Visible;
+      FCollectCoverageMenuItem.Checked := FCoverageCheckBox.Checked and FCoverageCheckBox.Visible;
+    end;
+    Exit;
+  end;
+
   Available := IsCodeCoverageToolAvailable(ToolPath);
   HasHtml := FindCoverageHtmlReport <> '';
   HasArtifacts := CoverageArtifactsPresent;
@@ -8678,6 +8924,22 @@ var
 begin
   if not Assigned(FCollectCoverageMenuItem) or not Assigned(FCoverageCheckBox) then
     Exit;
+
+  if SameText(ExtractFileExt(FActiveProjectFile), '.cbproj') then
+  begin
+    FCoverageCheckBox.OnClick := nil;
+    try
+      FCoverageCheckBox.Checked := FCollectCoverageMenuItem.Checked;
+    finally
+      FCoverageCheckBox.OnClick := ConfigChangeHandler;
+    end;
+    ConfigChangeHandler(FCoverageCheckBox);
+    if FCoverageCheckBox.Checked then
+      LogMsg('Coverage: ON — next Run All on Win64x reads line hits with llvm-cov.')
+    else
+      LogMsg('Coverage: OFF — Run All launches the test exe directly.');
+    Exit;
+  end;
 
   if FCollectCoverageMenuItem.Checked and not IsCodeCoverageToolAvailable(ToolPath) then
   begin

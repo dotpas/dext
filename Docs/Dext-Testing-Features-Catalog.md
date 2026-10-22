@@ -23,7 +23,7 @@
 | **DextSidecar** | **Evolving** | Tray companion; http.sys + SignalR preferred; **essentials only** for near-term (session/notify) |
 | `dext ui` (CLI) | **Removed** | Use DextSidecar only |
 | Test containers (`infra/tests`) | **Preview** | Docker Compose multi-DB for ORM integration tests; productize later (± Sidecar tab) |
-| C++Builder Expert | **Planned** | Discovery + Phase 3 scaffold — strategic for Embarcadero |
+| C++Builder Expert | **In review** | Win64x line coverage is in the Explorer. Full C++ support, GetIt and a signed DLL are still open. See S75. |
 | UI Automation harness | **Planned** | Spike on Delphi 13 VCL UIA |
 
 ## .NET / Visual Studio → Dext map
@@ -59,7 +59,7 @@
 
 1. Coverage **CLI is done**; IDE gutter needs visual/reliability polish for demos.
 2. Sidecar companion (AutoAttach / session) is essentials-track — not a blocker for book/pitch.
-3. C++Builder Expert not shipped (discovery + scaffold only) — call it **Planned**.
+3. C++Builder Expert not shipped as ready (discovery + scaffold only) — call it **Planned**. C++ line coverage, when it is shown, is Win64x (`bcc64x`) via llvm-cov. The Explorer hides coverage settings on any other `.cbproj` platform. Win32 and classic Win64 do not get line coverage. See S75.
 4. UI Automation = spike only.
 5. Contract tests / mutation / WireMock-like / productized Testcontainers = **roadmap** (see Embarcadero Roadmap P2).
 

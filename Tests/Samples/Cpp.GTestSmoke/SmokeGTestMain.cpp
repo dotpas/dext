@@ -8,7 +8,9 @@
 
 #include "DextGTestAdapter.hpp"
 
-#if defined(_WIN64) && !defined(_WIN64X)
+/* bcc64 (Clang 5) links gtest.a. bcc64x (Clang 20) and Win32 link gtest.lib.
+   bcc64x defines _WIN64 and does not define _WIN64X. */
+#if defined(_WIN64) && defined(__clang_major__) && (__clang_major__ < 15)
 #pragma comment(lib, "gtest.a")
 #else
 #pragma comment(lib, "gtest.lib")

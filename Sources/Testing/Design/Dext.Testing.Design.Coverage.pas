@@ -1,3 +1,27 @@
+{***************************************************************************}
+{                                                                           }
+{           Dext Framework                                                  }
+{                                                                           }
+{           Copyright (c) 2024 Dext Framework                               }
+{                                                                           }
+{           https://github.com/dext-framework/dext                          }
+{                                                                           }
+{***************************************************************************}
+{                                                                           }
+{  Licensed under the Apache License, Version 2.0 (the "License");          }
+{  you may not use this file except in compliance with the License.         }
+{  You may obtain a copy of the License at                                  }
+{                                                                           }
+{      http://www.apache.org/licenses/LICENSE-2.0                           }
+{                                                                           }
+{  Unless required by applicable law or agreed to in writing, software      }
+{  distributed under the License is distributed on an "AS IS" BASIS,        }
+{  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. }
+{  See the License for the specific language governing permissions and      }
+{  limitations under the License.                                           }
+{                                                                           }
+{***************************************************************************}
+
 unit Dext.Testing.Design.Coverage;
 
 {$I Dext.inc}
@@ -9,20 +33,24 @@ uses
   System.Math, Vcl.Graphics, Vcl.Controls, Vcl.Forms, ToolsAPI, System.IOUtils, Vcl.Menus;
 
 {$IFDEF DEXT_DELPHI13_UP}
-  { Temporarily off: RequestGutterColumn suspected of blocking C++ MainSource open. }
-  {.$DEFINE DEXT_COVERAGE_GUTTER_COLUMN}
+  { Measure the gutter (CodeLeftEdge / GutterRect). Do not RequestGutterColumn:
+    that call was tied to C++ MainSource refusing to open. }
+  {$DEFINE DEXT_COVERAGE_GUTTER_COLUMN}
 {$ENDIF}
 
 type
   TCoverageLineState = (clsNone, clsCovered, clsUncovered, clsPartiallyCovered);
 
+  /// <summary>Covered, uncovered and partial line counts for one source file.</summary>
   TCoverageFileSummary = record
     FilePath: string;
     CoveredLines: Integer;
     TotalLines: Integer;
+    /// <summary>Covered lines divided by total lines, or zero when the file has no lines.</summary>
     function Percent: Double;
   end;
 
+  /// <summary>In-memory line coverage painted by the editor gutter.</summary>
   TCoverageManager = class
   private
     class var FInstance: TCoverageManager;
@@ -36,10 +64,17 @@ type
     function FindLineCovering(const AFileName: string; out ADict: TDictionary<Integer, TList<string>>): Boolean;
     procedure ClearCoverage;
   public
+    /// <summary>Creates an empty coverage map.</summary>
     constructor Create;
+    /// <summary>Releases the coverage maps.</summary>
     destructor Destroy; override;
+    /// <summary>Process-wide coverage map used by the editor notifiers.</summary>
     class function GetInstance: TCoverageManager;
+    /// <summary>Load Delphi Code Coverage XML. ASourceRoot rewrites paths when the report stored a different root.</summary>
     procedure LoadCoverageFromXML(const AXmlPath: string; const ASourceRoot: string = '');
+    /// <summary>LCOV from llvm-cov export -format=lcov. Hits &gt; 0 are covered lines.</summary>
+    procedure LoadCoverageFromLcov(const ALcovPath: string);
+    /// <summary>Line state stored for this file and line, without filling gaps.</summary>
     function GetLineState(const AFileName: string; ALineNumber: Integer): TCoverageLineState;
     /// <summary>
     /// Like GetLineState, but fills begin/end gaps: when a line has no hit data but
@@ -48,20 +83,30 @@ type
     /// </summary>
     function GetDisplayLineState(const AFileName: string; ALineNumber: Integer;
       const ALineText: string = ''): TCoverageLineState;
+    /// <summary>Test names recorded against this line.</summary>
     function GetCoveringTests(const AFileName: string; ALineNumber: Integer): TArray<string>;
+    /// <summary>Distinct test names that hit any line of this file. The caller does not free the list.</summary>
     function GetTestsCoveringFile(const AFileName: string): TList<string>;
+    /// <summary>One summary per loaded file.</summary>
     function GetFileSummaries: TArray<TCoverageFileSummary>;
+    /// <summary>First uncovered line, or the first covered line when PreferUncovered is false.</summary>
     function FirstLineOfInterest(const AFileName: string; PreferUncovered: Boolean = True): Integer;
+    /// <summary>How many source files are in the current map.</summary>
     function LoadedFileCount: Integer;
     /// <summary>Drop in-memory coverage and refresh editor gutters (failed/empty load).</summary>
     procedure Clear;
+    /// <summary>Attach the gutter notifier to an editor view.</summary>
     procedure RegisterView(const AView: IOTAEditView);
+    /// <summary>Detach the gutter notifier. Safe when the view is already gone.</summary>
     procedure UnregisterView(const AView: IOTAEditView);
+    /// <summary>Ask every open editor view to repaint coverage.</summary>
     procedure RefreshActiveViews;
+    /// <summary>Popup listing the tests that hit the current line.</summary>
     procedure ShowCoveringTestsPopup(const AView: IOTAEditView; const ATests: TArray<string>);
     property LastLoadedPath: string read FLastLoadedPath;
   end;
 
+  /// <summary>Paints coverage on one editor view. The IDE owns the notifier lifetime.</summary>
   TEditorViewNotifier = class(TInterfacedObject, IOTANotifier, INTAEditViewNotifier)
   private
     FView: IOTAEditView;
@@ -648,6 +693,65 @@ begin
   RefreshActiveViews;
 end;
 
+procedure TCoverageManager.LoadCoverageFromLcov(const ALcovPath: string);
+var
+  Lines: TStringList;
+  I, Comma, LineNum, Hits: Integer;
+  Row, FilePath: string;
+  FileLines: TDictionary<Integer, TCoverageLineState>;
+begin
+  ClearCoverage;
+  FLastLoadedPath := '';
+  if not FileExists(ALcovPath) then
+  begin
+    RefreshActiveViews;
+    Exit;
+  end;
+
+  Lines := TStringList.Create;
+  FileLines := nil;
+  try
+    Lines.LoadFromFile(ALcovPath);
+    for I := 0 to Lines.Count - 1 do
+    begin
+      Row := Lines[I].Trim;
+      if Row.StartsWith('SF:') then
+      begin
+        FilePath := NormalizePathKey(Row.Substring(3).Trim);
+        FileLines := nil;
+        if FilePath = '' then
+          Continue;
+        if not FFileCoverage.TryGetValue(FilePath, FileLines) then
+        begin
+          FileLines := TDictionary<Integer, TCoverageLineState>.Create;
+          FFileCoverage.Add(FilePath, FileLines);
+        end;
+      end
+      else if Row.StartsWith('DA:') and (FileLines <> nil) then
+      begin
+        Row := Row.Substring(3);
+        Comma := Row.IndexOf(',');
+        if Comma < 1 then
+          Continue;
+        LineNum := StrToIntDef(Row.Substring(0, Comma).Trim, 0);
+        Hits := StrToIntDef(Row.Substring(Comma + 1).Trim, 0);
+        if LineNum <= 0 then
+          Continue;
+        if Hits > 0 then
+          FileLines.AddOrSetValue(LineNum, clsCovered)
+        else
+          FileLines.AddOrSetValue(LineNum, clsUncovered);
+      end
+      else if SameText(Row, 'end_of_record') then
+        FileLines := nil;
+    end;
+    FLastLoadedPath := ALcovPath;
+  finally
+    Lines.Free;
+  end;
+  RefreshActiveViews;
+end;
+
 function TCoverageManager.GetLineState(const AFileName: string; ALineNumber: Integer): TCoverageLineState;
 var
   Dict: TDictionary<Integer, TCoverageLineState>;
@@ -933,8 +1037,8 @@ var
   OldPenStyle: TPenStyle;
 begin
 {$IFDEF DEXT_COVERAGE_GUTTER_COLUMN}
-  // D13+: reserved gutter column paints via INTACodeEditorEvents — avoid editor overwrite.
-  if FCoverageGutterColumnIndex >= 0 then
+  // D13 paints from the measured gutter (CodeLeftEdge), not over the text.
+  if FCoverageEditorEventsIndex >= 0 then
     Exit;
 {$ENDIF}
 
@@ -1072,9 +1176,8 @@ begin
     Exit;
   FCoverageEditorEventsIndex := Services.AddEditorEventsNotifier(TDextCoverageCodeEditorNotifier.Create);
   if FCoverageEditorEventsIndex >= 0 then
-    // 3px @ 96 DPI — IDE scales; after line numbers (right edge of gutter).
-    FCoverageGutterColumnIndex := Services.RequestGutterColumn(
-      FCoverageEditorEventsIndex, 6, gclAfterLineNumbers);
+    // Width comes from EditorState.CodeLeftEdge. No reserved column.
+    FCoverageGutterColumnIndex := -1;
 end;
 {$ELSE}
 begin
@@ -1192,20 +1295,19 @@ procedure TDextCoverageCodeEditorNotifier.PaintGutter(const Rect: TRect;
   const Stage: TPaintGutterStage; const BeforeEvent: Boolean;
   var AllowDefaultPainting: Boolean; const Context: INTACodeEditorPaintContext);
 var
-  ColRect, Stripe: TRect;
+  Stripe: TRect;
   State: TCoverageLineState;
   OldBrushColor: TColor;
   OldBrushStyle: TBrushStyle;
   OldPenStyle: TPenStyle;
   LineNum: Integer;
-  Bridge: Integer;
+  Bridge, CodeLeft: Integer;
   FileName, LineText: string;
+  Gutter: TRect;
 begin
   if BeforeEvent or (Stage <> pgsEndPaint) then
     Exit;
-  if (Context = nil) or (FCoverageGutterColumnIndex < 0) then
-    Exit;
-  if Context.EditorState = nil then
+  if (Context = nil) or (Context.EditorState = nil) then
     Exit;
 
   LineNum := Context.LogicalLineNum;
@@ -1221,25 +1323,33 @@ begin
   if State = clsNone then
     Exit;
 
-  ColRect := Context.EditorState.GetGutterColumnRect(
-    Context.EditControl, Context.EditorLineNum, FCoverageGutterColumnIndex);
-  if (ColRect.Right <= ColRect.Left) or (ColRect.Bottom <= ColRect.Top) then
+  { CodeLeftEdge is the X where the source starts. The stripe stays to the left of it. }
+  CodeLeft := Context.EditorState.CodeLeftEdge;
+  if (Context.LineState <> nil) and (Context.LineState.CodeRect.Left > 0) then
+    CodeLeft := Context.LineState.CodeRect.Left;
+  if CodeLeft <= 6 then
     Exit;
 
-  // Anchor to the code left edge (not ColRect.Left) so we never paint over line numbers
-  // if GetGutterColumnRect is wider/misaligned on some IDE builds.
-  Stripe.Top := ColRect.Top;
-  Stripe.Bottom := ColRect.Bottom + 1; // FillRect bottom exclusive
-  Stripe.Right := Context.EditorState.CodeLeftEdge - 2;
-  if Stripe.Right > ColRect.Right then
-    Stripe.Right := ColRect.Right - 1;
-  if Stripe.Right > Context.EditorState.CodeLeftEdge then
-    Stripe.Right := Context.EditorState.CodeLeftEdge - 2;
-  Stripe.Left := Stripe.Right - 4;
-  if Stripe.Left < ColRect.Left then
-    Exit; // reserved column too far left / too narrow — skip rather than cover numbers
+  if Context.LineState <> nil then
+    Gutter := Context.LineState.GutterRect
+  else
+    Gutter := Rect;
+  Stripe.Top := Gutter.Top;
+  Stripe.Bottom := Gutter.Bottom;
+  if Stripe.Bottom <= Stripe.Top then
+  begin
+    Stripe.Top := Rect.Top;
+    Stripe.Bottom := Rect.Bottom;
+  end;
+  if Stripe.Bottom <= Stripe.Top then
+    Exit;
 
-  // Bridge only to neighbouring lines that also paint (not through blank/var/procedure).
+  Stripe.Right := CodeLeft - 1;
+  Stripe.Left := Stripe.Right - 4;
+  if (Gutter.Right > Gutter.Left) and (Stripe.Left < Gutter.Left) then
+    Exit;
+  Inc(Stripe.Bottom); // FillRect bottom is exclusive
+
   Bridge := Max(2, Context.CellSize.cy div 4);
   if TCoverageManager.GetInstance.GetLineState(FileName, LineNum - 1) = State then
     Dec(Stripe.Top, Bridge);

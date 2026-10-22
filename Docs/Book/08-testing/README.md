@@ -8,6 +8,7 @@ Dext includes a powerful testing framework inspired by NUnit/xUnit, with mocking
 2. [Assertions](assertions.md) - Fluent `Should()` syntax
 3. [Snapshots](snapshots.md) - JSON snapshot testing
 4. [Non-Dext projects](non-dext-projects.md) - DUnit / DUnitX / DUnit2 in Explorer without rewrite
+5. [Test Explorer](test-explorer.md) - Manual install and line coverage
 
 ## Test Project Structure (.dpr)
 
@@ -259,7 +260,7 @@ dext test --coverage
 This generates unified reports in formats compatible with major DevSecOps quality tools (such as SonarQube) and visual static reports (HTML).
 
 > [!TIP]
-> **IDE Integration**: The coverage gutter already exists in Test Explorer (`Design.Coverage`). The CLI engine (`dext test --coverage`) is **Stable**; current work is **polishing the visual IDE experience** for demos and daily use.
+> **IDE Integration**: Manual install of the expert, the unsigned-DLL note, and Win64x line coverage are in [Test Explorer](test-explorer.md). The CLI engine (`dext test --coverage`) is **Stable**.
 
 ---
 

@@ -8,7 +8,7 @@ cd Installers\DextTestExplorer
 # 32-bit IDE (finds newest Output\*\Win32\Release\…dll)
 .\Install-DextTestExplorer.ps1 -StudioVersion 37.0
 
-# 64-bit IDE (DLL name carries {$LIBSUFFIX '64'})
+# 64-bit IDE (DLL name carries {$LIBSUFFIX 'x64'})
 .\Install-DextTestExplorer.ps1 -StudioVersion 37.0 -Ide64
 
 # Or explicit source

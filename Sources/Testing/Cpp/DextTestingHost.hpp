@@ -5,6 +5,7 @@
  * Dext Test Explorer — HTTP Host client (same protocol as Dext.Testing.DUnit*.pas).
  *
  * Explorer launches:  MyTests.exe --port N -no-wait
+ * Direct run:         MyTests.exe   (host switches are removed before the native runner)
  * Client talks to:    http://127.0.0.1:N/
  *   GET  /tests              -> {"SelectedTests":["Fixture.Name", ...]}
  *   POST /tests/results      -> JSON array of result objects
@@ -16,11 +17,21 @@
 
 #include <windows.h>
 #include <winhttp.h>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
+#include <cwchar>
 #include <string>
 #include <vector>
 #include <sstream>
 
+/* bcc64 (Clang 5, ilink64) links the import archive winhttp.a.
+   bcc64x and Win32 link winhttp.lib. */
+#if defined(_WIN64) && defined(__clang_major__) && (__clang_major__ < 15)
+#pragma comment(lib, "winhttp.a")
+#else
 #pragma comment(lib, "winhttp.lib")
+#endif
 
 namespace Dext {
 namespace Testing {
@@ -32,6 +43,98 @@ inline bool HasArgvFlag(int argc, char** argv, const char* flag)
       return true;
   }
   return false;
+}
+
+struct HostLaunch {
+  int Port;
+  bool Discover;
+};
+
+inline std::string LowerArg(const std::string& value)
+{
+  std::string s = value;
+  for (size_t i = 0; i < s.size(); ++i)
+    s[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i])));
+  return s;
+}
+
+inline bool StartsWith(const std::string& value, const char* prefix)
+{
+  const std::string p(prefix);
+  return value.size() >= p.size() && value.compare(0, p.size(), p) == 0;
+}
+
+/** Drop Explorer-only switches and remember --port / --discover.
+ *  A direct run (no --port) leaves argv as a normal native invocation. */
+inline HostLaunch TakeHostLaunch(int& argc, char** argv)
+{
+  HostLaunch launch;
+  launch.Port = 0;
+  launch.Discover = false;
+  if (!argv) return launch;
+
+  bool removed = false;
+  int w = 1;
+  for (int i = 1; i < argc; ++i) {
+    std::string raw = argv[i] ? argv[i] : "";
+    std::string a = LowerArg(raw);
+    if (a == "--discover" || a == "-discover" || a == "/discover") {
+      launch.Discover = true;
+      removed = true;
+      continue;
+    }
+    if (a == "--port" || a == "-port" || a == "/port") {
+      if (i + 1 < argc) {
+        std::string next = argv[i + 1] ? argv[i + 1] : "";
+        if (!next.empty() && next[0] != '-' && next[0] != '/')
+          launch.Port = std::atoi(argv[++i]);
+      }
+      removed = true;
+      continue;
+    }
+    if (StartsWith(a, "--port=") || StartsWith(a, "--port:") ||
+        StartsWith(a, "-port=") || StartsWith(a, "-port:") ||
+        StartsWith(a, "/port=") || StartsWith(a, "/port:")) {
+      const char* eq = std::strchr(raw.c_str(), '=');
+      if (!eq) eq = std::strchr(raw.c_str(), ':');
+      if (eq) launch.Port = std::atoi(eq + 1);
+      removed = true;
+      continue;
+    }
+    if (a == "-no-wait" || a == "/no-wait" || a == "--no-wait" ||
+        a == "-no-dashboard" || a == "/no-dashboard" || a == "--no-dashboard" ||
+        a == "-externalui" || a == "/externalui" || a == "--externalui" ||
+        a == "-dext-headless" || a == "/dext-headless" || a == "--dext-headless") {
+      removed = true;
+      continue;
+    }
+    argv[w++] = argv[i];
+  }
+  argc = w;
+  argv[w] = nullptr;
+  if (launch.Port < 0) launch.Port = 0;
+  if (!removed) return launch;
+
+  std::wstring cmd;
+  for (int i = 0; i < argc; ++i) {
+    if (i) cmd.push_back(L' ');
+    std::string raw = (argv[i]) ? argv[i] : "";
+    int n = MultiByteToWideChar(CP_ACP, 0, raw.c_str(), -1, nullptr, 0);
+    std::wstring wide(n > 1 ? static_cast<size_t>(n - 1) : 0, L'\0');
+    if (n > 1)
+      MultiByteToWideChar(CP_ACP, 0, raw.c_str(), -1, &wide[0], n);
+    const bool quote = wide.empty() || wide.find(L' ') != std::wstring::npos ||
+      wide.find(L'"') != std::wstring::npos;
+    if (quote) cmd.push_back(L'"');
+    cmd += wide;
+    if (quote) cmd.push_back(L'"');
+  }
+  wchar_t* processCmd = GetCommandLineW();
+  if (processCmd && cmd.size() <= std::wcslen(processCmd)) {
+    std::wmemcpy(processCmd, cmd.c_str(), cmd.size());
+    processCmd[cmd.size()] = L'\0';
+  }
+  return launch;
 }
 
 inline bool ParsePortFromArgv(int argc, char** argv, int& outPort)

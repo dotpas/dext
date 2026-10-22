@@ -752,6 +752,7 @@ API fluente baseada no padrão `Should(Value)`.
 - **Gutter Margin Icons** (`Dext.Testing.Design.Gutter`) — Marcas visuais interativas na margem esquerda do editor de código do RAD Studio (verdes para sucesso, vermelhas para falhas).
 - **Servidor HTTP/SSE Local da IDE** (`Dext.Testing.Design.Server`) — Servidor de comunicação em tempo real embutido no Expert que recebe o fluxo de execução dos testes sem BPLs intermediárias.
 - **Visualizador de Cobertura de Código** (`Dext.Testing.Design.Coverage`) — Gutter no editor (coberto/não coberto/parcial) com notifiers OTA e lifetime limpo; Ctrl+Alt+C lista testes que cobrem a linha.
+- **Cobertura de linha C++ no Win64x** (`Dext.Testing.Design.Coverage.Runner`) — Um `.cbproj` em Win64x (`bcc64x`) instrumenta com `-fprofile-instrument=clang`, `-fcoverage-mapping` e `-lclang_rt.profile-x86_64`. Depois da execução o `llvm-cov` do LLVM 20 exporta LCOV e o mesmo gutter pinta. Nas outras plataformas do `.cbproj` a UI de coverage fica oculta. Win32 e Win64 clássico não têm cobertura de linha. Instalação manual: [Test Explorer](Book.pt-br/08-testes/test-explorer.md).
 
 ### 7.8 Escala e rigor
 O Dext é validado continuamente por uma infraestrutura de testes massiva para garantir a integridade entre seus subsistemas:

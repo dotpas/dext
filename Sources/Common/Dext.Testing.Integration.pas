@@ -64,6 +64,7 @@ type
     class var FExecutionHooks: TInterfaceList;
     class function GetIntegrations: TInterfaceList; static;
     class function GetExecutionHooks: TInterfaceList; static;
+    class procedure ReleaseDextHostSwitches; static;
   public
     class procedure RegisterIntegration(const AIntegration: ITestRunnerIntegration); static;
     class function TryExecuteFromCommandLine: Boolean; static;
@@ -74,7 +75,89 @@ type
 
 implementation
 
+uses
+  Winapi.Windows;
+
 { TTestRunnerRegistry }
+
+function IsDextHostToken(const Token: string; out TakesValue: Boolean): Boolean;
+var
+  S: string;
+begin
+  TakesValue := False;
+  S := Token.ToLower;
+  Result := (S = '-no-wait') or (S = '/no-wait') or (S = '--no-wait')
+    or (S = '-discover') or (S = '/discover') or (S = '--discover')
+    or (S = '-no-dashboard') or (S = '/no-dashboard') or (S = '--no-dashboard')
+    or (S = '-externalui') or (S = '/externalui') or (S = '--externalui')
+    or (S = '-dext-headless') or (S = '/dext-headless') or (S = '--dext-headless');
+  if Result then
+    Exit;
+  if (S = '-port') or (S = '/port') or (S = '--port') then
+  begin
+    TakesValue := True;
+    Exit(True);
+  end;
+  Result := S.StartsWith('--port=') or S.StartsWith('--port:')
+    or S.StartsWith('-port=') or S.StartsWith('-port:')
+    or S.StartsWith('/port=') or S.StartsWith('/port:')
+    or S.StartsWith('-junit:') or S.StartsWith('/junit:') or S.StartsWith('--junit=')
+    or S.StartsWith('-json:') or S.StartsWith('/json:') or S.StartsWith('--json=')
+    or S.StartsWith('-html:') or S.StartsWith('/html:') or S.StartsWith('--html=')
+    or S.StartsWith('-sonar:') or S.StartsWith('/sonar:') or S.StartsWith('--sonar=')
+    or S.StartsWith('-sonarqube:') or S.StartsWith('/sonarqube:') or S.StartsWith('--sonarqube=')
+    or S.StartsWith('-filter:') or S.StartsWith('/filter:') or S.StartsWith('--filter=')
+    or S.StartsWith('-fixture:') or S.StartsWith('/fixture:') or S.StartsWith('--fixture=')
+    or S.StartsWith('-category:') or S.StartsWith('/category:') or S.StartsWith('--category=');
+end;
+
+function QuoteCommandArg(const Value: string): string;
+begin
+  if (Value = '') or (Value.IndexOf(' ') >= 0) or (Value.IndexOf('"') >= 0) then
+    Result := '"' + Value.Replace('"', '""') + '"'
+  else
+    Result := Value;
+end;
+
+class procedure TTestRunnerRegistry.ReleaseDextHostSwitches;
+var
+  Cmd: PChar;
+  Rebuilt: string;
+  Token: string;
+  I: Integer;
+  TakesValue: Boolean;
+  OldLen, NewLen: Integer;
+begin
+  Rebuilt := QuoteCommandArg(ParamStr(0));
+  I := 1;
+  while I <= ParamCount do
+  begin
+    Token := ParamStr(I);
+    if IsDextHostToken(Token, TakesValue) then
+    begin
+      Inc(I);
+      if TakesValue and (I <= ParamCount) then
+      begin
+        Token := ParamStr(I);
+        if (Token <> '') and (Token[1] <> '-') and (Token[1] <> '/') then
+          Inc(I);
+      end;
+      Continue;
+    end;
+    Rebuilt := Rebuilt + ' ' + QuoteCommandArg(Token);
+    Inc(I);
+  end;
+
+  Cmd := GetCommandLine;
+  if Cmd = nil then
+    Exit;
+  OldLen := StrLen(Cmd);
+  NewLen := Length(Rebuilt);
+  if NewLen > OldLen then
+    Exit;
+  Move(PChar(Rebuilt)^, Cmd^, NewLen * SizeOf(Char));
+  Cmd[NewLen] := #0;
+end;
 
 class function TTestRunnerRegistry.GetIntegrations: TInterfaceList;
 begin
@@ -105,10 +188,13 @@ begin
       if Supports(Intf, ITestRunnerIntegration, Runner) then
       begin
         Runner.Execute(Port);
-        Result := True;
+        Exit(True);
       end;
     end;
   end;
+  { Direct run (script, CI, double-click): DUnit, DUnit2 and DUnitX keep their
+    own options. Explorer switches such as -no-wait are removed first. }
+  ReleaseDextHostSwitches;
 end;
 
 class function TTestRunnerRegistry.GetExecutionHooks: TInterfaceList;

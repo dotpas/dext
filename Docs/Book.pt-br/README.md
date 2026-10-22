@@ -82,6 +82,7 @@
 - [Assertions](08-testes/assertions.md) - Sintaxe fluente `Should()`
 - [Snapshots](08-testes/snapshots.md) - Teste de snapshot JSON
 - [Projetos não-Dext](08-testes/projetos-nao-dext.md) - DUnit* no Explorer sem reescrever
+- [Test Explorer](08-testes/test-explorer.md) - Instalação manual da DLL e cobertura no Win64x
 
 #### [9. Ferramenta CLI](09-cli/README.md)
 

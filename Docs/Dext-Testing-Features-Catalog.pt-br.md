@@ -11,7 +11,7 @@ Resumo em português do [catálogo EN](Dext-Testing-Features-Catalog.md).
 - **DextSidecar** — Evolving — só **essencial** em paralelo (não bloqueia livro/pitch).
 - **`dext ui`** — Removido do CLI.
 - **Containers de teste** (`infra/tests`) — Preview; evoluir depois (± aba Sidecar).
-- **C++Builder / UI Automation** — Planned.
+- **C++Builder / UI Automation** — C++ Explorer em revisão (cobertura de linha só no Win64x; GetIt e DLL assinada ainda abertos). UIA continua Planned.
 - **ORM DBs** — PG, SQL Server, MySQL, SQLite, Oracle, Firebird, **InterBase** — todos Stable.
 - **REST client** — Stable (completo; não é gap de testing).
 
@@ -21,4 +21,4 @@ xUnit/NUnit → Attributes · Moq → Mocks · FluentAssertions → Should · Co
 
 ## Gaps explícitos
 
-Gutter de coverage a polir; Expert C++ ainda não; UIA só spike; Sidecar companion essencial em paralelo. Features grandes (mutation, contracts, WireMock, Testcontainers productizado) = roadmap P2.
+Gutter de coverage a polir; Expert C++ ainda não anunciado como pronto; cobertura de linha C++ só no Win64x (`bcc64x`, llvm-cov), e o Explorer esconde essas opções nas outras plataformas do `.cbproj` — ver S75; UIA só spike; Sidecar companion essencial em paralelo. Features grandes (mutation, contracts, WireMock, Testcontainers productizado) = roadmap P2.

@@ -12,6 +12,7 @@ uses
   DUnitX.Loggers.Console,
   Dext.Testing.Integration,
   Dext.Testing.DUnitX,
+  Dext.Utils,
   uIssue447MoraTrunc in 'uIssue447MoraTrunc.pas';
 
 var
@@ -40,4 +41,5 @@ begin
       ExitCode := 2;
     end;
   end;
+  ConsolePause;
 end.

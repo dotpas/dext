@@ -744,6 +744,7 @@ Fluent API based on the `Should(Value)` pattern.
 - **Gutter Margin Icons** (`Dext.Testing.Design.Gutter`) — Interactive visual icons in the left code editor margin (green checkmark for pass, red cross for failure).
 - **Embedded Local IDE HTTP/SSE Server** (`Dext.Testing.Design.Server`) — Real-time event streaming server embedded in the Expert receiving test execution streams without BPL coupling.
 - **Code Coverage Visualizer** (`Dext.Testing.Design.Coverage`) — Editor gutter highlighting of covered/uncovered/partial lines; notifiers registered with OTA lifetime cleanup (`RegisterView` / `UnregisterView` / `RefreshActiveViews` via `GetEditBufferIterator`). Ctrl+Alt+C shows covering tests.
+- **C++ line coverage on Win64x** (`Dext.Testing.Design.Coverage.Runner`) — A `.cbproj` on Win64x (`bcc64x`) instruments with `-fprofile-instrument=clang`, `-fcoverage-mapping` and `-lclang_rt.profile-x86_64`. After the run, LLVM 20 `llvm-cov` exports LCOV and the same gutter paints it. Other `.cbproj` platforms hide the coverage UI. Win32 and classic Win64 do not get line coverage. Manual expert install: [Test Explorer](Book/08-testing/test-explorer.md).
 - **Tagged console log** — Explorer console prefixes lines with `[PASS]` / `[FAIL]` / `[SKIP]` / `[WARN]` / `[INFO]` for scannable output (RichEdit color polish still Evolving).
 
 ### 7.8 Scale and Rigor
