@@ -9,13 +9,13 @@ Generate Abstract Syntax Tree (AST) XML files for all Dext Framework units. This
 ## Requirements
 
 - Delphi 12 (or compatible version)
-- DelphiAST fork at `C:\dev\Dext\Libs\DelphiAST-sglienke`
+- DelphiAST (Glienke fork or upstream) on the project **Unit search path** — clone/configure locally; do not hardcode a machine path in the repo
 
 ## Usage
 
-1. Open `DextASTParser.dproj` in Delphi
+1. Point `DextASTParser.dproj` Unit search path at your DelphiAST `Source` (+ `SimpleParser`) folders.
 2. Build the project (`Ctrl+F9`)
-3. Run from the command line:
+3. Run from the command line (paths relative to your checkout of **this** repository):
 
 ```cmd
 DextASTParser.exe <input_dir> <output_dir> [-i include_path1;include_path2]
@@ -23,8 +23,10 @@ DextASTParser.exe <input_dir> <output_dir> [-i include_path1;include_path2]
 
 ### Example
 
+From the repo root (adjust if your output layout differs):
+
 ```cmd
-DextASTParser.exe C:\dev\Dext\Sources C:\dev\Dext\Docs\API\xml -i C:\dev\Dext\Sources\Core
+DextASTParser.exe Sources Docs\API\xml -i Sources\Core
 ```
 
 ## Output
@@ -38,21 +40,8 @@ DextASTParser.exe C:\dev\Dext\Sources C:\dev\Dext\Docs\API\xml -i C:\dev\Dext\So
 <?xml version="1.0"?>
 <UNIT line="1" col="1" name="Dext.Core.SmartTypes">
   <INTERFACE begin_line="3" begin_col="1" end_line="100" end_col="1">
-    <USES>...</USES>
-    <TYPE>
-      <NAME value="Prop"/>
-      <TYPEPARAMS>...</TYPEPARAMS>
-    </TYPE>
-  </INTERFACE>
-</UNIT>
 ```
 
-## Why This Tool?
+## Notes
 
-Standard Delphi documentation tools (PasDoc, GenDocCLI) fail with StackOverflow errors when parsing Dext's complex generics. DelphiAST (Stefan's fork) handles them correctly.
-
-## Next Steps
-
-1. Parse all units and verify success
-2. Create HTML generator from XML output
-3. Integrate with build pipeline
+Configure DelphiAST via IDE / dproj search path on your machine. Keep those paths out of committed docs.

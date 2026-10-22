@@ -50,6 +50,8 @@ contains
   Dext.Testing.History in '..\..\Sources\Testing\Dext.Testing.History.pas',
   Dext.Testing.Report in '..\..\Sources\Testing\Dext.Testing.Report.pas',
   Dext.Testing.Runner in '..\..\Sources\Testing\Dext.Testing.Runner.pas',
+  Dext.Testing.StackTrace in '..\..\Sources\Testing\Dext.Testing.StackTrace.pas',
+  Dext.Testing.CodeCoverage.Tool in '..\..\Sources\Testing\Dext.Testing.CodeCoverage.Tool.pas',
   Dext.Testing.Listeners.Telemetry in '..\..\Sources\Testing\Dext.Testing.Listeners.Telemetry.pas',
   Dext.Testing in '..\..\Sources\Testing\Dext.Testing.pas',
   Dext.Testing.Host in '..\..\Sources\Testing\Dext.Testing.Host.pas',

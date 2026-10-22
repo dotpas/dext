@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Console</AppType>
@@ -33,6 +33,12 @@
     <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
         <Cfg_2>true</Cfg_2>
         <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
+        <Cfg_2_Win32>true</Cfg_2_Win32>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
@@ -72,6 +78,13 @@
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
+        <DCC_Optimization>false</DCC_Optimization>
+        <DCC_DebugInformation>2</DCC_DebugInformation>
+        <DCC_UseDebugDCUs>true</DCC_UseDebugDCUs>
+        <DCC_MapFile>3</DCC_MapFile>
+        <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+    </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
@@ -80,28 +93,47 @@
         <DCCReference Include="Dext.Web.DataApi.Tests.pas"/>
         <DCCReference Include="Dext.Web.Json.Tests.pas"/>
         <DCCReference Include="Dext.Web.Binding.Tests.pas"/>
+        <DCCReference Include="Dext.Web.RecordBinding.Tests.pas"/>
+        <DCCReference Include="Dext.Web.Routing.Versioning.Tests.pas"/>
+        <DCCReference Include="Dext.Web.JsonIgnoreBinding.Tests.pas"/>
+        <DCCReference Include="..\..\Sources\Dashboard\Dext.Dashboard.Security.pas"/>
+        <DCCReference Include="Dext.Dashboard.Security.Tests.pas"/>
         <DCCReference Include="Dext.Web.Features.Tests.pas"/>
         <DCCReference Include="Dext.Web.DataApi.Utils.Tests.pas"/>
         <DCCReference Include="Dext.Web.Hosting.Tests.pas"/>
         <DCCReference Include="Dext.Web.Lifecycle.Tests.pas"/>
         <DCCReference Include="Dext.Web.Htmx.Tests.pas"/>
+        <DCCReference Include="Dext.Web.EntityDataSetStore.Tests.pas"/>
         <DCCReference Include="Dext.Logging.Sinks.APM.Tests.pas"/>
         <DCCReference Include="Dext.WebSocket.Tests.pas"/>
+        <DCCReference Include="Dext.Server.HttpSys.SslBinding.Tests.pas"/>
         <DCCReference Include="Dext.Web.PathBase.Tests.pas"/>
+        <DCCReference Include="Dext.Web.StaticFiles.Security.Tests.pas"/>
+        <DCCReference Include="Dext.Server.HttpSys.Address.Tests.pas"/>
+        <DCCReference Include="Dext.Server.HttpSys.ResponseReuse.Tests.pas"/>
+        <DCCReference Include="Dext.Server.Native.Request.Tests.pas"/>
+        <DCCReference Include="Dext.Server.HttpSys.LargeBody.Tests.pas"/>
+        <DCCReference Include="Dext.Server.HttpSys.Receives.Tests.pas"/>
+        <DCCReference Include="Dext.Web.HandlerExceptions.Tests.pas"/>
         <DCCReference Include="..\Common\Dext.Web.Mocks.pas"/>
         <DCCReference Include="Test_Dext.Http2.Connection.pas"/>
         <DCCReference Include="Test_Dext.Http2.Framing.pas"/>
         <DCCReference Include="Test_Dext.Http2.Hpack.pas"/>
         <DCCReference Include="Test_Dext.Http2.Stream.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Dext.Testing.WebApplicationFactory.pas"/>
+        <DCCReference Include="..\Testing\Dext.Testing.WebApplicationFactory.Tests.pas"/>
+        <DCCReference Include="Dext.Web.Validation.Tests.pas"/>
+        <DCCReference Include="Dext.Web.S68.Tests.pas"/>
+        <DCCReference Include="Dext.Web.NewFeatures.Tests.pas"/>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
         <BuildConfiguration Include="Debug">
             <Key>Cfg_1</Key>
-            <CfgParent>Base</CfgParent>
-        </BuildConfiguration>
-        <BuildConfiguration Include="Release">
-            <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
         </BuildConfiguration>
     </ItemGroup>
@@ -116,17 +148,9 @@
                 <Excluded_Packages/>
             </Delphi.Personality>
             <Platforms>
-                <Platform value="Android">False</Platform>
-                <Platform value="Android64">False</Platform>
                 <Platform value="Linux64">False</Platform>
-                <Platform value="OSX64">False</Platform>
-                <Platform value="OSXARM64">False</Platform>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">False</Platform>
-                <Platform value="Win64x">False</Platform>
-                <Platform value="WinARM64EC">False</Platform>
-                <Platform value="iOSDevice64">False</Platform>
-                <Platform value="iOSSimARM64">False</Platform>
             </Platforms>
         </BorlandProject>
         <ProjectFileVersion>12</ProjectFileVersion>

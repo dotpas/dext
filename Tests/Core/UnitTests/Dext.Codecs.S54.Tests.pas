@@ -270,7 +270,6 @@ begin
   Should(TDextTypeModel.NativeKindOf(TypeInfo(string))).Be(nkString);
 end;
 
-
 procedure TTypeModelTests.ShouldRoundtripGuidAndUuidAcrossDirectPaths;
 var
   Plan: IDextTypeCodecPlan;

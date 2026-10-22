@@ -3,7 +3,8 @@ unit Main.Form;
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, 
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
+  System.IOUtils,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.Menus, Vcl.ExtCtrls,
   Vcl.StdCtrls,
   Dext.Vcl.TrayIcon,
@@ -42,6 +43,7 @@ type
     procedure RestoreFromTray;
     procedure LoadConfig;
     procedure SaveConfig;
+    procedure ApplyTrayIcon;
   end;
 
 var
@@ -78,34 +80,25 @@ begin
   else
     StatusLabel.Caption := 'Server failed to start';
 
-  // Initialize Tray Icon
-  // Initialize Tray Icon
+  // Initialize Tray Icon (always-on system tray host)
   FTrayIcon := TTrayIconEx.Create(Self, OnTrayDblClick);
   FTrayIcon.Hint := 'Dext Sidecar';
   FTrayIcon.BalloonHint := 'Dext Sidecar Running';
   FTrayIcon.BalloonFlags := Integer(bfInfo);
   FTrayIcon.StartMinimized := FConfig.StartMinimized;
-  
-  // Assign rights to icon BEFORE showing it
-  if (Application.Icon <> nil) and (Application.Icon.Handle <> 0) then
-    FTrayIcon.Icon.Assign(Application.Icon)
-  else
-    FTrayIcon.Icon := Application.Icon; // Fallback
-  
-  // Add Menu Items
+  FTrayIcon.CloseToTray := True;
+  FTrayIcon.MinimizeToTray := True;
+
+  ApplyTrayIcon;
+
   FTrayIcon.AddMenuItem('Open Dashboard', OnTrayDashboardClick);
   FTrayIcon.AddMenuItem('Restore Window', OnTrayRestoreClick);
-  // Note: 'Sair' (Exit) menu item is automatically added by TTrayIconEx
-  
-  // Set the close click handler for proper shutdown
   FTrayIcon.OnCloseClick := OnTrayCloseClick;
-  
-  // Start File Watcher
+
   FWatcher := TDextFileWatcher.Create(GetCurrentDir);
   FWatcher.OnChange := OnFileChange;
   FWatcher.Start;
 
-  // Show Tray Icon finally
   FTrayIcon.Visible := True;
   
   // Only show balloon if starting minimized to notify user
@@ -152,27 +145,53 @@ end;
 
 procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
-  // If force close flag is set, allow closing (server already stopped)
+  // Sidecar stays in the tray unless the user chooses Sair (FForceClose).
   if FForceClose then
   begin
     CanClose := True;
     Exit;
   end;
-  
-  // Only minimize to tray if checkbox is checked
-  if StartMinimizedCheckBox.Checked then
-  begin
-    CanClose := False;
-    MinimizeToTray;
-  end
-  else
-  begin
-    // Stop the server before closing
-    if Assigned(FServer) then
-      FServer.Stop;
 
-    CanClose := True;
+  CanClose := False;
+  MinimizeToTray;
+end;
+
+procedure TMainForm.ApplyTrayIcon;
+var
+  IconPath: string;
+  Loaded: TIcon;
+begin
+  // 1) Form icon from DFM (real artwork) — Application.Icon is often a blank default.
+  if (Icon <> nil) and (Icon.Handle <> 0) then
+  begin
+    Application.Icon.Assign(Icon);
+    FTrayIcon.Icon := Icon;
+    Exit;
   end;
+
+  // 2) AppIcon.ico next to the EXE or in the project folder
+  IconPath := TPath.Combine(ExtractFilePath(ParamStr(0)), 'AppIcon.ico');
+  if not TFile.Exists(IconPath) then
+    IconPath := TPath.Combine(ExtractFilePath(ParamStr(0)), '..\AppIcon.ico');
+  if TFile.Exists(IconPath) then
+  begin
+    Loaded := TIcon.Create;
+    try
+      Loaded.LoadFromFile(IconPath);
+      if Loaded.Handle <> 0 then
+      begin
+        Application.Icon.Assign(Loaded);
+        Icon.Assign(Loaded);
+        FTrayIcon.Icon := Loaded;
+        Exit;
+      end;
+    finally
+      Loaded.Free;
+    end;
+  end;
+
+  // 3) Last resort: draw a simple "D" so the tray is never a white square
+  FTrayIcon.EnsureDefaultIcon('D');
 end;
 
 procedure TMainForm.LoadConfig;

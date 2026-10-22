@@ -81,6 +81,7 @@ var
 implementation
 
 uses
+  System.Rtti,
   IdContext,     // Access to TIdContext
   IdGlobal,      // Access to ToBytes/IndyTextEncoding_UTF8
   Dext.Sidecar.TestCompat,
@@ -815,7 +816,7 @@ begin
             if Json.Contains('coverage') then
               UseCoverage := Json.GetBoolean('coverage');
 
-            // 2. Iterate and execute projects
+            // 2. Iterate and execute projects (array "projects" or singular "project")
             if Json.Contains('projects') then
             begin
               ProjArr := Json.GetArray('projects');
@@ -824,7 +825,6 @@ begin
                 ProjectPath := ProjArr.GetString(I);
                 if FileExists(ProjectPath) then
                 begin
-                  // Trigger run via TTestRunner with coverage parameter
                   RunnerResult := TTestRunner.RunProject(ProjectPath, UseCoverage);
                   CombinedResult.Add(RunnerResult);
                   if RunnerResult.Contains('error') then
@@ -833,13 +833,36 @@ begin
                     Inc(SuccessCount);
                 end;
               end;
+            end
+            else if Json.Contains('project') then
+            begin
+              ProjectPath := Json.GetString('project');
+              if FileExists(ProjectPath) then
+              begin
+                RunnerResult := TTestRunner.RunProject(ProjectPath, UseCoverage);
+                CombinedResult.Add(RunnerResult);
+                if RunnerResult.Contains('error') then
+                  Inc(FailCount)
+                else
+                  Inc(SuccessCount);
+              end
+              else
+              begin
+                Results.BadRequest('Project file not found: ' + ProjectPath).Execute(Ctx);
+                Exit;
+              end;
+            end
+            else
+            begin
+              Results.BadRequest('Missing "projects" array or "project" field').Execute(Ctx);
+              Exit;
             end;
-            
+
             ResJson := TDextJson.Provider.CreateObject;
             ResJson.SetArray('results', CombinedResult);
             ResJson.SetInteger('successCount', SuccessCount);
             ResJson.SetInteger('failCount', FailCount);
-            
+
             Results.Json(ResJson.ToJson).Execute(Ctx);
           end
           else
@@ -1345,56 +1368,8 @@ begin
     end);
 
 
-  // API: Run Tests
-  App.MapPost('/api/tests/run',
-    procedure(Ctx: IHttpContext)
-    var
-       Body: string;
-       Node: IDextJsonNode;
-       Json: IDextJsonObject;
-       TestRunResult: IDextJsonObject;
-       Project: string;
-       SR: TStreamReader;
-    begin
-       SR := TStreamReader.Create(Ctx.Request.Body);
-       try
-         Body := SR.ReadToEnd;
-       finally
-         SR.Free;
-       end;
- 
-       try
-         Node := TDextJson.Provider.Parse(Body);
-         if (Node = nil) or (Node.GetNodeType <> jntObject) then
-         begin
-            Results.BadRequest('Invalid JSON').Execute(Ctx);
-            Exit;
-         end;
-         
-         Json := Node as IDextJsonObject;
-         if not Json.Contains('project') then
-         begin
-            Results.BadRequest('Missing "project" field').Execute(Ctx);
-            Exit;
-         end;
-         
-         Project := Json.GetString('project');
-         TestRunResult := TTestRunner.RunProject(Project);
-         if TestRunResult <> nil then
-         begin
-            Results.Json(TestRunResult.ToJson).Execute(Ctx);
-         end
-         else
-         begin
-            Results.InternalServerError('Failed to run tests (Result is nil)').Execute(Ctx);
-         end;
-       except
-          on E: Exception do
-            Results.InternalServerError(E.Message).Execute(Ctx);
-       end;
-    end);
-
   // API: SSE Events Endpoint (Fallback)
+  // Note: POST /api/tests/run is registered once above (supports "projects"[] or "project").
   App.MapGet('/events',
     procedure(Ctx: IHttpContext)
     var
@@ -1696,18 +1671,26 @@ var
   Ctx: IHttpContext;
   Msg: string;
   IndyCtx: TIdContext;
+  HubCtx: IHubContext;
 begin
+  // Prefer SignalR/WebSocket fan-out when hubs are live (http.sys path).
+  try
+    HubCtx := THubExtensions.GetHubContext;
+    if HubCtx <> nil then
+      HubCtx.Clients.All.SendAsync('DashboardEvent',
+        TArray<TValue>.Create(TValue.From<string>(EventName), TValue.From<string>(Data)));
+  except
+    // Hubs not initialized or no clients — fall through to SSE list.
+  end;
+
   if (FSSEClients = nil) then Exit;
 
   TMonitor.Enter(FLock);
   try
-
-
     if FSSEClients.Count = 0 then Exit;
 
     Msg := Format('event: %s'#10'data: %s'#10#10, [EventName, Data]);
-    
-    // Iterate backwards so we can remove dead clients if needed (though we just ignore errors here)
+
     for Ctx in FSSEClients do
     begin
       try
@@ -1715,13 +1698,15 @@ begin
         begin
            IndyCtx := TDextIndyHttpContext(Ctx).Context;
            if (IndyCtx <> nil) and (IndyCtx.Connection <> nil) and IndyCtx.Connection.Connected then
-           begin
-               IndyCtx.Connection.IOHandler.Write(ToBytes(Msg, IndyTextEncoding_UTF8));
-           end;
+             IndyCtx.Connection.IOHandler.Write(ToBytes(Msg, IndyTextEncoding_UTF8));
+        end
+        else if Ctx.Response <> nil then
+        begin
+          // http.sys / native: write SSE frame through the abstract response.
+          Ctx.Response.Write(Msg);
         end;
       except
-        // Handle disconnection?
-
+        // Drop dead clients silently; accept loop removes them on disconnect.
       end;
     end;
   finally

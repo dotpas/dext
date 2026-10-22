@@ -91,7 +91,6 @@ uses
   Dext.Hosting.CLI.Commands.MigrateList,
   Dext.Hosting.CLI.Commands.MigrateUp,
   Dext.Hosting.CLI.Commands.Test,
-  Dext.Hosting.CLI.Commands.UI,
   Dext.Hosting.CLI.Args,
   Dext.Hosting.CLI.Config,
   Dext.Hosting.CLI,

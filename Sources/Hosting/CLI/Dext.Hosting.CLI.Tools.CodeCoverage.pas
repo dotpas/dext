@@ -32,33 +32,36 @@ var
   ToolsDir: string;
   SubDirs: TArray<string>;
 const
-  LIBS_PATH = 'Libs\DelphiCodeCoverage'; 
+  LIBS_PATH = 'Libs\DelphiCodeCoverage';
 begin
   // 1. Check Global Config
   if (GlobalConfig <> nil) and (GlobalConfig.CoveragePath <> '') and FileExists(GlobalConfig.CoveragePath) then
     Exit(GlobalConfig.CoveragePath);
 
   // 2. App Local
-  Result := 'CodeCoverage.exe'; 
-  
+  Result := 'CodeCoverage.exe';
+
   AppDir := ExtractFileDir(ParamStr(0));
-  
+
   Candidate := TPath.Combine(AppDir, 'CodeCoverage.exe');
   if FileExists(Candidate) then Exit(Candidate);
-  
+
   Current := AppDir;
-  for I := 1 to 8 do 
+  for I := 1 to 8 do
   begin
     Candidate := TPath.Combine(Current, 'Tools\DelphiCodeCoverage\CodeCoverage.exe');
     if FileExists(Candidate) then Exit(Candidate);
-    
+
     Candidate := TPath.Combine(Current, Format('%s\%s\CodeCoverage.exe', [LIBS_PATH, TargetPlatform]));
     if FileExists(Candidate) then Exit(Candidate);
-    
+
+    Candidate := TPath.Combine(Current, LIBS_PATH + '\CodeCoverage.exe');
+    if FileExists(Candidate) then Exit(Candidate);
+
     Current := TPath.GetDirectoryName(Current);
     if (Current = '') or (Current = TPath.GetPathRoot(Current)) then Break;
   end;
-  
+
   // 3. System PATH
   if FileSearch('CodeCoverage.exe', GetEnvironmentVariable('PATH')) <> '' then
      Exit('CodeCoverage.exe');
@@ -69,8 +72,10 @@ begin
   begin
     Candidate := TPath.Combine(ToolsDir, 'CodeCoverage.exe');
     if FileExists(Candidate) then Exit(Candidate);
-    
-    // Check subdirectories (e.g. unzipped folder inside)
+
+    Candidate := TPath.Combine(ToolsDir, TargetPlatform + '\CodeCoverage.exe');
+    if FileExists(Candidate) then Exit(Candidate);
+
     SubDirs := TDirectory.GetDirectories(ToolsDir);
     if Length(SubDirs) > 0 then
     begin
@@ -78,7 +83,7 @@ begin
        if FileExists(Candidate) then Exit(Candidate);
     end;
   end;
-     
+
   Result := '';
 end;
 
@@ -101,27 +106,24 @@ var
 begin
   InstalledPath := '';
   ToolsDir := TPath.Combine(TPath.GetHomePath, '.dext\tools\DelphiCodeCoverage');
-  
-  // Clean previous install if any? No, force directories ensures existence, maybe overwrite.
+
   ForceDirectories(ToolsDir);
-  
+
   Client := THTTPClient.Create;
   ZipStream := TMemoryStream.Create;
   try
     try
-      // 1. Get Release Info
-      Client.UserAgent := 'DextCLI'; 
+      Client.UserAgent := 'DextCLI';
       Resp := Client.Get(API_URL);
-      
+
       if Resp.StatusCode <> 200 then
         raise Exception.CreateFmt('Error checking latest version: %s (%d)', [Resp.StatusText, Resp.StatusCode]);
-      
+
       JsonRoot := TJSONObject.ParseJSONValue(Resp.ContentAsString(TEncoding.UTF8));
       try
         if (JsonRoot <> nil) and (JsonRoot.TryGetValue<TJSONArray>('assets', Assets)) then
         begin
              DownloadUrl := '';
-             // Find zip asset
              for I := 0 to Assets.Count - 1 do
              begin
                Asset := Assets.Items[I];
@@ -132,18 +134,17 @@ begin
                   Break;
                end;
              end;
-             
+
              if DownloadUrl = '' then
                 raise Exception.Create('No ZIP asset found in latest GitHub release.');
-             
-             // 2. Download Asset
+
              ZipStream.Clear;
              Resp := Client.Get(DownloadUrl, ZipStream);
-             
+
              if Resp.StatusCode = 200 then
              begin
                ZipStream.Position := 0;
-               
+
                Zip := TZipFile.Create;
                try
                  Zip.Open(ZipStream, zmRead);
@@ -152,17 +153,16 @@ begin
                finally
                  Zip.Free;
                end;
-               
-               // Look for exe in root or inside a subfolder
+
                InstalledPath := TPath.Combine(ToolsDir, 'CodeCoverage.exe');
-               
+
                if not FileExists(InstalledPath) then
                begin
                   SubDirs := TDirectory.GetDirectories(ToolsDir);
                   if Length(SubDirs) > 0 then
                      InstalledPath := TPath.Combine(SubDirs[0], 'CodeCoverage.exe');
                end;
-               
+
                if not FileExists(InstalledPath) then
                   raise Exception.Create('CodeCoverage.exe not found after extraction.');
              end
@@ -178,7 +178,7 @@ begin
       finally
         JsonRoot.Free;
       end;
-      
+
     except
       on E: Exception do
         raise Exception.Create('CodeCoverage Install Error: ' + E.Message);

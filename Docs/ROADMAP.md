@@ -38,6 +38,7 @@ Status | Task | Spec | Description
 ✅ | **Fluent REST Evolution** | [S20](Specs/S20-Fluent-Rest-Evolution.md) | Enhanced TRestClient factories and native record/array payload support.
 ✅ | **DbSet Batch UPDATE & DELETE** | [S59](../../Docs/Specs/S59-DbSet-Batch-Update-Delete.md) | Single-statement dialect-aware batching for PostgreSQL (`unnest`/`VALUES`), MySQL (`CASE-WHEN`), and Tuple-IN deletes.
 ✅ | **Native Delphi IDE Test Runner** | [S36](Specs/S36-IDE-Test-Runner.md) | Native IDE Test Runner expert with decoupled DUnitX, DUnit, DUnit2, and TestInsight integrations and rich reporting.
+🟡 | **C++ Test Explorer** | [S75](Specs/S75-CppBuilder-Test-Explorer.md) | Win64x line coverage via llvm-cov is in the Explorer. Other `.cbproj` platforms hide coverage. Manual install; GetIt and a signed DLL are still open.
 ✅ | **Public Symbol Indexing** | [dext index] | Extract and generate public symbol maps (Markdown, JSON, CSV) with line numbers for AI agents and NotebookLM.
 ✅ | **Performance Benchmarks** | [S18](Specs/S18-Performance-Benchmarks.md) | Benchmark suite for core Reflection, JSON, FastPath, and ORM components.
 ✅ | **FastPath ORM Hydration** | [S57](Specs/S57-FastPath-Orm-Hydration-Optimization.md) | Direct cursor dataset streaming, DbSet `ExecuteToUtf8Proc` streaming, and pre-compiled RTTI mappers.
@@ -115,6 +116,7 @@ Status | Tarefa | Spec | Descrição
 ✅ | **Evolução de Joins FluentQuery**| [S19](Specs/S19-FluentQuery-Join-Evolution.md) | Joins fluentes e fortemente tipados unificados (Inner, Left, Right, Full, Cross).
 ✅ | **Evolução REST Fluente** | [S20](Specs/S20-Fluent-Rest-Evolution.md) | Factories aprimoradas para TRestClient e suporte nativo a records/arrays.
 ✅ | **Test Runner Nativo na IDE** | [S36](Specs/S36-IDE-Test-Runner.md) | Plugin Expert nativo de Test Runner na IDE com integração DUnitX, DUnit, DUnit2 e TestInsight desacoplada e relatórios ricos.
+🟡 | **Test Explorer C++** | [S75](Specs/S75-CppBuilder-Test-Explorer.md) | Cobertura de linha no Win64x via llvm-cov. Nas outras plataformas do `.cbproj` a UI de coverage fica oculta. Instalação manual; GetIt e DLL assinada ainda abertos.
 ✅ | **Indexador de Símbolos Públicos** | [dext index] | Extrair e gerar mapas de símbolos públicos (Markdown, JSON, CSV) com números de linha para agentes de IA e NotebookLM.
 📝 | **Otimização de Hydration FastPath ORM** | [S57](Specs/S57-FastPath-Orm-Hydration-Optimization.md) | Hidratação zero-alloc em structs/records, streaming `ExecuteToUtf8Proc` no DbSet e mappers RTTI pré-compilados.
 🟡 | **Dext IDE Explorer** | [S05](Specs/S05-Advanced-Tooling.md) | Ferramenta visual inicial para Migrations na IDE (Somente scaffolding de TFDConnection implementado).

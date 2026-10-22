@@ -133,14 +133,11 @@ Options:
 
 ## Dashboard
 
-Start the web monitoring UI:
+Use **DextSidecar** (system tray). The old `dext ui` CLI command has been removed.
 
-```bash
-dext ui
-dext ui --port 8080
+```text
+DextSidecar.exe   →  http://localhost:3030
 ```
-
-Visit `http://localhost:3000` (or specified port).
 
 ## Dev Certs Command (`dev-certs`)
 

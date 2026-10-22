@@ -33,7 +33,8 @@ uses
   System.SysUtils;
 
 const
-  DBG_STACK_LENGTH = 32;
+  /// <summary>Hard cap for captured frames (buffer size). Use Options.MaxFrames to choose how many.</summary>
+  DBG_STACK_LENGTH = 64;
 
 type
   TDbgInfoStack = array[0..DBG_STACK_LENGTH - 1] of Pointer;
@@ -50,6 +51,11 @@ type
     ResolveOnlyIfLoaded: Boolean;
     /// <summary>If True, loads the .map file on a background thread.</summary>
     AsyncLoad: Boolean;
+    /// <summary>
+    ///   How many frames to capture (1..DBG_STACK_LENGTH). Analogous to FastMM5
+    ///   StackDepth. Default 32.
+    /// </summary>
+    MaxFrames: Integer;
     procedure InitDefaults;
   end;
 
@@ -406,11 +412,13 @@ end;
 
 { Binary Search }
 
-function FindNearestSymbol(RVA: NativeUInt; out Name: string; out Delta: NativeUInt): Boolean;
+function FindNearestSymbol(RVA: NativeUInt; out Name: string; out Delta, SymRVA, NextSymRVA: NativeUInt): Boolean;
 var
   Lo, Hi, Mid: Integer;
 begin
   Result := False;
+  SymRVA := 0;
+  NextSymRVA := High(NativeUInt);
   if MapSymbolCount = 0 then Exit;
   Lo := 0;
   Hi := MapSymbolCount - 1;
@@ -423,15 +431,23 @@ begin
   if Hi >= 0 then
   begin
     Name := MapSymbols[Hi].Name;
-    Delta := RVA - MapSymbols[Hi].RVA;
+    SymRVA := MapSymbols[Hi].RVA;
+    Delta := RVA - SymRVA;
+    if Hi + 1 < MapSymbolCount then
+      NextSymRVA := MapSymbols[Hi + 1].RVA
+    else
+      NextSymRVA := High(NativeUInt);
     Result := True;
   end;
 end;
 
-function FindNearestLine(RVA: NativeUInt; out SourceFile: string; out LineNum: Integer): Boolean;
+function FindNearestLine(RVA, SymRVA, NextSymRVA: NativeUInt; out SourceFile: string; out LineNum: Integer): Boolean;
 var
   Lo, Hi, Mid: Integer;
 begin
+  // Nearest line with LineRVA <= address is NOT enough: units without line
+  // numbers inherit the previous unit's last line (often System.Generics.*).
+  // Only accept a line that falls inside the current public symbol's RVA span.
   Result := False;
   if MapLineCount = 0 then Exit;
   Lo := 0;
@@ -442,7 +458,7 @@ begin
     if MapLines[Mid].RVA <= RVA then Lo := Mid + 1
     else Hi := Mid - 1;
   end;
-  if Hi >= 0 then
+  if (Hi >= 0) and (MapLines[Hi].RVA >= SymRVA) and (MapLines[Hi].RVA < NextSymRVA) then
   begin
     SourceFile := MapLines[Hi].SourceFile;
     LineNum := MapLines[Hi].Line;
@@ -489,7 +505,7 @@ label
 var
   Offset: NativeUInt;
   SymName, SourceFile: string;
-  SymDelta: NativeUInt;
+  SymDelta, SymRVA, NextSymRVA: NativeUInt;
   LineNum: Integer;
   {$IFDEF MSWINDOWS}
   Module: HMODULE;
@@ -509,14 +525,16 @@ begin
     if Offset >= $1000 then
       Offset := Offset - $1000;
 
-    if FindNearestSymbol(Offset, SymName, SymDelta) then
+    if FindNearestSymbol(Offset, SymName, SymDelta, SymRVA, NextSymRVA) then
     begin
       if SymDelta = 0 then
         Result := SymName
       else
         Result := Format('%s + $%x', [SymName, SymDelta]);
 
-      if FindNearestLine(Offset, SourceFile, LineNum) then
+      // Line lookup is clamped to [SymRVA, NextSymRVA) so we never attribute
+      // this frame to a previous unit's last line (e.g. Generics.Defaults).
+      if FindNearestLine(Offset, SymRVA, NextSymRVA, SourceFile, LineNum) then
         Result := Result + Format(' (%s:%d)', [SourceFile, LineNum]);
       Exit;
     end;
@@ -540,23 +558,33 @@ end;
 
 { Stack Capture & Formatting }
 
+function EffectiveMaxFrames: Integer; inline;
+begin
+  Result := TStackTrace.Options.MaxFrames;
+  if Result < 1 then
+    Result := 32;
+  if Result > DBG_STACK_LENGTH then
+    Result := DBG_STACK_LENGTH;
+end;
+
 {$IFDEF MSWINDOWS}
 procedure GetCallStackOS(var Stack: TDbgInfoStack; FramesToSkip: Integer);
 begin
   FillChar(Stack, SizeOf(Stack), 0);
-  RtlCaptureStackBackTrace(FramesToSkip, DBG_STACK_LENGTH, @Stack[0], nil);
+  RtlCaptureStackBackTrace(FramesToSkip, ULONG(EffectiveMaxFrames), @Stack[0], nil);
 end;
 {$ENDIF}
 
 function CallStackToStr(const Stack: TDbgInfoStack): string;
 var
   SB: TStringBuilder;
-  I: Integer;
+  I, MaxFrames: Integer;
 begin
   EnsureMapLoaded;
-  SB := TStringBuilder.Create(DBG_STACK_LENGTH * 80);
+  MaxFrames := EffectiveMaxFrames;
+  SB := TStringBuilder.Create(MaxFrames * 80);
   try
-    for I := 0 to DBG_STACK_LENGTH - 1 do
+    for I := 0 to MaxFrames - 1 do
     begin
       if Stack[I] = nil then Break;
       if I > 0 then SB.AppendLine;
@@ -575,6 +603,7 @@ begin
   WaitOnResolve := True;        // Por padrão espera para garantir stacktrace útil
   ResolveOnlyIfLoaded := False;
   AsyncLoad := True;
+  MaxFrames := 32;              // Like FastMM StackDepth; hard cap DBG_STACK_LENGTH
 end;
 
 { TStackTrace }
@@ -628,7 +657,7 @@ begin
   FillChar(StackPool[Slot], SizeOf(TDbgInfoStack), 0);
   {$IFDEF MSWINDOWS}
   try
-    RtlCaptureStackBackTrace(1, DBG_STACK_LENGTH, @StackPool[Slot][0], nil);
+    RtlCaptureStackBackTrace(1, ULONG(EffectiveMaxFrames), @StackPool[Slot][0], nil);
   except
   end;
   {$ENDIF}

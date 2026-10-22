@@ -15,7 +15,7 @@ Pacotes de instruções focados para escrever código **Dext** (framework modern
 | **dext-orm-advanced** | `dext-orm-advanced.md` | Relacionamentos, eager loading, herança (TPH/TPT), Especificações, migrations, SQL bruto, stored procedures, locking, multi-tenancy |
 | **dext-di** | `dext-di.md` | Registro de serviços, tempos de vida (Scoped/Singleton/Transient), injeção via construtor, atributo `[Inject]` |
 | **dext-auth** | `dext-auth.md` | Autenticação JWT, endpoints de login, `[Authorize]`, claims, `TClaimsBuilder` |
-| **dext-testing** | `dext-testing.md` | Testes de unidade, `Mock<T>`, assertions fluentes (`Should`), `[TestFixture]`, testes de snapshot |
+| **dext-testing** | `dext-testing.md` | Testes de unidade, `Mock<T>`, assertions fluentes (`Should`), `[TestFixture]`, testes de snapshot, instalação do Test Explorer, cobertura no Win64x |
 | **dext-collections** | `dext-collections.md` | `IList<T>`, `TCollections`, operações LINQ, semântica de ownership, `IChannel<T>` |
 | **dext-json** | `dext-json.md` | Serialização JSON (`TDextJson`), configurações customizadas, DOM e comportamento do plano direto S54 |
 | **dext-api-features** | `dext-api-features.md` | Middleware, CORS, rate limiting, cache de resposta, health checks, OpenAPI/Swagger, arquivos estáticos, compressão |
@@ -101,6 +101,7 @@ As habilidades são carregadas dinamicamente quando o agente precisa delas. O RE
 - Escrever assertions fluentes com `Should(...)`
 - Configurar projetos de teste (`.dpr`)
 - Usar snapshot testing (`MatchSnapshot`)
+- Instalar o Test Explorer ou configurar cobertura de linha no Win64x
 
 **Carregue `dext-collections`** quando:
 

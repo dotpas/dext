@@ -15,7 +15,7 @@ Focused instruction packages for writing correct, idiomatic **Dext** (Delphi mod
 | **dext-orm-advanced** | `dext-orm-advanced.md` | Relationships, eager loading, inheritance (TPH/TPT), Specifications, migrations, raw SQL, stored procedures, locking, multi-tenancy |
 | **dext-di** | `dext-di.md` | Service registration, lifetimes (Scoped/Singleton/Transient), constructor injection, `[Inject]` attribute |
 | **dext-auth** | `dext-auth.md` | JWT authentication, login endpoints, `[Authorize]`, claims, `TClaimsBuilder` |
-| **dext-testing** | `dext-testing.md` | Unit tests, `Mock<T>`, fluent assertions (`Should`), `[TestFixture]`, snapshot testing |
+| **dext-testing** | `dext-testing.md` | Unit tests, `Mock<T>`, fluent assertions (`Should`), `[TestFixture]`, snapshot testing, Test Explorer install, Win64x coverage |
 | **dext-collections** | `dext-collections.md` | `IList<T>`, `TCollections`, LINQ operations, ownership semantics, `IChannel<T>` |
 | **dext-json** | `dext-json.md` | JSON serialization (`TDextJson`), custom settings, DOM traversal, S54 direct codec plan behavior |
 | **dext-api-features** | `dext-api-features.md` | Middleware, CORS, rate limiting, response caching, health checks, OpenAPI/Swagger, static files, compression |
@@ -101,6 +101,7 @@ Skills are loaded dynamically when the agent needs them. The README is always lo
 - Writing fluent assertions with `Should(...)`
 - Setting up test projects (`.dpr`)
 - Using snapshot testing (`MatchSnapshot`)
+- Installing the Test Explorer or configuring Win64x line coverage
 
 **Load `dext-collections`** when:
 

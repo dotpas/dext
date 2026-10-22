@@ -1,9 +1,9 @@
 param(
     [Parameter(Mandatory=$false)]
-    [string]$Connection = "C:\dev\Dext\tmp\scaffolding\test_scaffolding.db",
+    [string]$Connection = (Join-Path $env:TEMP "dext-scaffolding\test_scaffolding.db"),
     
     [Parameter(Mandatory=$false)]
-    [string]$OutputDir = "C:\dev\Dext\tmp\scaffolding\sqlite_test",
+    [string]$OutputDir = (Join-Path $env:TEMP "dext-scaffolding\sqlite_test"),
     
     [Parameter(Mandatory=$false)]
     [switch]$Smart,

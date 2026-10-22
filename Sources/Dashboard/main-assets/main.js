@@ -78,22 +78,44 @@ var trState = { total: 0, current: 0, passed: 0, failed: 0, open: false };
 
 // Connection Logic (SignalR vs SSE)
 function hub() {
-    // Try SignalR first (Sidecar / CLI Dashboard)
+    // Prefer SignalR / WebSockets (http.sys native). Fall back to SSE on failure.
+    if (typeof signalR === 'undefined') {
+        console.log("SignalR client missing, using SSE...");
+        if (typeof window.DextSSE !== 'undefined' && window.DextSSE.connect)
+            window.DextSSE.connect(function (eventName, data) {
+                if (typeof window.handleSseEvent === 'function')
+                    window.handleSseEvent(eventName, data);
+            });
+        else
+            connectSSE();
+        return;
+    }
+
     var c = new signalR.HubConnectionBuilder().withUrl("/hubs/dashboard")
         .withAutomaticReconnect()
         .build();
 
     c.start()
         .then(function () {
-            // SignalR Connected
-            console.log("Connected via SignalR");
+            console.log("Connected via SignalR (WebSockets preferred)");
+            window.__dextHub = c;
             c.on("ReceiveLog", function (l, m) {
                 processLog(l, m);
             });
+            c.on("DashboardEvent", function (eventName, data) {
+                if (typeof window.handleSseEvent === 'function')
+                    window.handleSseEvent(eventName, data);
+            });
         })
         .catch(function (e) {
-            console.log("SignalR failed, trying SSE (Standalone Mode)...");
-            connectSSE();
+            console.log("SignalR failed, trying SSE fallback...", e);
+            if (typeof window.DextSSE !== 'undefined' && window.DextSSE.connect)
+                window.DextSSE.connect(function (eventName, data) {
+                    if (typeof window.handleSseEvent === 'function')
+                        window.handleSseEvent(eventName, data);
+                });
+            else
+                connectSSE();
         });
 }
 
@@ -1834,8 +1856,8 @@ async function loadHistory() {
 
 // ==================== Init ====================
 load();
-// hub(); // SignalR Disabled - forcing SSE
-// connectSSE(); // Now managed by DextSSE in index.html
+// Prefer SignalR; index.html exposes DextSSE as fallback used by hub().
+hub();
 
 // ==================== Metrics & Charts (S25) ====================
 var throughputChart = null;

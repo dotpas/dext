@@ -46,6 +46,10 @@ contains
   Dext.Testing.Design.AST in '..\..\Sources\Testing\Design\Dext.Testing.Design.AST.pas',
   Dext.Testing.Design.Gutter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Gutter.pas',
   Dext.Testing.Design.Coverage in '..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.pas',
-  Dext.Testing.Design.Presenter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas';
+  Dext.Testing.Design.Coverage.Runner in '..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.Runner.pas',
+  Dext.Testing.Design.Presenter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas',
+  Dext.Testing.Design.ProjectKinds in '..\..\Sources\Testing\Design\Dext.Testing.Design.ProjectKinds.pas',
+  Dext.Testing.Design.ExpertTrace in '..\..\Sources\Testing\Design\Dext.Testing.Design.ExpertTrace.pas',
+  Dext.Testing.Design.KnownEditors in '..\..\Sources\Testing\Design\Dext.Testing.Design.KnownEditors.pas';
 
 end.

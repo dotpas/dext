@@ -1,28 +1,27 @@
-# CLI: Dashboard UI
+# Dext Dashboard (Sidecar)
 
-Acompanhe o status do seu projeto através de uma interface web moderna.
-
-## Iniciando a UI
+O dashboard web **real** é o sidecar em bandeja:
 
 ```bash
-dext ui
+DextSidecar.exe
 ```
-O servidor iniciará (geralmente na porta 3000) e você poderá acessar em: `http://localhost:3000`.
 
-## O que tem no Dashboard?
+URL padrão: `http://localhost:3030`
 
-1. **Visão Geral**: Estatísticas de saúde do projeto, última cobertura de código e atividade recente.
-2. **Ambiente**: Lista das versões do Delphi detectadas no seu sistema (Environment Manager).
-3. **Projetos**: Gerenciamento de múltiplos projetos Dext no seu workspace.
-4. **Relatórios de Testes**: Navegue graficamente pelos resultados dos últimos testes e cobertura.
-5. **Logs em Tempo Real**: Veja o que está acontecendo no framework (migrations, logs HTTP) via WebSockets (SignalR).
-
-## Configuração de Porta
+No Windows prefere **http.sys** (SignalR/WebSockets); SSE fica como fallback. Para forçar Indy:
 
 ```bash
-dext ui --port 8080
+set DEXT_SIDECAR_INDY=1
+DextSidecar.exe
 ```
 
----
+## Relação com o Test Explorer
 
-[← Testes](testes.md) | [Próximo: Tópicos Avançados →](../10-avancado/README.md)
+| Superfície | Papel |
+|------------|--------|
+| **Dext Test Explorer** | Host do dia a dia na RAD Studio (árvore, gutter, histórico) |
+| **DextSidecar** | Dashboard de observabilidade / projeto |
+
+## Removido: `dext ui`
+
+Experimento antigo de CLI — **removido** do `dext.exe`. Use apenas `DextSidecar.exe`.

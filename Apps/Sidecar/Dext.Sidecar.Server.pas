@@ -118,6 +118,18 @@ begin
       end)
     .Build;
 
+  // This is the real Dext Dashboard host (tray sidecar). Prefer http.sys so
+  // SignalR can negotiate WebSockets; SSE remains the client fallback.
+  // Opt-out for locked-down machines: set env DEXT_SIDECAR_INDY=1
+{$IFDEF MSWINDOWS}
+  if GetEnvironmentVariable('DEXT_SIDECAR_INDY') <> '1' then
+  begin
+    var WebApp: IWebApplication;
+    if Supports(FHost, IWebApplication, WebApp) then
+      WebApp.UseNativeServer;
+  end;
+{$ENDIF}
+
   try
     FHost.Start;
   except
@@ -135,7 +147,7 @@ begin
   // Signal the SSE and background threads to stop immediately
   TDashboardRoutes.StopServer;
 
-  // 1. First, shutdown Hub connections (SSE loops need to exit before Indy stops)
+  // 1. First, shutdown Hub connections (SSE/WS loops must exit before the host stops)
   THubExtensions.ShutdownHubs;
 
   // 2. Stop and free compatibility server

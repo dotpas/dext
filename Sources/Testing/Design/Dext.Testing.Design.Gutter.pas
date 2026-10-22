@@ -17,18 +17,21 @@ procedure RegisterGutterVisualizer;
 var
   LKeyboardServices: IOTAKeyboardServices;
 begin
+  RegisterCoverageEditorPainting;
+
   if Supports(BorlandIDEServices, IOTAKeyboardServices, LKeyboardServices) then
   begin
     FKeyboardBindingIndex := LKeyboardServices.AddKeyboardBinding(TDextKeyboardBinding.Create);
   end;
-
-  TCoverageManager.GetInstance.RefreshActiveViews;
+  { No RefreshActiveViews at register — keep IDE file-open path clean. }
 end;
 
 procedure UnregisterGutterVisualizer;
 var
   LKeyboardServices: IOTAKeyboardServices;
 begin
+  UnregisterCoverageEditorPainting;
+
   if FKeyboardBindingIndex <> -1 then
   begin
     if Supports(BorlandIDEServices, IOTAKeyboardServices, LKeyboardServices) then

@@ -38,6 +38,7 @@ type
 
   {$M+}
   /// Only the published properties reach the JSON, in both directions.
+  {$M+}
   [JsonPublishedOnly]
   TJsonIgnorePublishedOnly = class
   private
@@ -48,6 +49,7 @@ type
   published
     property Name: string read FName write FName;
   end;
+  {$M-}
 
   /// [JsonPublishedOnly] is inherited.
   TJsonIgnorePublishedOnlyChild = class(TJsonIgnorePublishedOnly)

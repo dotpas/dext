@@ -96,8 +96,9 @@
 {$DEFINE DEXT_ENABLE_ENTITY}
 
 // Enable/Disable the IDE Sidecar Expert (project monitoring, unit test sync,
-// and the "Dext Sidecar" menu in the IDE). Disabled by default until the
-// feature is stable. Uncomment to activate.
+// and the "Dext Sidecar" menu in the IDE). Disabled by default until Sidecar
+// SPA/run is stable. Uncomment to activate — menu + auto-start share this flag
+// (no "menu only" mode yet; AutoAttach runtime is planned in Sidecar LongTerm).
 {.$DEFINE DEXT_ENABLE_SIDECAR_EXPERT}
 
 //---------------------------------------------------------------------------

@@ -154,6 +154,8 @@ type
     destructor Destroy; override;
   end;
 
+  TDextIocpSession = class;
+
   /// <summary>
   ///   Raw response implementation wrapper for IOCP socket connection.
   /// </summary>
@@ -161,11 +163,13 @@ type
   private
     FSocket: TSocket;
     FHeadersSent: Boolean;
+    FFailed: Boolean;
     FStatusCode: Integer;
     FReason: string;
     FHeaders: TDictionary<string, string>;
     FHeaderBuffer: TBytes;
-    FFileBuffer: TBytes;
+    FBuffer: TBytes;
+    procedure InternalSend(const AData: TBytes);
   public
     /// <summary>Initializes a new IOCP response wrapper.</summary>
     /// <param name="ASocket">The raw socket descriptor.</param>
@@ -224,6 +228,45 @@ type
     Socket: TSocket;
     Buffer: array[0..16383] of Byte;
     BytesTransferred: DWORD;
+    Connection: Pointer;
+    Data: PByte;       // Heap send buffer, owned by this overlapped, freed on ioWrite
+    DataLen: Integer;
+  end;
+
+  /// <summary>
+  ///   Maintains per-client connection state, accumulated read buffer and async I/O.
+  /// </summary>
+  TDextIocpSession = class
+  private
+    FEngine: TDextIocpEngine;
+    FSocket: TSocket;
+    FRemoteAddress: string;
+    FRemotePort: Word;
+    FLocalPort: Word;
+    FOverlapped: PIocpOverlapped;
+    FAccum: TBytes;
+    FConnIntf: IDextServerConnection;
+    FClosed: Boolean;
+  public
+    constructor Create(
+      AEngine: TDextIocpEngine;
+      ASocket: TSocket;
+      const ARemoteAddress: string;
+      ARemotePort, ALocalPort: Word;
+      AOverlapped: PIocpOverlapped
+    );
+    destructor Destroy; override;
+
+    function PostRecv: Boolean;
+    procedure CloseSession;
+
+    property Socket: TSocket read FSocket;
+    property RemoteAddress: string read FRemoteAddress;
+    property RemotePort: Word read FRemotePort;
+    property LocalPort: Word read FLocalPort;
+    property Accum: TBytes read FAccum write FAccum;
+    property ConnIntf: IDextServerConnection read FConnIntf;
+    property IsClosed: Boolean read FClosed;
   end;
 
   /// <summary>
@@ -599,8 +642,11 @@ procedure TDextIocpResponse.Init(ASocket: TSocket);
 begin
   FSocket := ASocket;
   FHeadersSent := False;
+  FFailed := False;
   FStatusCode := 200;
   FReason := 'OK';
+  FBuffer := nil;
+  FHeaderBuffer := nil;
   if FHeaders = nil then
     FHeaders := TDictionary<string, string>.Create
   else
@@ -613,18 +659,54 @@ begin
   inherited;
 end;
 
+procedure TDextIocpResponse.InternalSend(const AData: TBytes);
+var
+  O: PIocpOverlapped;
+  WsaBuf: TWsaBuf;
+  Bytes: DWORD;
+  Ret: Integer;
+begin
+  if FFailed or (Length(AData) = 0) then Exit;
+  if FSocket = INVALID_SOCKET then
+  begin
+    FFailed := True;
+    Exit;
+  end;
+
+  New(O);
+  FillChar(O^, SizeOf(TIocpOverlapped), 0);
+  GetMem(O^.Data, Length(AData));
+  Move(AData[0], O^.Data^, Length(AData));
+  O^.DataLen := Length(AData);
+  O^.OpType := ioWrite;
+  O^.Socket := FSocket;
+  O^.Connection := nil;
+
+  WsaBuf.buf := PAnsiChar(O^.Data);
+  WsaBuf.len := Length(AData);
+  Bytes := 0;
+
+  {$IF CompilerVersion > 35.0}
+  Ret := WSASend(FSocket, @WsaBuf, 1, @Bytes, 0, LPWSAOVERLAPPED(@O^.Overlapped), nil);
+  {$ELSE}
+  Ret := WSASend(FSocket, @WsaBuf, 1, Bytes, 0, LPWSAOVERLAPPED(@O^.Overlapped), nil);
+  {$IFEND}
+
+  if (Ret <> 0) and (WSAGetLastError <> WSA_IO_PENDING) then
+  begin
+    FreeMem(O^.Data);
+    Dispose(O);
+    FFailed := True;
+  end;
+end;
+
 procedure TDextIocpResponse.Close;
-begin
-  Flush;
-end;
+var
+  Pair: TPair<string, string>;
+  BufferOffset: Integer;
+  FullBuffer: TBytes;
+  HeaderLen, BodyLen: Integer;
 
-procedure TDextIocpResponse.Flush;
-begin
-  if not FHeadersSent then
-    SendHeaders;
-end;
-
-procedure TDextIocpResponse.SendHeaders;
   procedure EnsureCapacity(ARequired: Integer);
   var
     NewCapacity: Integer;
@@ -655,16 +737,14 @@ procedure TDextIocpResponse.SendHeaders;
     end;
   end;
 
-var
-  Pair: TPair<string, string>;
-  WsaBuf: TWsaBuf;
-  BytesSent: DWORD;
-  BufferOffset: Integer;
 begin
-  if FHeadersSent then Exit;
+  Flush;
+  if FFailed then Exit;
 
   if not FHeaders.ContainsKey('Content-Type') then
     FHeaders.Add('Content-Type', 'text/plain');
+  if not FHeaders.ContainsKey('Content-Length') then
+    FHeaders.AddOrSetValue('Content-Length', IntToStr(Length(FBuffer)));
 
   BufferOffset := 0;
   EnsureCapacity(512);
@@ -684,15 +764,29 @@ begin
 
   AppendStr(#13#10, BufferOffset);
 
-  WsaBuf.len := BufferOffset;
-  WsaBuf.buf := @FHeaderBuffer[0];
+  HeaderLen := BufferOffset;
+  BodyLen := Length(FBuffer);
+  SetLength(FullBuffer, HeaderLen + BodyLen);
+  if HeaderLen > 0 then
+    Move(FHeaderBuffer[0], FullBuffer[0], HeaderLen);
+  if BodyLen > 0 then
+    Move(FBuffer[0], FullBuffer[HeaderLen], BodyLen);
 
-  {$IF CompilerVersion > 35.0}
-  WSASend(FSocket, @WsaBuf, 1, @BytesSent, 0, nil, nil);
-  {$ELSE}
-  WSASend(FSocket, @WsaBuf, 1, BytesSent, 0, nil, nil);
-  {$IFEND}
+  InternalSend(FullBuffer);
+  FBuffer := nil;
+  FHeaderBuffer := nil;
+  // Connection remains open for HTTP/1.1 keep-alive
+end;
 
+procedure TDextIocpResponse.Flush;
+begin
+  if not FHeadersSent then
+    FHeadersSent := True;
+end;
+
+procedure TDextIocpResponse.SendHeaders;
+begin
+  if FHeadersSent then Exit;
   FHeadersSent := True;
 end;
 
@@ -716,56 +810,124 @@ end;
 
 procedure TDextIocpResponse.Write(const ABuffer: TBytes; AOffset, ACount: Integer);
 var
-  WsaBuf: TWsaBuf;
-  BytesSent: DWORD;
+  OldLen: Integer;
 begin
-  if not FHeadersSent then
-    SendHeaders;
-
-  if ACount <= 0 then Exit;
-
-  WsaBuf.len := ACount;
-  WsaBuf.buf := @ABuffer[AOffset];
-
-  {$IF CompilerVersion > 35.0}
-  WSASend(FSocket, @WsaBuf, 1, @BytesSent, 0, nil, nil);
-  {$ELSE}
-  WSASend(FSocket, @WsaBuf, 1, BytesSent, 0, nil, nil);
-  {$IFEND}
+  if (ACount <= 0) or FFailed then Exit;
+  OldLen := Length(FBuffer);
+  SetLength(FBuffer, OldLen + ACount);
+  Move(ABuffer[AOffset], FBuffer[OldLen], ACount);
 end;
 
 procedure TDextIocpResponse.WriteFile(const APath: string; AOffset, ACount: Int64);
 var
   FileStream: TFileStream;
   Remaining: Int64;
-  Chunk: Integer;
+  OldLen: Integer;
 begin
-  if not FHeadersSent then
-    SendHeaders;
-
+  if FFailed then Exit;
   FileStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
   try
     FileStream.Position := AOffset;
     Remaining := ACount;
     if Remaining <= 0 then
       Remaining := FileStream.Size - AOffset;
+    if Remaining <= 0 then Exit;
 
-    if Length(FFileBuffer) < 32768 then
-      SetLength(FFileBuffer, 32768);
-    while Remaining > 0 do
-    begin
-      if Remaining > Length(FFileBuffer) then
-        Chunk := Length(FFileBuffer)
-      else
-        Chunk := Remaining;
-
-      FileStream.ReadBuffer(FFileBuffer[0], Chunk);
-      Write(FFileBuffer, 0, Chunk);
-      Remaining := Remaining - Chunk;
-    end;
+    OldLen := Length(FBuffer);
+    SetLength(FBuffer, OldLen + Remaining);
+    FileStream.ReadBuffer(FBuffer[OldLen], Remaining);
   finally
     FileStream.Free;
   end;
+end;
+
+{ TDextIocpSession }
+
+constructor TDextIocpSession.Create(
+  AEngine: TDextIocpEngine;
+  ASocket: TSocket;
+  const ARemoteAddress: string;
+  ARemotePort, ALocalPort: Word;
+  AOverlapped: PIocpOverlapped
+);
+begin
+  inherited Create;
+  FEngine := AEngine;
+  FSocket := ASocket;
+  FRemoteAddress := ARemoteAddress;
+  FRemotePort := ARemotePort;
+  FLocalPort := ALocalPort;
+  FOverlapped := AOverlapped;
+  FOverlapped^.Connection := Self;
+  FAccum := nil;
+  FClosed := False;
+  FConnIntf := TDextIocpConnection.Create(FSocket, FRemoteAddress, FRemotePort, FLocalPort);
+end;
+
+destructor TDextIocpSession.Destroy;
+begin
+  CloseSession;
+  FConnIntf := nil;
+  FAccum := nil;
+  inherited;
+end;
+
+procedure TDextIocpSession.CloseSession;
+begin
+  if not FClosed then
+  begin
+    FClosed := True;
+    if FSocket <> INVALID_SOCKET then
+    begin
+      closesocket(FSocket);
+      FSocket := INVALID_SOCKET;
+    end;
+    if Assigned(FEngine) then
+    begin
+      TInterlocked.Decrement(FEngine.FActiveConnections);
+      if Assigned(FEngine.FOnDisconnection) and Assigned(FConnIntf) then
+      begin
+        try
+          FEngine.FOnDisconnection(FConnIntf);
+        except
+        end;
+      end;
+      if (FEngine.FOptions.MaxConnections > 0) and FEngine.FRunning then
+        FEngine.QueueAccept;
+    end;
+  end;
+end;
+
+function TDextIocpSession.PostRecv: Boolean;
+var
+  WsaBuf: TWsaBuf;
+  Bytes, Flags: DWORD;
+  Ret: Integer;
+begin
+  if FClosed or (FSocket = INVALID_SOCKET) or (not FEngine.FRunning) then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  FillChar(FOverlapped^.Overlapped, SizeOf(TOverlapped), 0);
+  FOverlapped^.OpType := ioRead;
+  FOverlapped^.Socket := FSocket;
+  FOverlapped^.Connection := Self;
+
+  WsaBuf.buf := PAnsiChar(@FOverlapped^.Buffer[0]);
+  WsaBuf.len := SizeOf(FOverlapped^.Buffer);
+  Bytes := 0;
+  Flags := 0;
+
+  Ret := WSARecv(FSocket, @WsaBuf, 1, Bytes, Flags, LPWSAOVERLAPPED(@FOverlapped^.Overlapped), nil);
+  if (Ret <> 0) and (WSAGetLastError <> WSA_IO_PENDING) then
+  begin
+    CloseSession;
+    Result := False;
+  end
+  else
+    Result := True;
 end;
 
 { TDextIocpWorker }
@@ -785,29 +947,33 @@ var
   CompletionKey: ULONG_PTR;
   IocpOverlapped: PIocpOverlapped;
   Ret: BOOL;
-  RecvRet: Integer;
   LocalAddr, RemoteAddr: PSockAddr;
   LocalAddrLen, RemoteAddrLen: Integer;
   RemoteAddress: string;
   LocalPort, RemotePort: Word;
-  Buffer: TBytes;
   Method, Path, Query: string;
   HeaderSegments: THeaderSegments;
   BodyOffset: Integer;
   ContentLength: Int64;
-  Connection: IDextServerConnection;
+  ReqBodyLen: Integer;
+  ConsumeLen: Integer;
   RawRequest: IDextRawRequest;
   RawResponse: IDextRawResponse;
+  Session: TDextIocpSession;
+  Acc: TBytes;
+  OldLen: Integer;
+  DataLen: Integer;
 begin
   ApplyGroupAffinityToThread(GetCurrentThread, FAffinity);
 
   IocpOverlapped := nil;
 
-  while not Terminated and FEngine.FRunning do
+  while not Terminated do
   begin
     BytesTransferred := 0;
     CompletionKey := 0;
-    
+    IocpOverlapped := nil;
+
     Ret := GetQueuedCompletionStatus(
       FIocp,
       BytesTransferred,
@@ -818,10 +984,35 @@ begin
 
     if (not Ret) or (IocpOverlapped = nil) then
     begin
-      if IocpOverlapped <> nil then
-      begin
-        closesocket(IocpOverlapped.Socket);
-        Dispose(IocpOverlapped);
+      if IocpOverlapped = nil then
+        Break; // Sentinel sent by Stop() to terminate thread
+
+      case IocpOverlapped.OpType of
+        ioAccept:
+        begin
+          if IocpOverlapped.Socket <> INVALID_SOCKET then
+            closesocket(IocpOverlapped.Socket);
+          Dispose(IocpOverlapped);
+        end;
+        ioWrite:
+        begin
+          if Assigned(IocpOverlapped.Data) then
+          begin
+            FreeMem(IocpOverlapped.Data);
+            IocpOverlapped.Data := nil;
+          end;
+          Dispose(IocpOverlapped);
+        end;
+        ioRead:
+        begin
+          Session := TDextIocpSession(IocpOverlapped.Connection);
+          if Session <> nil then
+          begin
+            Session.CloseSession;
+            Session.Free;
+          end;
+          Dispose(IocpOverlapped);
+        end;
       end;
       Continue;
     end;
@@ -829,6 +1020,13 @@ begin
     case IocpOverlapped.OpType of
       ioAccept:
       begin
+        if not FEngine.FRunning then
+        begin
+          closesocket(IocpOverlapped.Socket);
+          Dispose(IocpOverlapped);
+          Continue;
+        end;
+
         // Process new client socket accepted
         // Load local/remote address info
         FEngine.FGetAcceptExSockaddrs(
@@ -846,65 +1044,89 @@ begin
         RemotePort := ntohs(PSockAddrIn(RemoteAddr).sin_port);
         LocalPort := ntohs(PSockAddrIn(LocalAddr).sin_port);
 
-        // Associate socket with IOCP port
-        CreateIoCompletionPort(IocpOverlapped.Socket, FIocp, CompletionKey, 0);
+        // Associate accepted client socket with IOCP port
+        if CreateIoCompletionPort(IocpOverlapped.Socket, FIocp, 0, 0) = 0 then
+        begin
+          closesocket(IocpOverlapped.Socket);
+          Dispose(IocpOverlapped);
+          FEngine.QueueAccept;
+          Continue;
+        end;
 
-        // Post zero-byte read to notify worker of incoming data
-        IocpOverlapped.OpType := ioRead;
-        IocpOverlapped.BytesTransferred := 0;
-        
-        // Setup raw read request
         TInterlocked.Increment(FEngine.FActiveConnections);
-        
-        // Spawn next accept queue
+
+        // Replenish the accept pool immediately
         FEngine.QueueAccept;
 
-        // Directly post read operation
-        // For simplicity in Phase 3, we execute synchronous recv
-        SetLength(Buffer, 8192);
-        RecvRet := recv(IocpOverlapped.Socket, Buffer[0], Length(Buffer), 0);
-        
+        Session := TDextIocpSession.Create(
+          FEngine,
+          IocpOverlapped.Socket,
+          RemoteAddress,
+          RemotePort,
+          LocalPort,
+          IocpOverlapped
+        );
+
+        if Assigned(FEngine.FOnConnection) then
+        begin
+          try
+            FEngine.FOnConnection(Session.ConnIntf);
+          except
+          end;
+        end;
+
+        if not Session.PostRecv then
+        begin
+          Session.Free;
+          Dispose(IocpOverlapped);
+        end;
+      end;
+
+      ioRead:
+      begin
+        Session := TDextIocpSession(IocpOverlapped.Connection);
+        if Session = nil then
+        begin
+          Dispose(IocpOverlapped);
+          Continue;
+        end;
+
+        if BytesTransferred = 0 then
+        begin
+          // Graceful peer close
+          Session.CloseSession;
+          Session.Free;
+          Dispose(IocpOverlapped);
+          Continue;
+        end;
+
+        DataLen := Integer(BytesTransferred);
+        Acc := Session.Accum;
+        OldLen := Length(Acc);
+        SetLength(Acc, OldLen + DataLen);
+        Move(IocpOverlapped.Buffer[0], Acc[OldLen], DataLen);
+        Session.Accum := Acc;
+
         if Assigned(FEngine.FConnectionHandler) then
         begin
-          Connection := TDextIocpConnection.Create(
-            IocpOverlapped.Socket, RemoteAddress, RemotePort, LocalPort);
           try
-            try
-              FEngine.FConnectionHandler.OnConnect(Connection as IDextTransportConnection);
-              
-              if RecvRet > 0 then
-                FEngine.FConnectionHandler.OnData(Connection as IDextTransportConnection, TByteSpan.Create(@Buffer[0], RecvRet));
-
-              while FEngine.FRunning do
-              begin
-                RecvRet := recv(IocpOverlapped.Socket, Buffer[0], Length(Buffer), 0);
-                if RecvRet <= 0 then
-                  Break;
-                FEngine.FConnectionHandler.OnData(Connection as IDextTransportConnection, TByteSpan.Create(@Buffer[0], RecvRet));
-              end;
-            except
-              on E: Exception do
-              begin
-                FEngine.FConnectionHandler.OnError(Connection as IDextTransportConnection, E);
-              end;
-            end;
-          finally
-            try
-              FEngine.FConnectionHandler.OnDisconnect(Connection as IDextTransportConnection);
-            except
-            end;
-            closesocket(IocpOverlapped.Socket);
-            TInterlocked.Decrement(FEngine.FActiveConnections);
-            Dispose(IocpOverlapped);
+            FEngine.FConnectionHandler.OnData(
+              Session.ConnIntf as IDextTransportConnection,
+              TByteSpan.Create(@IocpOverlapped.Buffer[0], DataLen)
+            );
+          except
+            on E: Exception do
+              FEngine.FConnectionHandler.OnError(Session.ConnIntf as IDextTransportConnection, E);
           end;
         end
         else
         begin
-          if RecvRet > 0 then
+          // HTTP handling loop for pipelining or partial requests
+          while (Session.Accum <> nil) and (Length(Session.Accum) > 0) do
           begin
-            if TDextIocpHttpParser.TryParseRequest(
-              Buffer,
-              RecvRet,
+            if not TDextIocpHttpParser.TryParseRequest(
+              Session.Accum,
+              Length(Session.Accum),
               Method,
               Path,
               Query,
@@ -912,32 +1134,64 @@ begin
               BodyOffset,
               ContentLength
             ) then
+              Break; // Need more data to complete HTTP headers
+
+            if (ContentLength > 0) and ((Length(Session.Accum) - BodyOffset) < ContentLength) then
+              Break; // Need more data for request body
+
+            ReqBodyLen := Length(Session.Accum) - BodyOffset;
+            if (ContentLength >= 0) and (ReqBodyLen > ContentLength) then
+              ReqBodyLen := ContentLength;
+
+            TInterlocked.Increment(FEngine.FTotalRequests);
+
+            RawRequest := TDextIocpRequest.Create(
+              Method, Path, Query, HeaderSegments,
+              Session.Accum, BodyOffset, ReqBodyLen, ContentLength
+            );
+            RawResponse := TDextIocpResponse.Create(Session.Socket);
+            try
+              if Assigned(FEngine.FOnRequest) then
+                FEngine.FOnRequest(Session.ConnIntf, RawRequest, RawResponse);
+            finally
+              RawResponse.Close;
+              RawResponse := nil;
+              RawRequest := nil;
+            end;
+
+            ConsumeLen := BodyOffset;
+            if ContentLength > 0 then
+              Inc(ConsumeLen, Integer(ContentLength));
+
+            if ConsumeLen >= Length(Session.Accum) then
             begin
-              TInterlocked.Increment(FEngine.FTotalRequests);
-
-              Connection := TDextIocpConnection.Create(
-                IocpOverlapped.Socket, RemoteAddress, RemotePort, LocalPort);
-              RawRequest := TDextIocpRequest.Create(
-                Method, Path, Query, HeaderSegments, Buffer, BodyOffset,
-                RecvRet - BodyOffset, ContentLength);
-              RawResponse := TDextIocpResponse.Create(IocpOverlapped.Socket);
-
-              try
-                if Assigned(FEngine.FOnRequest) then
-                  FEngine.FOnRequest(Connection, RawRequest, RawResponse);
-              finally
-                RawResponse.Close;
-                RawResponse := nil;
-                RawRequest := nil;
-                Connection := nil;
-              end;
+              Session.Accum := nil;
+              Break;
+            end
+            else
+            begin
+              Session.Accum := Copy(Session.Accum, ConsumeLen, Length(Session.Accum) - ConsumeLen);
             end;
           end;
+        end;
 
-          closesocket(IocpOverlapped.Socket);
-          TInterlocked.Decrement(FEngine.FActiveConnections);
+        // Keep-alive: post next async read on this connection
+        if not Session.PostRecv then
+        begin
+          Session.Free;
           Dispose(IocpOverlapped);
         end;
+      end;
+
+      ioWrite:
+      begin
+        if Assigned(IocpOverlapped.Data) then
+        begin
+          FreeMem(IocpOverlapped.Data);
+          IocpOverlapped.Data := nil;
+        end;
+        Dispose(IocpOverlapped);
+        Continue;
       end;
     end;
   end;
@@ -980,23 +1234,30 @@ var
   Bytes: DWORD;
   GuidAcceptEx: TGUID;
   GuidGetSockAddrs: TGUID;
+  PtrAcceptEx: Pointer;
+  PtrGetSockAddrs: Pointer;
 begin
   Socket := WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0, WSA_FLAG_OVERLAPPED);
   if Socket = INVALID_SOCKET then
-    raise EOSError.Create('Failed to create temporary socket');
+    raise EOSError.Create('Failed to create temporary socket: ' + IntToStr(WSAGetLastError));
 
   try
     GuidAcceptEx := WSAID_ACCEPTEX;
+    PtrAcceptEx := nil;
     if WSAIoctl(Socket, SIO_GET_EXTENSION_FUNCTION_POINTER, @GuidAcceptEx,
-      SizeOf(GuidAcceptEx), @FAcceptEx, SizeOf(Pointer), Bytes, nil, nil) <> 0 then
+      SizeOf(GuidAcceptEx), @PtrAcceptEx, SizeOf(PtrAcceptEx), Bytes, nil, nil) <> 0 then
       raise EOSError.Create('WSAIoctl(WSAID_ACCEPTEX) failed with error code: ' +
         IntToStr(WSAGetLastError));
 
     GuidGetSockAddrs := WSAID_GETACCEPTEXSOCKADDRS;
+    PtrGetSockAddrs := nil;
     if WSAIoctl(Socket, SIO_GET_EXTENSION_FUNCTION_POINTER, @GuidGetSockAddrs,
-      SizeOf(GuidGetSockAddrs), @FGetAcceptExSockaddrs, SizeOf(Pointer), Bytes, nil, nil) <> 0 then
+      SizeOf(GuidGetSockAddrs), @PtrGetSockAddrs, SizeOf(PtrGetSockAddrs), Bytes, nil, nil) <> 0 then
       raise EOSError.Create('WSAIoctl(WSAID_GETACCEPTEXSOCKADDRS) failed with error code: ' +
         IntToStr(WSAGetLastError));
+
+    FAcceptEx := TAcceptEx(PtrAcceptEx);
+    FGetAcceptExSockaddrs := TGetAcceptExSockaddrs(PtrGetSockAddrs);
   finally
     closesocket(Socket);
   end;
@@ -1010,25 +1271,49 @@ var
   AcceptSocket: TSocket;
   Overlapped: PIocpOverlapped;
   BytesReceived: DWORD;
+  Ret: BOOL;
+  Attempt: Integer;
 begin
-  AcceptSocket := WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0, WSA_FLAG_OVERLAPPED);
-  if AcceptSocket = INVALID_SOCKET then Exit;
+  if not FRunning then Exit;
 
-  New(Overlapped);
-  FillChar(Overlapped^, SizeOf(TIocpOverlapped), 0);
-  Overlapped.OpType := ioAccept;
-  Overlapped.Socket := AcceptSocket;
+  // Backpressure check against MaxConnections option
+  if (FOptions.MaxConnections > 0) and (FActiveConnections >= FOptions.MaxConnections) then
+    Exit;
 
-  FAcceptEx(
-    FListenSocket,
-    AcceptSocket,
-    @Overlapped.Buffer[0],
-    0,
-    SizeOf(TSockAddrIn) + 16,
-    SizeOf(TSockAddrIn) + 16,
-    BytesReceived,
-    POverlapped(Overlapped)
-  );
+  for Attempt := 1 to 50 do
+  begin
+    if not FRunning then Exit;
+
+    AcceptSocket := WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0, WSA_FLAG_OVERLAPPED);
+    if AcceptSocket = INVALID_SOCKET then
+    begin
+      Sleep(1);
+      Continue;
+    end;
+
+    New(Overlapped);
+    FillChar(Overlapped^, SizeOf(TIocpOverlapped), 0);
+    Overlapped.OpType := ioAccept;
+    Overlapped.Socket := AcceptSocket;
+
+    Ret := FAcceptEx(
+      FListenSocket,
+      AcceptSocket,
+      @Overlapped.Buffer[0],
+      0,
+      SizeOf(TSockAddrIn) + 16,
+      SizeOf(TSockAddrIn) + 16,
+      BytesReceived,
+      POverlapped(Overlapped)
+    );
+
+    if Ret or (WSAGetLastError = WSA_IO_PENDING) then
+      Exit;
+
+    Dispose(Overlapped);
+    closesocket(AcceptSocket);
+    Sleep(1);
+  end;
 end;
 
 procedure TDextIocpEngine.Start;
@@ -1036,6 +1321,7 @@ var
   Addr: TSockAddrIn;
   i: Integer;
   ThreadCount: Integer;
+  InitialAccepts: Integer;
   Worker: TDextIocpWorker;
   Affinity: TDextProcessorGroupAffinity;
 begin
@@ -1073,7 +1359,11 @@ begin
   FRunning := True;
 
   // Queue initial accept operations
-  for i := 1 to 10 do
+  InitialAccepts := 1024;
+  if (FOptions.MaxConnections > 0) and (InitialAccepts > FOptions.MaxConnections) then
+    InitialAccepts := FOptions.MaxConnections;
+
+  for i := 1 to InitialAccepts do
     QueueAccept;
 
   // Start Worker Threads
@@ -1094,6 +1384,9 @@ procedure TDextIocpEngine.Stop(AGracefulTimeoutMs: Integer);
 var
   I: Integer;
   Worker: TDextIocpWorker;
+  BytesTransferred: DWORD;
+  CompletionKey: ULONG_PTR;
+  IocpOverlapped: PIocpOverlapped;
 begin
   if not FRunning then Exit;
 
@@ -1105,18 +1398,18 @@ begin
     FListenSocket := INVALID_SOCKET;
   end;
 
-  if FIocp <> 0 then
-  begin
-    // Wake up all threads
-    for I := 0 to FWorkers.Count - 1 do
-      PostQueuedCompletionStatus(FIocp, 0, 0, nil);
-  end;
-
-  // Stop threads
+  // Signal termination to all workers
   for I := 0 to FWorkers.Count - 1 do
   begin
     Worker := TDextIocpWorker(FWorkers[I]);
     Worker.Terminate;
+  end;
+
+  if FIocp <> 0 then
+  begin
+    // Post sentinels to wake up and terminate all worker threads
+    for I := 0 to FWorkers.Count - 1 do
+      PostQueuedCompletionStatus(FIocp, 0, 0, nil);
   end;
 
   for I := 0 to FWorkers.Count - 1 do
@@ -1129,6 +1422,35 @@ begin
 
   if FIocp <> 0 then
   begin
+    // Drain any remaining completions in the port (such as cancelled AcceptEx requests)
+    repeat
+      BytesTransferred := 0;
+      CompletionKey := 0;
+      IocpOverlapped := nil;
+      GetQueuedCompletionStatus(FIocp, BytesTransferred, CompletionKey, POverlapped(IocpOverlapped), 0);
+      if IocpOverlapped <> nil then
+      begin
+        case IocpOverlapped.OpType of
+          ioAccept:
+          begin
+            if IocpOverlapped.Socket <> INVALID_SOCKET then
+              closesocket(IocpOverlapped.Socket);
+            Dispose(IocpOverlapped);
+          end;
+          ioWrite:
+          begin
+            if Assigned(IocpOverlapped.Data) then
+              FreeMem(IocpOverlapped.Data);
+            Dispose(IocpOverlapped);
+          end;
+          ioRead:
+          begin
+            Dispose(IocpOverlapped);
+          end;
+        end;
+      end;
+    until IocpOverlapped = nil;
+
     CloseHandle(FIocp);
     FIocp := 0;
   end;

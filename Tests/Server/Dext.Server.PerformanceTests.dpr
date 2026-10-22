@@ -1,4 +1,4 @@
-﻿program Dext.Server.PerformanceTests;
+program Dext.Server.PerformanceTests;
 
 {$APPTYPE CONSOLE}
 
@@ -9,6 +9,7 @@ uses
   System.Classes,
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
+  Winapi.WinSock2,
   {$ENDIF}
   Dext.Assertions,
   Dext.Testing.Host,
@@ -62,6 +63,18 @@ type
     /// </summary>
     [Test]
     procedure TestZeroCopyHeapAllocation;
+  end;
+
+  /// <summary>
+  ///   Fixture for IOCP Engine asynchronous and keep-alive tests.
+  /// </summary>
+  [TestFixture('IOCP Engine Async Tests')]
+  TIocpServerEngineTests = class
+  public
+    [Test]
+    procedure TestEngineStartStop;
+    [Test]
+    procedure TestEngineHttpRequestKeepAlive;
   end;
   {$ENDIF}
 
@@ -186,6 +199,100 @@ begin
     System.SysUtils.DeleteFile(tempPath);
   end;
 end;
+
+{ TIocpServerEngineTests }
+
+procedure TIocpServerEngineTests.TestEngineStartStop;
+var
+  Options: TServerEngineOptions;
+  Engine: IDextServerEngine;
+begin
+  FillChar(Options, SizeOf(Options), 0);
+  Options.IoThreadCount := 2;
+  Options.MaxConnections := 100;
+  Engine := TDextIocpEngine.Create(Options);
+  Engine.Bind('127.0.0.1', 58244);
+  Engine.Start;
+  try
+    Should(Engine.GetListenPort).Be(58244);
+    Should(Engine.GetActiveConnections).Be(0);
+  finally
+    Engine.Stop;
+  end;
+end;
+
+procedure TIocpServerEngineTests.TestEngineHttpRequestKeepAlive;
+var
+  Options: TServerEngineOptions;
+  Engine: IDextServerEngine;
+  ClientSock: TSocket;
+  Addr: TSockAddrIn;
+  Req: AnsiString;
+  RespBuf: array[0..4095] of AnsiChar;
+  BytesReceived: Integer;
+  RespStr: string;
+begin
+  FillChar(Options, SizeOf(Options), 0);
+  Options.IoThreadCount := 2;
+  Options.MaxConnections := 100;
+  Engine := TDextIocpEngine.Create(Options);
+  Engine.Bind('127.0.0.1', 58245);
+  Engine.SetOnRequest(
+    procedure(const AConnection: IDextServerConnection; const AReq: IDextRawRequest; const AResp: IDextRawResponse)
+    var
+      BodyBytes: TBytes;
+    begin
+      AResp.SetStatus(200, 'OK');
+      BodyBytes := TEncoding.UTF8.GetBytes('Hello IOCP!');
+      AResp.Write(BodyBytes, 0, Length(BodyBytes));
+    end
+  );
+  Engine.Start;
+  try
+    ClientSock := Winapi.WinSock2.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    Should(ClientSock <> INVALID_SOCKET).BeTrue;
+    try
+      FillChar(Addr, SizeOf(Addr), 0);
+      Addr.sin_family := AF_INET;
+      Addr.sin_port := htons(58245);
+      Addr.sin_addr.S_addr := inet_addr('127.0.0.1');
+
+      Should(Winapi.WinSock2.connect(ClientSock, PSockAddr(@Addr)^, SizeOf(Addr)) = 0).BeTrue;
+
+      // First Request on keep-alive connection
+      Req := 'GET /first HTTP/1.1'#13#10 +
+             'Host: 127.0.0.1:58245'#13#10 +
+             'Connection: keep-alive'#13#10#13#10;
+      Winapi.WinSock2.send(ClientSock, Req[1], Length(Req), 0);
+
+      FillChar(RespBuf, SizeOf(RespBuf), 0);
+      BytesReceived := Winapi.WinSock2.recv(ClientSock, RespBuf[0], SizeOf(RespBuf) - 1, 0);
+      Should(BytesReceived > 0).BeTrue;
+      RespStr := string(RespBuf);
+      Should(RespStr.Contains('HTTP/1.1 200 OK')).BeTrue;
+      Should(RespStr.Contains('Content-Length: 11')).BeTrue;
+      Should(RespStr.Contains('Hello IOCP!')).BeTrue;
+
+      // Second Request on the exact same connection (testing Keep-Alive & non-blocking ioRead)
+      Req := 'GET /second HTTP/1.1'#13#10 +
+             'Host: 127.0.0.1:58245'#13#10 +
+             'Connection: keep-alive'#13#10#13#10;
+      Winapi.WinSock2.send(ClientSock, Req[1], Length(Req), 0);
+
+      FillChar(RespBuf, SizeOf(RespBuf), 0);
+      BytesReceived := Winapi.WinSock2.recv(ClientSock, RespBuf[0], SizeOf(RespBuf) - 1, 0);
+      Should(BytesReceived > 0).BeTrue;
+      RespStr := string(RespBuf);
+      Should(RespStr.Contains('HTTP/1.1 200 OK')).BeTrue;
+      Should(RespStr.Contains('Content-Length: 11')).BeTrue;
+      Should(RespStr.Contains('Hello IOCP!')).BeTrue;
+    finally
+      Winapi.WinSock2.closesocket(ClientSock);
+    end;
+  finally
+    Engine.Stop;
+  end;
+end;
 {$ENDIF}
 
 begin
@@ -197,6 +304,7 @@ begin
         THeaderPerformanceTests
         {$IFDEF MSWINDOWS}
         , THttpSysZeroCopyTests
+        , TIocpServerEngineTests
         {$ENDIF}
       ]));
   except

@@ -1,4 +1,4 @@
-﻿package Dext.Testing.Design;
+package Dext.Testing.Design;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -46,6 +46,8 @@ contains
   Dext.Testing.Design.AST in '..\..\Sources\Testing\Design\Dext.Testing.Design.AST.pas',
   Dext.Testing.Design.Gutter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Gutter.pas',
   Dext.Testing.Design.Coverage in '..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.pas',
+  Dext.Testing.Design.Coverage.Runner in '..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.Runner.pas',
   Dext.Testing.Design.Presenter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas';
+  Dext.Testing.Design.ProjectKinds in '..\..\Sources\Testing\Design\Dext.Testing.Design.ProjectKinds.pas';
 
 end.

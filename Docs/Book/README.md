@@ -89,6 +89,8 @@
 - [Mocking](08-testing/mocking.md) - `Mock<T>` and verification
 - [Assertions](08-testing/assertions.md) - Fluent `Should()` syntax
 - [Snapshots](08-testing/snapshots.md) - JSON snapshot testing
+- [Non-Dext projects](08-testing/non-dext-projects.md) - DUnit* in Explorer without rewrite
+- [Test Explorer](08-testing/test-explorer.md) - Build the DLL, install, DUnit and Google Test projects, coverage on Win64x only
 
 #### [9. CLI Tool](09-cli/README.md)
 
@@ -96,7 +98,7 @@
 - [Migrations](09-cli/migrations.md) - `migrate:up`, `migrate:down`
 - [Scaffolding](09-cli/scaffolding.md) - `dext scaffold`
 - [Testing](09-cli/testing.md) - `dext test --coverage`
-- [Dashboard](09-cli/dashboard.md) - `dext ui`
+- [Dashboard](09-cli/dashboard.md) - DextSidecar
 
 #### [10. Advanced Topics](10-advanced/README.md)
 

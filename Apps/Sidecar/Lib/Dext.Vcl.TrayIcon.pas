@@ -5,6 +5,7 @@ interface
 uses
   System.Classes,
   System.SysUtils,
+  System.Types,
   Vcl.Controls,
   Vcl.Forms,
   Vcl.Menus,
@@ -77,6 +78,8 @@ type
     function AddMenuItem(const Caption: string; const MenuClick: TNotifyEvent; const Hint: string = ''): TMenuItem;
     procedure ToggleMinimizeRestore;
     procedure ShowBalloonHint; // Shim for VCL compatibility
+    /// <summary>Draws a glyph icon when no .ico/Application icon is available.</summary>
+    procedure EnsureDefaultIcon(const Glyph: string = 'D');
 
     property Icon: TIcon read FIcon write SetIcon;
     property Visible: Boolean read FActive write SetActive;
@@ -106,7 +109,11 @@ resourcestring
 implementation
 
 uses
-  Dext.Vcl.Helpers; 
+  Dext.Vcl.Helpers;
+
+type
+  // Winapi.Windows also exports TBitmap (GDI struct). Prefer VCL for drawing.
+  TVclBitmap = Vcl.Graphics.TBitmap;
 
 { TTrayIconEx }
 
@@ -161,23 +168,25 @@ end;
 
 procedure TTrayIconEx.FillDataStructure;
 begin
+  ZeroMemory(@IconData, SizeOf(IconData));
   IconData.cbSize := SizeOf(TNOTIFYICONDATA);
   IconData.Wnd := FWindowHandle;
-  IconData.uID := 0; 
-  IconData.uFlags := NIF_MESSAGE + NIF_ICON + NIF_TIP;
-  IconData.hIcon := FIcon.Handle;
+  IconData.uID := 1;
+  IconData.uFlags := NIF_MESSAGE or NIF_ICON or NIF_TIP;
+  if (FIcon <> nil) and (FIcon.Handle <> 0) then
+    IconData.hIcon := FIcon.Handle
+  else
+    IconData.hIcon := LoadIcon(0, IDI_APPLICATION);
   IconData.uCallbackMessage := WM_TOOLTRAYICON;
-  
-  // Safe copy using StrPLCopy
   StrPLCopy(IconData.szTip, FToolTip, Length(IconData.szTip) - 1);
 end;
 
 function TTrayIconEx.AddIcon: Boolean;
 begin
+  if (FIcon = nil) or (FIcon.Handle = 0) then
+    EnsureDefaultIcon('D');
   FillDataStructure;
   Result := Shell_NotifyIcon(NIM_ADD, @IconData);
-
-  // FIX: If tooltip is empty, icon might be blank. Reset it explicitly.
   if FToolTip = '' then
     PostMessage(FWindowHandle, WM_RESETTOOLTIP, 0, 0);
 end;
@@ -213,10 +222,49 @@ end;
 
 procedure TTrayIconEx.SetIcon(Value: TIcon);
 begin
-  if Value <> FIcon then
-  begin
-    FIcon.Assign(Value);
-    ModifyIcon;
+  if Value = nil then
+    Exit;
+  FIcon.Assign(Value);
+  if FIcon.Handle = 0 then
+    EnsureDefaultIcon('D');
+  ModifyIcon;
+end;
+
+procedure TTrayIconEx.EnsureDefaultIcon(const Glyph: string);
+var
+  Bmp: TVclBitmap;
+  Mask: TVclBitmap;
+  Ix: TIconInfo;
+  NewIcon: HICON;
+begin
+  Bmp := TVclBitmap.Create;
+  Mask := TVclBitmap.Create;
+  try
+    Bmp.SetSize(16, 16);
+    Bmp.PixelFormat := pf32bit;
+    Bmp.Canvas.Brush.Color := RGB(30, 64, 175);
+    Bmp.Canvas.FillRect(System.Types.Rect(0, 0, 16, 16));
+    Bmp.Canvas.Font.Name := 'Segoe UI';
+    Bmp.Canvas.Font.Size := 9;
+    Bmp.Canvas.Font.Style := [fsBold];
+    Bmp.Canvas.Font.Color := clWhite;
+    Bmp.Canvas.Brush.Style := bsClear;
+    Bmp.Canvas.TextOut(3, 0, Glyph);
+
+    Mask.SetSize(16, 16);
+    Mask.Canvas.Brush.Color := clWhite;
+    Mask.Canvas.FillRect(System.Types.Rect(0, 0, 16, 16));
+
+    ZeroMemory(@Ix, SizeOf(Ix));
+    Ix.fIcon := True;
+    Ix.hbmColor := Bmp.Handle;
+    Ix.hbmMask := Mask.Handle;
+    NewIcon := CreateIconIndirect(Ix);
+    if NewIcon <> 0 then
+      FIcon.Handle := NewIcon;
+  finally
+    Mask.Free;
+    Bmp.Free;
   end;
 end;
 

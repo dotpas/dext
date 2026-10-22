@@ -432,6 +432,7 @@ uses
   Dext.Logging,
   Dext.Logging.Global,
   Dext.Testing.Report,
+  Dext.Testing.StackTrace,
   Dext.Core.Reflection,
   Dext.Utils;
 
@@ -1509,7 +1510,7 @@ begin
           Info.Result := trFailed;
           Info.ExceptionName := E.ClassName;
           Info.ErrorMessage := E.Message;
-          Info.StackTrace := E.StackTrace;
+          Info.StackTrace := FilterStackTrace(TDextStackTrace.GetProvider.GetStackTrace(E));
           FSummary.Failed := FSummary.Failed + 1;
         end;
       end;

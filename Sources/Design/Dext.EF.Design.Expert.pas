@@ -55,12 +55,21 @@ var
 {$ENDIF}
 
 {$IFDEF DEXT_ENABLE_SIDECAR_EXPERT}
+const
+  cSidecarExeName = 'DextSidecar.exe';
+  cSidecarHealthUrl = 'http://localhost:3030/health';
+  cSidecarHealthPollAttempts = 10;
+  cSidecarHealthPollSleepMs = 400;
+
 type
   TDextSidecarSupervisor = class
   private
     class var FMenuAdded: Boolean;
     class var FMainMenu: TMenuItem;
-    class function FindDextExe: string;
+    class function FindSidecarExe: string;
+    class function TryAddSidecarCandidate(const APath: string; var APaths: TArray<string>): Boolean;
+    class procedure WalkUpForSidecar(const AStartDir: string; var APaths: TArray<string>);
+    class function WaitForSidecarHealthy: Boolean;
   public
     class procedure LogToIDE(const AMessage: string);
     class function IsSidecarRunning: Boolean;
@@ -88,31 +97,107 @@ begin
   end;
 end;
 
-class function TDextSidecarSupervisor.FindDextExe: string;
+class function TDextSidecarSupervisor.TryAddSidecarCandidate(const APath: string;
+  var APaths: TArray<string>): Boolean;
+var
+  FullPath: string;
+  I: Integer;
+begin
+  Result := False;
+  if APath.IsEmpty then
+    Exit;
+  try
+    FullPath := TPath.GetFullPath(APath);
+  except
+    FullPath := APath;
+  end;
+  for I := 0 to High(APaths) do
+    if SameText(APaths[I], FullPath) then
+      Exit;
+  APaths := APaths + [FullPath];
+  Result := True;
+end;
+
+class procedure TDextSidecarSupervisor.WalkUpForSidecar(const AStartDir: string;
+  var APaths: TArray<string>);
+var
+  Dir, Candidate, Parent: string;
+  Depth: Integer;
+begin
+  if AStartDir.IsEmpty then
+    Exit;
+  try
+    Dir := TPath.GetFullPath(AStartDir);
+  except
+    Dir := AStartDir;
+  end;
+  for Depth := 0 to 8 do
+  begin
+    Candidate := TPath.Combine(Dir, TPath.Combine('Apps', TPath.Combine('Sidecar', cSidecarExeName)));
+    TryAddSidecarCandidate(Candidate, APaths);
+    TryAddSidecarCandidate(TPath.Combine(Dir, TPath.Combine('Apps',
+      TPath.Combine('Sidecar', TPath.Combine('Win32', TPath.Combine('Debug', cSidecarExeName))))), APaths);
+    TryAddSidecarCandidate(TPath.Combine(Dir, TPath.Combine('Apps',
+      TPath.Combine('Sidecar', TPath.Combine('Win32', TPath.Combine('Release', cSidecarExeName))))), APaths);
+    TryAddSidecarCandidate(TPath.Combine(Dir, TPath.Combine('Output', cSidecarExeName)), APaths);
+    Parent := TPath.GetDirectoryName(ExcludeTrailingPathDelimiter(Dir));
+    if Parent.IsEmpty or SameText(Parent, Dir) then
+      Break;
+    Dir := Parent;
+  end;
+end;
+
+class function TDextSidecarSupervisor.FindSidecarExe: string;
 var
   Paths: TArray<string>;
-  P: string;
+  P, ProjDir, ModuleDir, ExeDir: string;
   ActiveProject: IOTAProject;
-  ProjDir: string;
+  ActiveModule: IOTAModule;
   ModServices: IOTAModuleServices;
+  Group: IOTAProjectGroup;
 begin
-  Result := 'dext.exe';
+  Result := cSidecarExeName;
+  SetLength(Paths, 0);
+
+  // Walk up from active project / project group (no machine-absolute paths)
+
   ProjDir := '';
-  if Assigned(BorlandIDEServices) then
+  if Assigned(BorlandIDEServices) and Supports(BorlandIDEServices, IOTAModuleServices, ModServices) then
   begin
-    if Supports(BorlandIDEServices, IOTAModuleServices, ModServices) then
+    Group := ModServices.MainProjectGroup;
+    if Group <> nil then
+      WalkUpForSidecar(ExtractFilePath(Group.FileName), Paths);
+
+    ActiveModule := ModServices.CurrentModule;
+    if ActiveModule <> nil then
     begin
-      ActiveProject := ModServices.CurrentModule as IOTAProject;
-      if Assigned(ActiveProject) then
-        ProjDir := ExtractFilePath(ActiveProject.FileName);
+      if Supports(ActiveModule, IOTAProject, ActiveProject) and Assigned(ActiveProject) then
+        ProjDir := ExtractFilePath(ActiveProject.FileName)
+      else if ActiveModule.FileName <> '' then
+        ProjDir := ExtractFilePath(ActiveModule.FileName);
+      if ProjDir <> '' then
+        WalkUpForSidecar(ProjDir, Paths);
     end;
   end;
 
-  Paths := [
-    'C:\dev\Dext\DextRepository\Apps\dext.exe',
-    TPath.Combine(ProjDir, '..\..\..\Apps\dext.exe'),
-    TPath.Combine(ProjDir, '..\..\Apps\dext.exe')
-  ];
+  // Same folder as the running IDE / Expert host process, plus common bin paths
+  ExeDir := ExtractFilePath(ParamStr(0));
+  if ExeDir <> '' then
+  begin
+    TryAddSidecarCandidate(TPath.Combine(ExeDir, cSidecarExeName), Paths);
+    TryAddSidecarCandidate(TPath.Combine(ExeDir, TPath.Combine('Sidecar', cSidecarExeName)), Paths);
+    TryAddSidecarCandidate(TPath.Combine(ExeDir, TPath.Combine('Apps', TPath.Combine('Sidecar', cSidecarExeName))), Paths);
+    TryAddSidecarCandidate(TPath.Combine(ExeDir, TPath.Combine('bin', cSidecarExeName)), Paths);
+    WalkUpForSidecar(ExeDir, Paths);
+  end;
+
+  ModuleDir := ExtractFilePath(GetModuleName(HInstance));
+  if (ModuleDir <> '') and not SameText(ModuleDir, ExeDir) then
+  begin
+    TryAddSidecarCandidate(TPath.Combine(ModuleDir, cSidecarExeName), Paths);
+    WalkUpForSidecar(ModuleDir, Paths);
+  end;
+
   for P in Paths do
   begin
     if TFile.Exists(P) then
@@ -129,10 +214,9 @@ begin
   Client := THTTPClient.Create;
   try
     try
-      // Timeout quickly
       Client.ConnectionTimeout := 500;
       Client.ResponseTimeout := 500;
-      Resp := Client.Get('http://localhost:3030/health');
+      Resp := Client.Get(cSidecarHealthUrl);
       Result := (Resp <> nil) and (Resp.StatusCode = 200);
     except
       // Silent fail (not running)
@@ -142,9 +226,22 @@ begin
   end;
 end;
 
+class function TDextSidecarSupervisor.WaitForSidecarHealthy: Boolean;
+var
+  Attempt: Integer;
+begin
+  Result := False;
+  for Attempt := 1 to cSidecarHealthPollAttempts do
+  begin
+    if IsSidecarRunning then
+      Exit(True);
+    TThread.Sleep(cSidecarHealthPollSleepMs);
+  end;
+end;
+
 class procedure TDextSidecarSupervisor.StartSidecar;
 var
-  DextExe: string;
+  SidecarExe: string;
   SI: TStartupInfo;
   PI: TProcessInformation;
   CmdLine: string;
@@ -157,29 +254,44 @@ begin
     Exit;
   end;
 
-  DextExe := FindDextExe;
-  LogToIDE('Attempting to launch Sidecar process at ' + DextExe);
+  SidecarExe := FindSidecarExe;
+  if not TFile.Exists(SidecarExe) then
+  begin
+    LogToIDE('DextSidecar.exe not found. Checked Apps\Sidecar and related output folders.');
+    MessageDlg('Dext Sidecar could not be started: DextSidecar.exe was not found.', mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  LogToIDE('Attempting to launch Sidecar process at ' + SidecarExe);
   FillChar(SI, SizeOf(SI), 0);
   SI.cb := SizeOf(SI);
   SI.dwFlags := STARTF_USESHOWWINDOW;
   SI.wShowWindow := SW_HIDE;
 
-  CmdLine := Format('"%s" sidecar', [DextExe]);
+  CmdLine := Format('"%s"', [SidecarExe]);
   UniqueString(CmdLine);
 
-  if CreateProcess(nil, PChar(CmdLine), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(ExtractFilePath(DextExe)), SI, PI) then
+  if CreateProcess(nil, PChar(CmdLine), nil, nil, False, CREATE_NO_WINDOW, nil,
+    PChar(ExtractFilePath(SidecarExe)), SI, PI) then
   begin
     CloseHandle(PI.hProcess);
     CloseHandle(PI.hThread);
-    LogToIDE('Sidecar process launched successfully in background. Sleeping 500ms to boot...');
-    // Give it a moment to boot
-    TThread.Sleep(500);
-    SyncActiveProjects;
+    LogToIDE('Sidecar process launched. Waiting for /health...');
+    if WaitForSidecarHealthy then
+    begin
+      LogToIDE('Sidecar is healthy. Syncing active projects.');
+      SyncActiveProjects;
+    end
+    else
+    begin
+      LogToIDE('Sidecar did not become healthy at http://localhost:3030/health.');
+      MessageDlg('Dext Sidecar launched but did not become healthy on port 3030.', mtError, [mbOK], 0);
+    end;
   end
   else
   begin
-    LogToIDE('Failed to execute Dext Sidecar process at ' + DextExe);
-    MessageDlg('Failed to execute Dext Sidecar process at ' + DextExe, mtError, [mbOK], 0);
+    LogToIDE('Failed to execute Dext Sidecar process at ' + SidecarExe);
+    MessageDlg('Failed to execute Dext Sidecar process at ' + SidecarExe, mtError, [mbOK], 0);
   end;
 end;
 
@@ -198,9 +310,8 @@ begin
     Client.Free;
   end;
 
-  // Kill process
-  LogToIDE('Sending taskkill to terminate dext.exe processes...');
-  ShellExecute(0, 'open', 'taskkill', '/f /im dext.exe', nil, SW_HIDE);
+  LogToIDE('Sending taskkill to terminate DextSidecar.exe processes...');
+  ShellExecute(0, 'open', 'taskkill', '/f /im DextSidecar.exe', nil, SW_HIDE);
   TThread.Sleep(200);
   LogToIDE('Sidecar stopped.');
 end;

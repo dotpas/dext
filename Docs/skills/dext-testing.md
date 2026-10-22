@@ -356,7 +356,18 @@ dext test --coverage                   # With code coverage
 dext test --html --output report.html  # HTML report
 ```
 
-Or via Delphi IDE: Run the test console project directly.
+Or via Delphi IDE: Run the test console project directly. The docked runner is the **Dext Test Explorer**.
+
+## Dext Test Explorer
+
+Install from source. We are still deciding whether to ship a prebuilt DLL: it is not digitally signed, and a development certificate has a cost. The steps are in `Docs/Book/08-testing/test-explorer.md` (Portuguese: `Docs/Book.pt-br/08-testes/test-explorer.md`).
+
+- Close RAD Studio, build `Apps/TestExplorerExpert/Dext.Testing.Design.ExpertLib.dproj` (Win32, or Win64 for the 64-bit IDE), then run `Installers/DextTestExplorer/Install-DextTestExplorer.ps1 -StudioVersion 37.0`.
+- Delphi line coverage needs a detailed MAP and **Collect code coverage**. The tool is Delphi Code Coverage.
+- C++ line coverage is **Win64x only** (`bcc64x`). On any other `.cbproj` platform the Explorer hides the coverage checkbox, menu and tab, and the run log says Win32 and classic Win64 do not support code coverage.
+- Win64x compiler options that reach `bcc64x -cc1`: `-fprofile-instrument=clang -fcoverage-mapping`. Linker: `-lclang_rt.profile-x86_64`. After the run the Explorer reads LCOV from LLVM 20 `llvm-cov`. RAD Studio does not ship `llvm-cov`. Do not use `-fprofile-instr-generate` on the MSBuild `-cc1` line.
+- Do not wrap a C++ exe with Delphi Code Coverage. The C++ map has no line table. Do not embed a profiler for classic Win32 or Win64. An integrated profiler is only an idea.
+- This is not an Embarcadero feature. Do not describe the C++ expert as finished support.
 
 ## Integration Testing — WebApplicationFactory (S66 / S68)
 
