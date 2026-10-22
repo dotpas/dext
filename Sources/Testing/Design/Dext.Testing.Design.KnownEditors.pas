@@ -24,6 +24,8 @@
 
 unit Dext.Testing.Design.KnownEditors;
 
+{$I Dext.inc}
+
 interface
 
 /// <summary>
@@ -34,19 +36,29 @@ function InvalidateKnownCodeEditors: Boolean;
 
 implementation
 
+{ ToolsAPI.Editor shipped in RAD Studio 11.3. Delphi 11.0 through 11.3 all
+  report VER350, so DEXT_DELPHI11_UP is also true on 11.0, where the unit
+  does not exist. Delphi 12 (VER360) is the first compiler version that
+  always has it. Coverage calls this only on Delphi 13. }
+
+{$IFDEF DEXT_DELPHI12_UP}
 uses
   System.SysUtils,
   System.Generics.Collections,
   Vcl.Controls,
   ToolsAPI,
   ToolsAPI.Editor;
+{$ENDIF}
 
 function InvalidateKnownCodeEditors: Boolean;
+{$IFDEF DEXT_DELPHI12_UP}
 var
   Services: INTACodeEditorServices;
   Editors: TList<TWinControl>;
   Editor: TWinControl;
+{$ENDIF}
 begin
+{$IFDEF DEXT_DELPHI12_UP}
   Result := Supports(BorlandIDEServices, INTACodeEditorServices, Services);
   if not Result then
     Exit;
@@ -58,6 +70,9 @@ begin
   finally
     Editors.Free;
   end;
+{$ELSE}
+  Result := False;
+{$ENDIF}
 end;
 
 end.

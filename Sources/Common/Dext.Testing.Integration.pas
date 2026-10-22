@@ -75,11 +75,14 @@ type
 
 implementation
 
+{$IFDEF MSWINDOWS}
 uses
   Winapi.Windows;
+{$ENDIF}
 
 { TTestRunnerRegistry }
 
+{$IFDEF MSWINDOWS}
 function IsDextHostToken(const Token: string; out TakesValue: Boolean): Boolean;
 var
   S: string;
@@ -118,8 +121,10 @@ begin
   else
     Result := Value;
 end;
+{$ENDIF}
 
 class procedure TTestRunnerRegistry.ReleaseDextHostSwitches;
+{$IFDEF MSWINDOWS}
 var
   Cmd: PChar;
   Rebuilt: string;
@@ -158,6 +163,10 @@ begin
   Move(PChar(Rebuilt)^, Cmd^, NewLen * SizeOf(Char));
   Cmd[NewLen] := #0;
 end;
+{$ELSE}
+begin
+end;
+{$ENDIF}
 
 class function TTestRunnerRegistry.GetIntegrations: TInterfaceList;
 begin

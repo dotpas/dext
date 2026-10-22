@@ -55,7 +55,8 @@ contains
   Dext.Testing.Listeners.Telemetry in '..\..\Sources\Testing\Dext.Testing.Listeners.Telemetry.pas',
   Dext.Testing in '..\..\Sources\Testing\Dext.Testing.pas',
   Dext.Testing.Host in '..\..\Sources\Testing\Dext.Testing.Host.pas',
-  Dext.Testing.Integration in '..\..\Sources\Common\Dext.Testing.Integration.pas';
+  Dext.Testing.Integration in '..\..\Sources\Common\Dext.Testing.Integration.pas',
+  Dext.Testing.Coverage.Lcov in '..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas';
 
 end.
 

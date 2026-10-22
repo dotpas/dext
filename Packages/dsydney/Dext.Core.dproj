@@ -7,9 +7,9 @@
         <MainSource>Dext.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{42BED2E0-CA2D-4F52-BF35-9F9008B226A5}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>

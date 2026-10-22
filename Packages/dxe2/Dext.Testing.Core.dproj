@@ -7,9 +7,9 @@
         <MainSource>Dext.Testing.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{F41CC71D-7F45-4145-9FAA-799A34D175EA}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.Testing.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.Testing.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -105,6 +105,7 @@
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Host.pas"/>
         <DCCReference Include="..\..\Sources\Common\Dext.Testing.Integration.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

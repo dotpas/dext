@@ -45,13 +45,13 @@
         <Projects Include="Dext.Testing.Design.dproj">
             <Dependencies/>
         </Projects>
+        <Projects Include="..\..\Apps\TestExplorerExpert\Dext.Testing.Design.ExpertLib.dproj">
+            <Dependencies/>
+        </Projects>
         <Projects Include="..\..\Apps\CLI\DextTool.dproj">
             <Dependencies/>
         </Projects>
         <Projects Include="..\..\Apps\Sidecar\DextSidecar.dproj">
-            <Dependencies/>
-        </Projects>
-        <Projects Include="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj">
             <Dependencies/>
         </Projects>
     </ItemGroup>
@@ -188,6 +188,15 @@
     <Target Name="Dext_Testing_Design:Make">
         <MSBuild Projects="Dext.Testing.Design.dproj" Targets="Make"/>
     </Target>
+    <Target Name="Dext_Testing_Design_ExpertLib">
+        <MSBuild Projects="..\..\Apps\TestExplorerExpert\Dext.Testing.Design.ExpertLib.dproj"/>
+    </Target>
+    <Target Name="Dext_Testing_Design_ExpertLib:Clean">
+        <MSBuild Projects="..\..\Apps\TestExplorerExpert\Dext.Testing.Design.ExpertLib.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Dext_Testing_Design_ExpertLib:Make">
+        <MSBuild Projects="..\..\Apps\TestExplorerExpert\Dext.Testing.Design.ExpertLib.dproj" Targets="Make"/>
+    </Target>
     <Target Name="DextTool">
         <MSBuild Projects="..\..\Apps\CLI\DextTool.dproj"/>
     </Target>
@@ -206,23 +215,14 @@
     <Target Name="DextSidecar:Make">
         <MSBuild Projects="..\..\Apps\Sidecar\DextSidecar.dproj" Targets="Make"/>
     </Target>
-    <Target Name="Dext_Core_UnitTests">
-        <MSBuild Projects="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj"/>
-    </Target>
-    <Target Name="Dext_Core_UnitTests:Clean">
-        <MSBuild Projects="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj" Targets="Clean"/>
-    </Target>
-    <Target Name="Dext_Core_UnitTests:Make">
-        <MSBuild Projects="..\..\Tests\Core\UnitTests\Dext.Core.UnitTests.dproj" Targets="Make"/>
-    </Target>
     <Target Name="Build">
-        <CallTarget Targets="Dext_Core;Dext_AST_Core;Dext_Net_Core;Dext_EF_Core;Dext_EF_Components;Dext_Web_Core;Dext_AI_Core;Dext_Web_Hubs_Core;Dext_Events_Core;Dext_Hosting_Core;Dext_Testing_Core;Dext_UI_Core;Dext_EF_Design;Dext_Testing_Design;DextTool;DextSidecar;Dext_Core_UnitTests"/>
+        <CallTarget Targets="Dext_Core;Dext_AST_Core;Dext_Net_Core;Dext_EF_Core;Dext_EF_Components;Dext_Web_Core;Dext_AI_Core;Dext_Web_Hubs_Core;Dext_Events_Core;Dext_Hosting_Core;Dext_Testing_Core;Dext_UI_Core;Dext_EF_Design;Dext_Testing_Design;Dext_Testing_Design_ExpertLib;DextTool;DextSidecar"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="Dext_Core:Clean;Dext_AST_Core:Clean;Dext_Net_Core:Clean;Dext_EF_Core:Clean;Dext_EF_Components:Clean;Dext_Web_Core:Clean;Dext_AI_Core:Clean;Dext_Web_Hubs_Core:Clean;Dext_Events_Core:Clean;Dext_Hosting_Core:Clean;Dext_Testing_Core:Clean;Dext_UI_Core:Clean;Dext_EF_Design:Clean;Dext_Testing_Design:Clean;DextTool:Clean;DextSidecar:Clean;Dext_Core_UnitTests:Clean"/>
+        <CallTarget Targets="Dext_Core:Clean;Dext_AST_Core:Clean;Dext_Net_Core:Clean;Dext_EF_Core:Clean;Dext_EF_Components:Clean;Dext_Web_Core:Clean;Dext_AI_Core:Clean;Dext_Web_Hubs_Core:Clean;Dext_Events_Core:Clean;Dext_Hosting_Core:Clean;Dext_Testing_Core:Clean;Dext_UI_Core:Clean;Dext_EF_Design:Clean;Dext_Testing_Design:Clean;Dext_Testing_Design_ExpertLib:Clean;DextTool:Clean;DextSidecar:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="Dext_Core:Make;Dext_AST_Core:Make;Dext_Net_Core:Make;Dext_EF_Core:Make;Dext_EF_Components:Make;Dext_Web_Core:Make;Dext_AI_Core:Make;Dext_Web_Hubs_Core:Make;Dext_Events_Core:Make;Dext_Hosting_Core:Make;Dext_Testing_Core:Make;Dext_UI_Core:Make;Dext_EF_Design:Make;Dext_Testing_Design:Make;DextTool:Make;DextSidecar:Make;Dext_Core_UnitTests:Make"/>
+        <CallTarget Targets="Dext_Core:Make;Dext_AST_Core:Make;Dext_Net_Core:Make;Dext_EF_Core:Make;Dext_EF_Components:Make;Dext_Web_Core:Make;Dext_AI_Core:Make;Dext_Web_Hubs_Core:Make;Dext_Events_Core:Make;Dext_Hosting_Core:Make;Dext_Testing_Core:Make;Dext_UI_Core:Make;Dext_EF_Design:Make;Dext_Testing_Design:Make;Dext_Testing_Design_ExpertLib:Make;DextTool:Make;DextSidecar:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

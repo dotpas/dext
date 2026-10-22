@@ -7,9 +7,9 @@
         <MainSource>Dext.Hosting.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{91A46546-DF97-485C-B110-5FE4216D15D3}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.Hosting.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.Hosting.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>

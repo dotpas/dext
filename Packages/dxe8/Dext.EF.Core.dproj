@@ -7,9 +7,9 @@
         <MainSource>Dext.EF.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{4E4AC89E-3AE7-42E3-BC30-DA50C065D579}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.EF.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.EF.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>

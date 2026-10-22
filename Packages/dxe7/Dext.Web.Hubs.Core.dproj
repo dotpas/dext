@@ -7,9 +7,9 @@
         <MainSource>Dext.Web.Hubs.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{00671D00-9006-4608-A771-64691A6BD82E}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.Web.Hubs.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.Web.Hubs.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>

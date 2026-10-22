@@ -63,10 +63,11 @@ targetPlatforms:
       - win64
   - compiler from: delphi10.2
     compiler to: delphi10.4
+    # DPM does not pass the Linux SDK sysroot to ld-linux on 10.2-10.4.
+    # The IDE still builds linux64 when the SDK is configured.
     platforms:
       - win32
       - win64
-      - linux64
   - compiler: delphi11.0
     platforms:
       - win32

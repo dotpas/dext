@@ -7,9 +7,9 @@
         <MainSource>Dext.Events.Core.dpk</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{F2A3B4C5-D6E7-8F90-A1B2-C3D4E5F6A7B8}</ProjectGuid>
-        <ProjectName Condition="'$(ProjectName)'==''">Dext.Events.Core</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
         <TargetedPlatforms>131</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">Dext.Events.Core</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
