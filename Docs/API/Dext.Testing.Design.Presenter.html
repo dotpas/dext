@@ -66,6 +66,8 @@ class TTestExplorerModel {    +GetProjectTargetInfo()
     +GetDelphiProductVersion()
     +ExecuteAndCapture()
     +CompileProjectDirect()
+    +SafeConsole()
+    +ResolveActivePlatformConfig()
     +Create()
     +Destroy()
     +ScanProjectTests()
@@ -74,6 +76,7 @@ class TTestExplorerModel {    +GetProjectTargetInfo()
     +ActiveProjectFile
     +Server
     +TestLocations
+    +CancelRequested
 }
 TObject <|-- TTestExplorerModel
 class TTestExplorerPresenter {    +OnTestResultReceived()
@@ -145,6 +148,8 @@ TObject <|-- TTestExplorerPresenter
 <div class="api-signature">property Server: </div></div>
 <div class="api-item">
 <div class="api-signature">property TestLocations: </div></div>
+<div class="api-item">
+<div class="api-signature">property CancelRequested: </div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">function GetProjectTargetInfo(const const: string; out out: Boolean; out out: string; const const: string; const const: string): Boolean</div></div>
@@ -158,6 +163,10 @@ TObject <|-- TTestExplorerPresenter
 <div class="api-signature">function ExecuteAndCapture(const const: string; const const: string; out out: string): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function CompileProjectDirect(const const: string; AOnConsole: TProc): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SafeConsole(const const: TProc; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">function ResolveActivePlatformConfig(const const: string; out out: string; out out: string): Boolean</div></div>
 </div>
 <hr>
 <div class="class-header">

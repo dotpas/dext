@@ -84,7 +84,7 @@ TObject <|-- TMCPToolRegistry
 <div class="class-header">
 <h3>class TMCPToolProvider</h3><a name="TMCPToolProvider"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Base class for class-based MCP tool providers. Subclass, annotate public virtual methods with [MCPTool] + [MCPParam], then call Server.RegisterProvider(TMyProvider.Create).  The registry takes ownership of the provider instance.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">procedure BeforeCall(const const: string; const const: TJSONObject)</div><div class="description">Called before each tool invocation. Override for logging/auth.</div></div>
+<div class="api-signature">procedure BeforeCall(const const: string; const const: TJsonObject)</div><div class="description">Called before each tool invocation. Override for logging/auth.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AfterCall(const const: string)</div><div class="description">Called after each successful tool invocation.</div></div>
 </div>
@@ -130,14 +130,14 @@ TObject <|-- TMCPToolRegistry
 <div class="api-item">
 <div class="api-signature">function TryGetTool(const const: string; out out: TMCPToolDef): Boolean</div><div class="description">Tries to find a tool by name. Returns False if not found.</div></div>
 <div class="api-item">
-<div class="api-signature">function BuildToolsArray: TJSONArray</div><div class="description">Builds the JSON array for the tools/list response. Caller owns the returned TJSONArray.</div></div>
+<div class="api-signature">function BuildToolsArray: TJsonArray</div><div class="description">Builds the JSON array for the tools/list response. Caller owns the returned TJsonArray.</div></div>
 <div class="api-item">
 <div class="api-signature">function Count: Integer</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure InvalidateCache</div></div>
 <div class="api-item">
-<div class="api-signature">function BuildInputSchema(const const: TMCPToolDef): TJSONObject</div></div>
+<div class="api-signature">function BuildInputSchema(const const: TMCPToolDef): TJsonObject</div></div>
 <div class="api-item">
 <div class="api-signature">function MakeProviderCallback(AProvider: TMCPToolProvider; AMethod: TRttiMethod; const const: string): TMCPToolResultCallback</div></div>
 </div>

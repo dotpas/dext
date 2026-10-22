@@ -91,6 +91,7 @@ class IRestClient {    +BaseUrl()
     +Retry()
     +IgnoreCertificateErrors()
     +AllowSelfSigned()
+    +ClientCertificate()
     +Auth()
     +Header()
     +ContentType()
@@ -128,6 +129,7 @@ class TRestClientImpl {    +GetFullUrl()
     +Retry()
     +IgnoreCertificateErrors()
     +AllowSelfSigned()
+    +ClientCertificate()
     +Auth()
     +Header()
     +ContentType()
@@ -155,12 +157,15 @@ class TRestClientImpl {    +GetFullUrl()
 TInterfacedObject <|-- TRestClientImpl
 IRestClient <|.. TRestClientImpl
 class TRestClient {    +Destroy()
+    +CheckIntoArgs()
+    +IntoWithBody()
     +Create()
     +BaseUrl()
     +Timeout()
     +Retry()
     +IgnoreCertificateErrors()
     +AllowSelfSigned()
+    +ClientCertificate()
     +BearerToken()
     +BasicAuth()
     +ApiKey()
@@ -191,6 +196,7 @@ class TRestClient {    +Destroy()
     +Query~T~()
     +QueryJson()
     +ExecuteAsync()
+    +ExecuteIntoAsync()
     +GetInto()
     +PostInto()
     +PutInto()
@@ -298,6 +304,10 @@ Exception <|-- EDextRestException
 <div class="api-item">
 <div class="api-signature">function AllowSelfSigned(AValue: Boolean): IRestClient</div><div class="description">Alias for IgnoreCertificateErrors to allow self-signed certificates.</div></div>
 <div class="api-item">
+<div class="api-signature">function ClientCertificate(const const: string; const const: string): IRestClient</div><div class="description">Configures a dynamic client certificate (PFX/P12 or PEM) from a file path.</div></div>
+<div class="api-item">
+<div class="api-signature">function ClientCertificate(ACertStream: TStream; const const: string): IRestClient</div><div class="description">Configures a dynamic client certificate (PFX/P12) directly from a stream (e.g. database blob or memory).</div></div>
+<div class="api-item">
 <div class="api-signature">function Auth(AProvider: IAuthenticationProvider): IRestClient</div><div class="description">Associates an authentication provider (Bearer, Basic, API Key).</div></div>
 <div class="api-item">
 <div class="api-signature">function Header(const const: string; const const: string): IRestClient</div><div class="description">Adds a fixed HTTP header to the client.</div></div>
@@ -369,6 +379,10 @@ Exception <|-- EDextRestException
 <div class="api-signature">function IgnoreCertificateErrors(AValue: Boolean): IRestClient</div></div>
 <div class="api-item">
 <div class="api-signature">function AllowSelfSigned(AValue: Boolean): IRestClient</div></div>
+<div class="api-item">
+<div class="api-signature">function ClientCertificate(const const: string; const const: string): IRestClient</div></div>
+<div class="api-item">
+<div class="api-signature">function ClientCertificate(ACertStream: TStream; const const: string): IRestClient</div></div>
 <div class="api-item">
 <div class="api-signature">function Auth(AProvider: IAuthenticationProvider): IRestClient</div></div>
 <div class="api-item">
@@ -453,6 +467,10 @@ Exception <|-- EDextRestException
 <div class="api-item">
 <div class="api-signature">function AllowSelfSigned(AValue: Boolean): TRestClient</div><div class="description">Alias for IgnoreCertificateErrors to allow self-signed certificates.</div></div>
 <div class="api-item">
+<div class="api-signature">function ClientCertificate(const const: string; const const: string): TRestClient</div><div class="description">Configures a dynamic client certificate (PFX/P12 or PEM) from a file path.</div></div>
+<div class="api-item">
+<div class="api-signature">function ClientCertificate(ACertStream: TStream; const const: string): TRestClient</div><div class="description">Configures a dynamic client certificate (PFX/P12) directly from a stream (e.g. database blob or memory).</div></div>
+<div class="api-item">
 <div class="api-signature">function BearerToken(const const: string): TRestClient</div><div class="description">Configures Bearer (JWT) authentication for requests.</div></div>
 <div class="api-item">
 <div class="api-signature">function BasicAuth(const const: string; const const: string): TRestClient</div><div class="description">Configures basic authentication (Username/Password).</div></div>
@@ -525,15 +543,17 @@ Exception <|-- EDextRestException
 <div class="api-item">
 <div class="api-signature">function ExecuteAsync(AMethod: TDextHttpMethod; const const: string; const const: TStream; AOwnsBody: Boolean; AHeaders: IDictionary): TAsyncBuilder</div></div>
 <div class="api-item">
+<div class="api-signature">function ExecuteIntoAsync(AMethod: TDextHttpMethod; const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean; AHeaders: IDictionary; const const: TRestReceiveAnonEvent): TAsyncBuilder</div><div class="description">Executes any verb streaming the response body into ATarget (see IRestClient.ExecuteIntoAsync).</div></div>
+<div class="api-item">
 <div class="api-signature">function GetInto(const const: string; const const: TStream): TAsyncBuilder</div><div class="description">GET streamed straight into AResponseStream (no memory buffering).</div></div>
 <div class="api-item">
-<div class="api-signature">function PostInto(const const: string; const const: TStream): TAsyncBuilder</div><div class="description">POST whose response is streamed into AResponseStream.</div></div>
+<div class="api-signature">function PostInto(const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean): TAsyncBuilder</div><div class="description">POST whose response is streamed into AResponseStream. ABody, when given, is the request body, sent with the client's Content-Type.</div></div>
 <div class="api-item">
-<div class="api-signature">function PutInto(const const: string; const const: TStream): TAsyncBuilder</div><div class="description">PUT whose response is streamed into AResponseStream.</div></div>
+<div class="api-signature">function PutInto(const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean): TAsyncBuilder</div><div class="description">PUT whose response is streamed into AResponseStream, with an optional request body (see PostInto).</div></div>
 <div class="api-item">
-<div class="api-signature">function PatchInto(const const: string; const const: TStream): TAsyncBuilder</div><div class="description">PATCH whose response is streamed into AResponseStream.</div></div>
+<div class="api-signature">function PatchInto(const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean): TAsyncBuilder</div><div class="description">PATCH whose response is streamed into AResponseStream, with an optional request body (see PostInto).</div></div>
 <div class="api-item">
-<div class="api-signature">function QueryInto(const const: string; const const: TStream): TAsyncBuilder</div><div class="description">QUERY whose response is streamed into AResponseStream.</div></div>
+<div class="api-signature">function QueryInto(const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean): TAsyncBuilder</div><div class="description">QUERY whose response is streamed into AResponseStream, with an optional request body (see PostInto): QUERY is how large reads with a request body are done.</div></div>
 <div class="api-item">
 <div class="api-signature">function DownloadToFile(const const: string; const const: string; const const: TRestReceiveAnonEvent; const const: TRestDownloadOptions): TAsyncBuilder</div><div class="description">Downloads to a file, streaming (memory flat) with atomic rename.</div></div>
 <div class="api-item">
@@ -547,6 +567,10 @@ Exception <|-- EDextRestException
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">destructor Destroy</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CheckIntoArgs(const const: TStream; const const: TStream; AOwnsBody: Boolean)</div><div class="description">The checks shared by the *Into verbs and ExecuteIntoAsync on the facade: a nil target frees an owned body and raises; the same stream as body and target raises without freeing it.</div></div>
+<div class="api-item">
+<div class="api-signature">function IntoWithBody(AMethod: TDextHttpMethod; const const: string; const const: TStream; const const: TStream; AOwnsBody: Boolean): TAsyncBuilder</div><div class="description">The *Into verbs: without a body exactly as before, with a body through ExecuteIntoAsync.</div></div>
 </div>
 <hr>
 <div class="class-header">

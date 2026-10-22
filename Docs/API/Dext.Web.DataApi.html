@@ -64,6 +64,7 @@ class TDataApiOptions {    +Create()
     +UseSql()
     +EnumsAsStrings()
     +EnumsAsNumbers()
+    +MaxPageSize()
     +Destroy()
     +Defaults()
     +Sql
@@ -78,6 +79,7 @@ class TDataApiOptions {    +Create()
     +SwaggerDescription
     +NamingStrategy
     +EnumStyle
+    +MaxPageSizeValue
 }
 TObject <|-- TDataApiOptions
 class TDataApiOptionsBuilder {    +Create()
@@ -98,6 +100,7 @@ class TDataApiOptionsBuilder {    +Create()
     +UseSql()
     +EnumsAsStrings()
     +EnumsAsNumbers()
+    +MaxPageSize()
     +Build()
     +Implicit()
 }
@@ -124,6 +127,7 @@ class TDataApiOptions~T~ {    +Allow()
     +UseSql()
     +EnumsAsStrings()
     +EnumsAsNumbers()
+    +MaxPageSize()
 }
 TDataApiOptions <|-- TDataApiOptions~T~
 class TDataApiHandler {    +RegisterRoutes()
@@ -192,6 +196,8 @@ TObject <|-- TDataApi
 <div class="api-item">
 <div class="api-signature">function EnumsAsNumbers: TDataApiOptions</div></div>
 <div class="api-item">
+<div class="api-signature">function MaxPageSize(AValue: Integer): TDataApiOptions</div><div class="description">Caps <c>_limit</c> query values (default 100). Use 0 to disable the cap.</div></div>
+<div class="api-item">
 <div class="api-signature">constructor Create</div></div>
 <div class="api-item">
 <div class="api-signature">destructor Destroy</div></div>
@@ -221,6 +227,8 @@ TObject <|-- TDataApi
 <div class="api-signature">property NamingStrategy: </div></div>
 <div class="api-item">
 <div class="api-signature">property EnumStyle: </div></div>
+<div class="api-item">
+<div class="api-signature">property MaxPageSizeValue: </div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -261,6 +269,8 @@ TObject <|-- TDataApi
 <div class="api-signature">function EnumsAsStrings: TDataApiOptionsBuilder</div></div>
 <div class="api-item">
 <div class="api-signature">function EnumsAsNumbers: TDataApiOptionsBuilder</div></div>
+<div class="api-item">
+<div class="api-signature">function MaxPageSize(AValue: Integer): TDataApiOptionsBuilder</div><div class="description">Caps <c>_limit</c> query values (default 100).</div></div>
 <div class="api-item">
 <div class="api-signature">function Build: TDataApiOptions</div></div>
 <div class="api-item">
@@ -314,6 +324,8 @@ TObject <|-- TDataApi
 <div class="api-signature">function EnumsAsStrings: TDataApiOptions</div></div>
 <div class="api-item">
 <div class="api-signature">function EnumsAsNumbers: TDataApiOptions</div></div>
+<div class="api-item">
+<div class="api-signature">function MaxPageSize(AValue: Integer): TDataApiOptions</div></div>
 </div>
 <hr>
 <div class="class-header">

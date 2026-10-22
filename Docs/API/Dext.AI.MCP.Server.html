@@ -47,8 +47,7 @@
 <div class="mermaid-container">
 <div class="mermaid">
 classDiagram
-class TMCPServer {    +Dispatch()
-    +HandleInitialize()
+class TMCPServer {    +HandleInitialize()
     +HandlePing()
     +HandleToolsList()
     +HandleToolsCall()
@@ -67,6 +66,7 @@ class TMCPServer {    +Dispatch()
     +LogDebug()
     +Create()
     +Destroy()
+    +Dispatch()
     +Tool()
     +RegisterProvider()
     +Resource()
@@ -103,11 +103,13 @@ TObject <|-- TMCPServerBuilder
 </details>
 <h2>API Details</h2>
 <div class="class-header">
-<h3>class TMCPServer</h3><a name="TMCPServer"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Native MCP server supporting Tools, Resources, and Prompts.  Recommended usage pattern:  var Server := TMCPServer.Create('erp-server', '2.0.0');  // Fluent tools Server.Tool('get-customer') .Description('Fetches customer by CPF') .Param('cpf', 'Customer CPF', ptString) .OnCallResult(function(Args: TJSONObject): TMCPToolResult begin ... end);  // RTTI provider (preferred for large tool sets) Server.RegisterProvider(TERPTools.Create);  // Resources Server.Resource('config://app', 'App Config') .Description('Current application settings as JSON') .MimeType('application/json') .OnRead(function(const Uri: string): TMCPResourceContents begin Result := TMCPResourceContents.TextResource(Uri, GetConfig); end);  // Prompts Server.Prompt('review-invoice', 'Reviews an invoice for errors') .Arg('invoice_id', 'Invoice number') .OnGet(function(Args: TJSONObject): TMCPPromptResult begin ... end);  Server.Run(mtStreamable, 'http://localhost:3031');</div></div>
+<h3>class TMCPServer</h3><a name="TMCPServer"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Native MCP server supporting Tools, Resources, and Prompts.  Recommended usage pattern:  var Server := TMCPServer.Create('erp-server', '2.0.0');  // Fluent tools Server.Tool('get-customer') .Description('Fetches customer by CPF') .Param('cpf', 'Customer CPF', ptString) .OnCallResult(function(Args: TJsonObject): TMCPToolResult begin ... end);  // RTTI provider (preferred for large tool sets) Server.RegisterProvider(TERPTools.Create);  // Resources Server.Resource('config://app', 'App Config') .Description('Current application settings as JSON') .MimeType('application/json') .OnRead(function(const Uri: string): TMCPResourceContents begin Result := TMCPResourceContents.TextResource(Uri, GetConfig); end);  // Prompts Server.Prompt('review-invoice', 'Reviews an invoice for errors') .Arg('invoice_id', 'Invoice number') .OnGet(function(Args: TJsonObject): TMCPPromptResult begin ... end);  Server.Run(mtStreamable, 'http://localhost:3031');</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: string; const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">destructor Destroy</div></div>
+<div class="api-item">
+<div class="api-signature">function Dispatch(const const: string; const const: string): string</div><div class="description">Dispatches a single JSON-RPC request body and returns the response body (or '' for a notification/no-reply case). Pure string-in, string-out with no network dependency - public specifically so it can be exercised directly in tests without a live HTTP host.</div></div>
 <div class="api-item">
 <div class="api-signature">function Tool(const const: string): IMCPToolBuilder</div><div class="description">Fluent builder for a new tool.</div></div>
 <div class="api-item">
@@ -144,23 +146,21 @@ TObject <|-- TMCPServerBuilder
 <div class="api-signature">property Prompts: </div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
-<div class="api-signature">function Dispatch(const const: string; const const: string): string</div></div>
+<div class="api-signature">function HandleInitialize(const const: IDextJsonNode; const const: TJsonObject; out out: string): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandleInitialize(const const: TJSONValue; const const: TJSONObject; out out: string): string</div></div>
+<div class="api-signature">function HandlePing(const const: IDextJsonNode): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandlePing(const const: TJSONValue): string</div></div>
+<div class="api-signature">function HandleToolsList(const const: IDextJsonNode): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandleToolsList(const const: TJSONValue): string</div></div>
+<div class="api-signature">function HandleToolsCall(const const: IDextJsonNode; const const: TJsonObject): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandleToolsCall(const const: TJSONValue; const const: TJSONObject): string</div></div>
+<div class="api-signature">function HandleResourcesList(const const: IDextJsonNode): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandleResourcesList(const const: TJSONValue): string</div></div>
+<div class="api-signature">function HandleResourcesRead(const const: IDextJsonNode; const const: TJsonObject): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandleResourcesRead(const const: TJSONValue; const const: TJSONObject): string</div></div>
+<div class="api-signature">function HandlePromptsList(const const: IDextJsonNode): string</div></div>
 <div class="api-item">
-<div class="api-signature">function HandlePromptsList(const const: TJSONValue): string</div></div>
-<div class="api-item">
-<div class="api-signature">function HandlePromptsGet(const const: TJSONValue; const const: TJSONObject): string</div></div>
+<div class="api-signature">function HandlePromptsGet(const const: IDextJsonNode; const const: TJsonObject): string</div></div>
 <div class="api-item">
 <div class="api-signature">procedure RouteStreamablePost(Ctx: IHttpContext)</div></div>
 <div class="api-item">
@@ -174,7 +174,7 @@ TObject <|-- TMCPServerBuilder
 <div class="api-item">
 <div class="api-signature">function ReadBody(Ctx: IHttpContext): string</div></div>
 <div class="api-item">
-<div class="api-signature">function ToolResultToJSON(const const: string): TJSONObject</div></div>
+<div class="api-signature">function ToolResultToJSON(const const: string): TJsonObject</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddCORSHeaders(const const: IHttpResponse)</div></div>
 <div class="api-item">

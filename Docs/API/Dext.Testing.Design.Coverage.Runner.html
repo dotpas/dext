@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.Testing.Design.Coverage.Runner - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.Testing.Design.Coverage.Runner</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class TCoverageRunPrep {}
+class TDextCoverageRunner {    +EnsureTool()
+    +CoverageWorkDir()
+    +GenerateLists()
+    +PrepareRun()
+    +BuildWrappedCommandLine()
+    +TryExportLlvmLcov()
+}
+TObject <|-- TDextCoverageRunner
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>record TCoverageRunPrep</h3><a name="TCoverageRunPrep"></a><div class="description">Delphi Code Coverage paths for one wrapped run.</div></div>
+<hr>
+<div class="class-header">
+<h3>class TDextCoverageRunner</h3><a name="TDextCoverageRunner"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Runs Delphi Code Coverage, and exports Win64x LCOV through LLVM 20.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function EnsureTool(const const: string; out out: string; ALog: TProc): Boolean</div><div class="description">Find CodeCoverage.exe; offer GitHub install if missing.</div></div>
+<div class="api-item">
+<div class="api-signature">function CoverageWorkDir(const const: string): string</div><div class="description">Folder next to the project where coverage lists and reports are written.</div></div>
+<div class="api-item">
+<div class="api-signature">function GenerateLists(const const: string; const const: string; out out: string; out out: string; ALog: TProc): Boolean</div><div class="description">Write the unit and source lists Delphi Code Coverage expects.</div></div>
+<div class="api-item">
+<div class="api-signature">function PrepareRun(const const: string; const const: string; const const: string; ALog: TProc; out out: TCoverageRunPrep; out out: string): Boolean</div><div class="description">Resolve the map, the lists and the report folder before a Delphi coverage run.</div></div>
+<div class="api-item">
+<div class="api-signature">function BuildWrappedCommandLine(const const: TCoverageRunPrep; const const: string; const const: string; AGenerateHtml: Boolean): string</div><div class="description">Command line that wraps the test exe with CodeCoverage.exe.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryExportLlvmLcov(const const: string; ALog: TProc; out out: string): Boolean</div><div class="description">Merge *.profraw next to the exe and write LCOV via LLVM 20 llvm-cov.</div></div>
+</div>
+<hr>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

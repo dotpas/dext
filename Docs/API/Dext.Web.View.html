@@ -124,9 +124,12 @@ class TStreamingListWrapper~T~ {    +EnsureEvaluated()
     +Destroy()
     +GetEnumerator()
     +GetIsEmpty()
+    +MoveNext()
+    +GetCurrent()
     +IsEmpty
 }
-TObject <|-- TStreamingListWrapper~T~
+TInterfacedPersistent <|-- TStreamingListWrapper~T~
+IStreamingSequence <|.. TStreamingListWrapper~T~
 </div>
 </div>
 </details>
@@ -280,7 +283,7 @@ TObject <|-- TStreamingListWrapper~T~
 </div>
 <hr>
 <div class="class-header">
-<h3>class TStreamingListWrapper&lt;T&gt;</h3><a name="TStreamingListWrapper_lt_T_gt_"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Internal wrapper to make IEnumerator compatible with Web Stencils @For loops.</div></div>
+<h3>class TStreamingListWrapper&lt;T&gt;</h3><a name="TStreamingListWrapper_lt_T_gt_"></a><div class="ancestor">Inherits from: TInterfacedPersistent</div><div class="description">Makes IEnumerator compatible with Web Stencils @For (GetEnumerator) and native @foreach (IStreamingSequence). Both paths render during MoveNext so the flyweight ORM iterator keeps O(1) memory.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(AEnum: IEnumerator)</div></div>
 <div class="api-item">
@@ -289,6 +292,10 @@ TObject <|-- TStreamingListWrapper~T~
 <div class="api-signature">function GetEnumerator: TStreamingEnumeratorProxy</div></div>
 <div class="api-item">
 <div class="api-signature">function GetIsEmpty: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function MoveNext: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function GetCurrent: TObject</div></div>
 <div class="api-item">
 <div class="api-signature">property IsEmpty: </div></div>
 </div>

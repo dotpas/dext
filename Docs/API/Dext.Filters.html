@@ -52,9 +52,12 @@ class IActionExecutingContext {    +GetHttpContext()
     +GetActionDescriptor()
     +GetResult()
     +SetResult()
+    +GetActionArguments()
+    +SetActionArguments()
     +HttpContext
     +ActionDescriptor
     +Result
+    +ActionArguments
 }
 class IActionExecutedContext {    +GetHttpContext()
     +GetActionDescriptor()
@@ -85,7 +88,10 @@ class TActionExecutingContext {    +Create()
     +GetActionDescriptor()
     +GetResult()
     +SetResult()
+    +GetActionArguments()
+    +SetActionArguments()
     +Result
+    +ActionArguments
 }
 TInterfacedObject <|-- TActionExecutingContext
 IActionExecutingContext <|.. TActionExecutingContext
@@ -119,11 +125,17 @@ IActionExecutedContext <|.. TActionExecutedContext
 <div class="api-item">
 <div class="api-signature">procedure SetResult(const const: IResult)</div></div>
 <div class="api-item">
+<div class="api-signature">function GetActionArguments: TArray</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetActionArguments(const const: TArray)</div></div>
+<div class="api-item">
 <div class="api-signature">property HttpContext: </div></div>
 <div class="api-item">
 <div class="api-signature">property ActionDescriptor: </div></div>
 <div class="api-item">
 <div class="api-signature">property Result: </div></div>
+<div class="api-item">
+<div class="api-signature">property ActionArguments: </div><div class="description">Bound action parameters available after model binding.</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -190,7 +202,13 @@ IActionExecutedContext <|.. TActionExecutedContext
 <div class="api-item">
 <div class="api-signature">procedure SetResult(const const: IResult)</div></div>
 <div class="api-item">
+<div class="api-signature">function GetActionArguments: TArray</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetActionArguments(const const: TArray)</div></div>
+<div class="api-item">
 <div class="api-signature">property Result: </div></div>
+<div class="api-item">
+<div class="api-signature">property ActionArguments: </div></div>
 </div>
 <hr>
 <div class="class-header">

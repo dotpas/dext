@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.AI.Graph.Contracts - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.AI.Graph.Contracts</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class TGraphRunResult {}
+class TNodeContext {}
+class ICompiledAgent {    +Run()
+    +Resume()
+    +Cancel()
+    +GetState()
+    +AsNode()
+}
+class ICheckpointer {    +Save()
+    +Load()
+    +Exists()
+    +Delete()
+}
+class EGraphError {}
+Exception <|-- EGraphError
+class EGraphCompileError {}
+EGraphError <|-- EGraphCompileError
+class EGraphExecutionError {}
+EGraphError <|-- EGraphExecutionError
+class ENodeNotFound {}
+EGraphError <|-- ENodeNotFound
+class ENoPathToEnd {}
+EGraphCompileError <|-- ENoPathToEnd
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>record TGraphRunResult</h3><a name="TGraphRunResult"></a></div>
+<hr>
+<div class="class-header">
+<h3>record TNodeContext</h3><a name="TNodeContext"></a></div>
+<hr>
+<div class="class-header">
+<h3>interface ICompiledAgent</h3><a name="ICompiledAgent"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function Run(const const: string; const const: string): TGraphRunResult</div></div>
+<div class="api-item">
+<div class="api-signature">function Resume(const const: string): TGraphRunResult</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Cancel(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">function GetState(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function AsNode: TNodeHandler</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>interface ICheckpointer</h3><a name="ICheckpointer"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">procedure Save(const const: string; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">function Load(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function Exists(const const: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Delete(const const: string)</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class EGraphError</h3><a name="EGraphError"></a><div class="ancestor">Inherits from: Exception</div></div>
+<hr>
+<div class="class-header">
+<h3>class EGraphCompileError</h3><a name="EGraphCompileError"></a><div class="ancestor">Inherits from: EGraphError</div></div>
+<hr>
+<div class="class-header">
+<h3>class EGraphExecutionError</h3><a name="EGraphExecutionError"></a><div class="ancestor">Inherits from: EGraphError</div></div>
+<hr>
+<div class="class-header">
+<h3>class ENodeNotFound</h3><a name="ENodeNotFound"></a><div class="ancestor">Inherits from: EGraphError</div></div>
+<hr>
+<div class="class-header">
+<h3>class ENoPathToEnd</h3><a name="ENoPathToEnd"></a><div class="ancestor">Inherits from: EGraphCompileError</div></div>
+<hr>
+<h2>Types</h2>
+<div class="visibility-group"><div class="api-item">
+<div class="api-signature">type TGraphRunStatus = enumeration</div><div class="enum-values">Values: grsRunning, grsFinished, grsWaitingApproval, grsError, grsCancelled</div></div>
+<div class="api-item">
+<div class="api-signature">type TNodeHandler = Type</div></div>
+</div>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

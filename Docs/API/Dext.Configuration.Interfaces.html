@@ -80,6 +80,7 @@ class IConfigurationSource {    +Build()
 class IConfigurationBuilder {    +GetSources()
     +GetProperties()
     +Add()
+    +ReloadOnChange()
     +Build()
     +Sources
     +Properties
@@ -163,6 +164,8 @@ class IConfigurationBuilder {    +GetSources()
 <div class="api-signature">function GetProperties: IDictionary</div></div>
 <div class="api-item">
 <div class="api-signature">function Add(Source: IConfigurationSource): IConfigurationBuilder</div></div>
+<div class="api-item">
+<div class="api-signature">function ReloadOnChange(AEnabled: Boolean; AIntervalMs: Integer): IConfigurationBuilder</div><div class="description">Enables polling of file providers marked ReloadOnChange and rebuilds the configuration cache when files change (used by FeatureManagement hot-reload).</div></div>
 <div class="api-item">
 <div class="api-signature">function Build: IConfigurationRoot</div></div>
 <div class="api-item">

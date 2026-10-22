@@ -105,6 +105,12 @@ class TJsonSettings {    +Default()
     +IgnoreNullValues()
     +CaseInsensitive()
     +SmartRecordMapping()
+    +MaxDepth()
+    +ZeroDateAsNull()
+    +NullDates()
+    +IsNullDate()
+    +KeepDefaultEnums()
+    +BytesAsBase64()
     +ISODateFormat()
     +UnixTimestamp()
     +CustomDateFormat()
@@ -250,6 +256,20 @@ class IDextJsonProvider {    +CreateObject()
 <div class="api-signature">function CaseInsensitive: TJsonSettings</div></div>
 <div class="api-item">
 <div class="api-signature">function SmartRecordMapping(AValue: Boolean): TJsonSettings</div></div>
+<div class="api-item">
+<div class="api-signature">function MaxDepth(AValue: Integer): TJsonSettings</div><div class="description">Configures the maximum allowed depth of nested JSON structures (objects and arrays). Default is 64. Pass UNLIMITED_JSON_DEPTH (-1) to disable depth checks.</div></div>
+<div class="api-item">
+<div class="api-signature">function MaxDepth: Integer</div><div class="description">Returns the effective maximum depth limit. Defaults to 64 if not set.</div></div>
+<div class="api-item">
+<div class="api-signature">function ZeroDateAsNull(AValue: Boolean): TJsonSettings</div><div class="description">A TDateTime or TDate that is 0 (1899-12-30, "no date") is written as null instead of "1899-12-30T00:00:00.000" (dropped with IgnoreNullValues), on every path: class properties, record fields, array elements, single values. A TTime is left alone: 0 is midnight there. On by default; ZeroDateAsNull(False) writes the zero date.</div></div>
+<div class="api-item">
+<div class="api-signature">function NullDates(const const: array): TJsonSettings</div><div class="description">The dates that mean "no date" for this application, as 'yyyy-mm-dd' (for example '0001-01-01' and '1900-01-01', the values legacy databases and NOT NULL columns use): written as null like the zero date, on every path, and dropped with IgnoreNullValues. A value is "no date" when it is exactly that day: a sentinel has no time, so '1900-01-01 08:30' is still a date. A TTime is left alone. The list replaces the previous one; an empty list turns it off (the default). Reading is not affected. A text that is not a valid day raises EConvertError.</div></div>
+<div class="api-item">
+<div class="api-signature">function IsNullDate(const const: TDateTime): Boolean</div><div class="description">True when AValue is one of the NullDates.</div></div>
+<div class="api-item">
+<div class="api-signature">function KeepDefaultEnums(AValue: Boolean): TJsonSettings</div><div class="description">With IgnoreDefaultValues, an enum at its first value (ordinal 0) is still written: that value is often a business state ("Draft", "Active") that a consumer must see. A False Boolean is still dropped.</div></div>
+<div class="api-item">
+<div class="api-signature">function BytesAsBase64(AValue: Boolean): TJsonSettings</div><div class="description">A byte array (TBytes, or any dynamic array of Byte) is written as a Base64 string on one line, with padding (RFC 4648, OpenAPI "format: byte"). It is the default; False writes it as an array of numbers, as before. Reading accepts both, whatever this setting.</div></div>
 <div class="api-item">
 <div class="api-signature">function ISODateFormat: TJsonSettings</div></div>
 <div class="api-item">

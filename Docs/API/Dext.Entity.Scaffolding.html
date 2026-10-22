@@ -65,11 +65,11 @@ class TFireDACSchemaProvider {    +EnsureCache()
 }
 TInterfacedObject <|-- TFireDACSchemaProvider
 ISchemaProvider <|.. TFireDACSchemaProvider
-class TDelphiEntityGenerator {    +SQLTypeToDelphiType()
-    +CleanName()
+class TDelphiEntityGenerator {    +CleanName()
     +EscapeIdentifier()
     +IsKeyword()
     +CleanMappingName()
+    +SQLTypeToDelphiType()
     +GenerateUnit()
 }
 TInterfacedObject <|-- TDelphiEntityGenerator
@@ -123,11 +123,11 @@ IEntityGenerator <|.. TDelphiEntityGenerator
 <div class="class-header">
 <h3>class TDelphiEntityGenerator</h3><a name="TDelphiEntityGenerator"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Generator that produces Delphi entity classes from database metadata.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function SQLTypeToDelphiType(const const: string; APrecision: Integer; AScale: Integer; APropertyStyle: TPropertyStyle): string</div></div>
+<div class="api-item">
 <div class="api-signature">function GenerateUnit(const const: string; const const: TArray; AMappingStyle: TMappingStyle; APropertyStyle: TPropertyStyle; AGenerateMetadata: Boolean): string</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
-<div class="api-signature">function SQLTypeToDelphiType(const const: string; AScale: Integer; APropertyStyle: TPropertyStyle): string</div></div>
-<div class="api-item">
 <div class="api-signature">function CleanName(const const: string): string</div></div>
 <div class="api-item">
 <div class="api-signature">function EscapeIdentifier(const const: string): string</div></div>

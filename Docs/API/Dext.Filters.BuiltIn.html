@@ -95,7 +95,7 @@ ActionFilterAttribute <|-- AddHeaderAttribute
 </div>
 <hr>
 <div class="class-header">
-<h3>class ValidateModelAttribute</h3><a name="ValidateModelAttribute"></a><div class="ancestor">Inherits from: ActionFilterAttribute</div><div class="description">Validates model state (can be extended).</div></div>
+<h3>class ValidateModelAttribute</h3><a name="ValidateModelAttribute"></a><div class="ancestor">Inherits from: ActionFilterAttribute</div><div class="description">Validates bound action arguments (records/classes) using attribute validators and optional DI <c>IValidator</c> implementations. On failure, short-circuits with <c>Results.ValidationProblem</c> (<c>application/problem+json</c>).</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">procedure OnActionExecuting(AContext: IActionExecutingContext)</div></div>
 </div>

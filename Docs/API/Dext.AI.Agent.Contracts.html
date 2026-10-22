@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.AI.Agent.Contracts - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.AI.Agent.Contracts</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class TLLMToolCall {}
+class TLLMMessage {    +User()
+    +System()
+    +Assistant()
+    +ToolResult()
+}
+class TLLMResponse {}
+class TToolSchema {}
+class ILLMProvider {    +Complete()
+    +ProviderName()
+    +ModelName()
+}
+class TAgentConfig {    +OpenAI()
+    +Anthropic()
+    +Ollama()
+}
+class TAgentResult {}
+class IAgentObserver {    +OnIterationStart()
+    +OnToolCall()
+    +OnToolResult()
+    +OnLLMResponse()
+    +OnFinished()
+}
+class ELLMProviderError {}
+Exception <|-- ELLMProviderError
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>record TLLMToolCall</h3><a name="TLLMToolCall"></a></div>
+<hr>
+<div class="class-header">
+<h3>record TLLMMessage</h3><a name="TLLMMessage"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function User(const const: string): TLLMMessage</div></div>
+<div class="api-item">
+<div class="api-signature">function System(const const: string): TLLMMessage</div></div>
+<div class="api-item">
+<div class="api-signature">function Assistant(const const: string; const const: TArray): TLLMMessage</div></div>
+<div class="api-item">
+<div class="api-signature">function ToolResult(const const: string; const const: string): TLLMMessage</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>record TLLMResponse</h3><a name="TLLMResponse"></a></div>
+<hr>
+<div class="class-header">
+<h3>record TToolSchema</h3><a name="TToolSchema"></a></div>
+<hr>
+<div class="class-header">
+<h3>interface ILLMProvider</h3><a name="ILLMProvider"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function Complete(const const: TArray; const const: TArray): TLLMResponse</div></div>
+<div class="api-item">
+<div class="api-signature">function ProviderName: string</div></div>
+<div class="api-item">
+<div class="api-signature">function ModelName: string</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>record TAgentConfig</h3><a name="TAgentConfig"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function OpenAI(const const: string): TAgentConfig</div></div>
+<div class="api-item">
+<div class="api-signature">function Anthropic(const const: string): TAgentConfig</div></div>
+<div class="api-item">
+<div class="api-signature">function Ollama(const const: string): TAgentConfig</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>record TAgentResult</h3><a name="TAgentResult"></a></div>
+<hr>
+<div class="class-header">
+<h3>interface IAgentObserver</h3><a name="IAgentObserver"></a></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">procedure OnIterationStart(AIteration: Integer)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OnToolCall(const const: string; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OnToolResult(const const: string; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OnLLMResponse(const const: string; AStopReason: TLLMStopReason)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OnFinished(const const: string; AIterations: Integer)</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class ELLMProviderError</h3><a name="ELLMProviderError"></a><div class="ancestor">Inherits from: Exception</div></div>
+<hr>
+<h2>Types</h2>
+<div class="visibility-group"><div class="api-item">
+<div class="api-signature">type TLLMRole = enumeration</div><div class="enum-values">Values: lrSystem, lrUser, lrAssistant, lrToolResult</div></div>
+<div class="api-item">
+<div class="api-signature">type TLLMStopReason = enumeration</div><div class="enum-values">Values: srEndTurn, srToolUse, srMaxTokens, srError</div></div>
+</div>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

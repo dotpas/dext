@@ -72,15 +72,15 @@ TObject <|-- TJsonRpc
 <h3>record TMCPToolDef</h3><a name="TMCPToolDef"></a><div class="description">Full definition of an MCP tool (name, description, params, handlers).  ResultCallback takes precedence over Callback when both are set. Use ResultCallback for rich content (image, audio, embedded resource) or for explicit isError signalling.</div></div>
 <hr>
 <div class="class-header">
-<h3>class TJsonRpc</h3><a name="TJsonRpc"></a><div class="ancestor">Inherits from: TObject</div><div class="description">JSON-RPC 2.0 response builder. All methods produce a self-contained JSON string ready to send.</div></div>
+<h3>class TJsonRpc</h3><a name="TJsonRpc"></a><div class="ancestor">Inherits from: TObject</div><div class="description">JSON-RPC 2.0 response builder. All methods produce a self-contained JSON string ready to send.  The JSON-RPC "id" (string | number | null) is represented as an IDextJsonNode. Pass nil for a missing/absent id.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">function Success(const const: TJSONValue; const const: string): string</div><div class="description">Builds a success response. ResultJson is a raw JSON string that will be embedded as the "result" value.</div></div>
+<div class="api-signature">function Success(const const: IDextJsonNode; const const: string): string</div><div class="description">Builds a success response. ResultJson is a raw JSON string that will be embedded as the "result" value.</div></div>
 <div class="api-item">
-<div class="api-signature">function Success(const const: TJSONValue; const const: TJSONValue): string</div><div class="description">Builds a success response from an already-parsed TJSONValue. The value is cloned - caller retains ownership of ResultObj.</div></div>
+<div class="api-signature">function Success(const const: IDextJsonNode; const const: TJsonObject): string</div><div class="description">Builds a success response from an already-built TJsonObject. Ownership of ResultObj is NOT taken - caller still frees it.</div></div>
 <div class="api-item">
-<div class="api-signature">function Error(const const: TJSONValue; Code: Integer; const const: string): string</div><div class="description">Builds an error response.</div></div>
+<div class="api-signature">function Error(const const: IDextJsonNode; Code: Integer; const const: string): string</div><div class="description">Builds an error response.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetId(const const: TJSONObject): TJSONValue</div><div class="description">Extracts the "id" field from a JSON-RPC request object. Returns nil if not present (i.e. it is a notification).</div></div>
+<div class="api-signature">function GetId(const const: TJsonObject): IDextJsonNode</div><div class="description">Extracts the "id" field from a JSON-RPC request object. Returns nil if the "id" key is absent or null.</div></div>
 </div>
 <hr>
 <h2>Types</h2>

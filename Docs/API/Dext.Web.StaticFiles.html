@@ -160,6 +160,8 @@ TObject <|-- TApplicationBuilderStaticFilesExtensions
 <h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
 <div class="api-signature">function StaticFileOptions: TStaticFileBuilder</div><div class="description">Factory function returning a fluent TStaticFileBuilder instance.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryResolveStaticFilePath(const const: string; const const: string; out out: string): Boolean</div><div class="description">Safely maps a request path to a physical file path contained within ARootPath. Returns False when the request path cannot be served safely; in that case AFilePath is empty and the caller must NOT touch the disk.</div></div>
 </div>
 
         </div>

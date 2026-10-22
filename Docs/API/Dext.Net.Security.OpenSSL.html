@@ -51,17 +51,13 @@ class EDextOpenSSLException {}
 Exception <|-- EDextOpenSSLException
 class IDextOpenSSLContext {    +GetHandle()
 }
-class TDextOpenSSLContext {    +Configure()
-    +GetHandle()
+class TDextOpenSSLContext {    +GetHandle()
     +Create()
     +Destroy()
 }
 TInterfacedObject <|-- TDextOpenSSLContext
 IDextOpenSSLContext <|.. TDextOpenSSLContext
-class TDextOpenSSLTLSEngine {    +InitOpenSSLEngine()
-    +UpdateIOStatus()
-    +UpdateNegotiatedALPN()
-    +Create()
+class TDextOpenSSLTLSEngine {    +Create()
     +Destroy()
     +EncryptedIncoming()
     +PlaintextRead()
@@ -105,8 +101,6 @@ IDextTLSContextProvider <|.. TDextOpenSSLContextProvider
 <div class="api-signature">destructor Destroy</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
-<div class="api-signature">procedure Configure</div></div>
-<div class="api-item">
 <div class="api-signature">function GetHandle: PSSL_CTX</div></div>
 </div>
 <hr>
@@ -140,13 +134,6 @@ IDextTLSContextProvider <|.. TDextOpenSSLContextProvider
 <div class="api-signature">function GetPendingEncryptedBytes: NativeInt</div></div>
 <div class="api-item">
 <div class="api-signature">function Shutdown: TDextTLSIOStatus</div></div>
-</div>
-<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
-<div class="api-signature">procedure InitOpenSSLEngine(const const: IDextOpenSSLContext)</div></div>
-<div class="api-item">
-<div class="api-signature">procedure UpdateIOStatus(AReturnCode: Integer)</div></div>
-<div class="api-item">
-<div class="api-signature">procedure UpdateNegotiatedALPN</div></div>
 </div>
 <hr>
 <div class="class-header">

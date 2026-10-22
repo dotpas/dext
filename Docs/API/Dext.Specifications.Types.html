@@ -375,10 +375,12 @@ class TPropExpression {    +GetLeftExp()
 <h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
 <div class="api-signature">function Prop(const const: string): TPropExpression</div></div>
+<div class="api-item">
+<div class="api-signature">function LikeMatches(const const: string; const const: string; AIgnoreCase: Boolean): Boolean</div><div class="description">Evaluates a SQL LIKE pattern in memory: % matches any sequence, _ any single character, everything else matches itself. No escape character.</div></div>
 </div>
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
-<div class="api-signature">type TBinaryOperator = enumeration</div><div class="enum-values">Values: boEqual, boNotEqual, boGreaterThan, boGreaterThanOrEqual, boLessThan, boLessThanOrEqual, boLike, boNotLike, boIn, boNotIn, boBitwiseAnd, boBitwiseOr, boBitwiseXor</div><div class="description">Represents a binary operator (Left Op Right). e.g., Age > 18, Name = 'John'</div></div>
+<div class="api-signature">type TBinaryOperator = enumeration</div><div class="enum-values">Values: boEqual, boNotEqual, boGreaterThan, boGreaterThanOrEqual, boLessThan, boLessThanOrEqual, boLike, boNotLike, boIn, boNotIn, boBitwiseAnd, boBitwiseOr, boBitwiseXor, boStartsWith, boEndsWith, boContains</div><div class="description">Represents a binary operator (Left Op Right). e.g., Age > 18, Name = 'John'</div></div>
 <div class="api-item">
 <div class="api-signature">type TArithmeticOperator = enumeration</div><div class="enum-values">Values: aoAdd, aoSubtract, aoMultiply, aoDivide, aoModulus, aoIntDivide</div><div class="description">Represents an arithmetic operator (+, -, *, /).</div></div>
 <div class="api-item">

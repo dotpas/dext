@@ -49,6 +49,7 @@
 classDiagram
 class TTestRunner {    +FindExecutable()
     +ExecuteProcess()
+    +CaptureStdoutAsync()
     +RunProject()
 }
 TObject <|-- TTestRunner
@@ -65,6 +66,8 @@ TObject <|-- TTestRunner
 <div class="api-signature">function FindExecutable(const const: string): string</div></div>
 <div class="api-item">
 <div class="api-signature">function ExecuteProcess(const const: string; const const: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CaptureStdoutAsync(AProcess: THandle; AReadPipe: THandle)</div></div>
 </div>
 <hr>
 

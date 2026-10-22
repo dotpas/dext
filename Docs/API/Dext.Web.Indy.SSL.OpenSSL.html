@@ -47,8 +47,7 @@
 <div class="mermaid-container">
 <div class="mermaid">
 classDiagram
-class TDextIndyOpenSSLHandler {    +OnGetSSLPassword()
-    +Create()
+class TDextIndyOpenSSLHandler {    +Create()
     +CreateIOHandler()
 }
 TInterfacedObject <|-- TDextIndyOpenSSLHandler
@@ -63,9 +62,6 @@ IIndySSLHandler <|.. TDextIndyOpenSSLHandler
 <div class="api-signature">constructor Create(const const: string; const const: string; const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">function CreateIOHandler(AServer: TIdCustomHTTPServer): TIdServerIOHandler</div></div>
-</div>
-<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
-<div class="api-signature">procedure OnGetSSLPassword(var var: string)</div></div>
 </div>
 <hr>
 

@@ -50,6 +50,7 @@ classDiagram
 class HTTPAPI_VERSION {}
 class HTTP_VERSION {}
 class HTTP_COOKED_URL {}
+class SOCKADDR_IN6 {}
 class HTTP_TRANSPORT_ADDRESS {}
 class HTTP_UNKNOWN_HEADER {}
 class HTTP_KNOWN_HEADER {}
@@ -72,6 +73,8 @@ class HTTP_RESPONSE {}
 class HTTP_STATE_INFO {}
 class HTTP_QOS_SETTING_INFO {}
 class HTTP_CONNECTION_LIMIT_INFO {}
+class HTTP_BANDWIDTH_LIMIT_INFO {}
+class HTTP_TIMEOUT_LIMIT_INFO {}
 class HTTP_BINDING_INFO {}
 class SOCKADDR {}
 class SOCKADDR_IN {}
@@ -80,6 +83,9 @@ class HTTP_SERVICE_CONFIG_SSL_KEY {}
 class HTTP_SERVICE_CONFIG_SSL_PARAM {}
 class HTTP_SERVICE_CONFIG_SSL_SET {}
 class HTTP_SERVICE_CONFIG_SSL_QUERY {}
+class HTTP_SERVICE_CONFIG_SSL_SNI_KEY {}
+class HTTP_SERVICE_CONFIG_SSL_SNI_SET {}
+class HTTP_SERVICE_CONFIG_SSL_SNI_QUERY {}
 </div>
 </div>
 </details>
@@ -92,6 +98,9 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <hr>
 <div class="class-header">
 <h3>record HTTP_COOKED_URL</h3><a name="HTTP_COOKED_URL"></a></div>
+<hr>
+<div class="class-header">
+<h3>record SOCKADDR_IN6</h3><a name="SOCKADDR_IN6"></a></div>
 <hr>
 <div class="class-header">
 <h3>record HTTP_TRANSPORT_ADDRESS</h3><a name="HTTP_TRANSPORT_ADDRESS"></a></div>
@@ -145,6 +154,12 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <h3>record HTTP_CONNECTION_LIMIT_INFO</h3><a name="HTTP_CONNECTION_LIMIT_INFO"></a></div>
 <hr>
 <div class="class-header">
+<h3>record HTTP_BANDWIDTH_LIMIT_INFO</h3><a name="HTTP_BANDWIDTH_LIMIT_INFO"></a></div>
+<hr>
+<div class="class-header">
+<h3>record HTTP_TIMEOUT_LIMIT_INFO</h3><a name="HTTP_TIMEOUT_LIMIT_INFO"></a></div>
+<hr>
+<div class="class-header">
 <h3>record HTTP_BINDING_INFO</h3><a name="HTTP_BINDING_INFO"></a></div>
 <hr>
 <div class="class-header">
@@ -167,6 +182,15 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <hr>
 <div class="class-header">
 <h3>record HTTP_SERVICE_CONFIG_SSL_QUERY</h3><a name="HTTP_SERVICE_CONFIG_SSL_QUERY"></a></div>
+<hr>
+<div class="class-header">
+<h3>record HTTP_SERVICE_CONFIG_SSL_SNI_KEY</h3><a name="HTTP_SERVICE_CONFIG_SSL_SNI_KEY"></a></div>
+<hr>
+<div class="class-header">
+<h3>record HTTP_SERVICE_CONFIG_SSL_SNI_SET</h3><a name="HTTP_SERVICE_CONFIG_SSL_SNI_SET"></a></div>
+<hr>
+<div class="class-header">
+<h3>record HTTP_SERVICE_CONFIG_SSL_SNI_QUERY</h3><a name="HTTP_SERVICE_CONFIG_SSL_SNI_QUERY"></a></div>
 <hr>
 <h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
@@ -198,6 +222,8 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <div class="api-item">
 <div class="api-signature">function HttpSendResponseEntityBody(ReqQueueHandle: THandle; RequestId: HTTP_REQUEST_ID; Flags: ULONG; EntityChunkCount: USHORT; pEntityChunks: Pointer; var var: ULONG; pReserved1: Pointer; pReserved2: Pointer; pOverlapped: POverlapped; pLogData: Pointer): ULONG</div></div>
 <div class="api-item">
+<div class="api-signature">function HttpCancelHttpRequest(ReqQueueHandle: THandle; RequestId: HTTP_REQUEST_ID; pOverlapped: POverlapped): ULONG</div></div>
+<div class="api-item">
 <div class="api-signature">function HttpSetServiceConfiguration(ServiceHandle: THandle; ConfigId: DWORD; pConfigInformation: Pointer; ConfigInformationLength: ULONG; pOverlapped: Pointer): ULONG</div></div>
 <div class="api-item">
 <div class="api-signature">function HttpDeleteServiceConfiguration(ServiceHandle: THandle; ConfigId: DWORD; pConfigInformation: Pointer; ConfigInformationLength: ULONG; pOverlapped: Pointer): ULONG</div></div>
@@ -205,6 +231,12 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <div class="api-signature">function HttpQueryServiceConfiguration(ServiceHandle: THandle; ConfigId: DWORD; pInputConfigInfo: Pointer; InputConfigInfoLength: ULONG; pOutputConfigInfo: Pointer; OutputConfigInfoLength: ULONG; var var: ULONG; pOverlapped: Pointer): ULONG</div></div>
 <div class="api-item">
 <div class="api-signature">function HttpSetUrlGroupProperty(UrlGroupId: HTTP_URL_GROUP_ID; PropertyId: HTTP_SERVER_PROPERTY; pPropertyInformation: Pointer; PropertyInformationLength: ULONG): ULONG</div></div>
+<div class="api-item">
+<div class="api-signature">function HttpSetServerSessionProperty(ServerSessionId: HTTP_SERVER_SESSION_ID; PropertyId: HTTP_SERVER_PROPERTY; pPropertyInformation: Pointer; PropertyInformationLength: ULONG): ULONG</div></div>
+<div class="api-item">
+<div class="api-signature">function HttpSetRequestQueueProperty(Handle: THandle; PropertyId: HTTP_SERVER_PROPERTY; pPropertyInformation: Pointer; PropertyInformationLength: ULONG; Reserved: ULONG; pReserved: Pointer): ULONG</div></div>
+<div class="api-item">
+<div class="api-signature">function InetNtopW(Family: Integer; pAddr: Pointer; pStringBuf: PWideChar; StringBufSize: SIZE_T): PWideChar</div></div>
 </div>
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
@@ -231,6 +263,8 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <div class="api-signature">type HTTP_URL_CONTEXT = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type THttpVerb = enumeration</div><div class="enum-values">Values: HttpVerbUnparsed, HttpVerbUnknown, HttpVerbInvalid, HttpVerbOPTIONS, HttpVerbGET, HttpVerbHEAD, HttpVerbPOST, HttpVerbPUT, HttpVerbDELETE, HttpVerbTRACE, HttpVerbCONNECT, HttpVerbTRACK, HttpVerbMOVE, HttpVerbCOPY, HttpVerbPROPFIND, HttpVerbPROPPATCH, HttpVerbMKCOL, HttpVerbLOCK, HttpVerbUNLOCK, HttpVerbSEARCH, HttpVerbMaximum</div></div>
+<div class="api-item">
+<div class="api-signature">type PSOCKADDR_IN6 = pointer</div></div>
 <div class="api-item">
 <div class="api-signature">type PNetAddr = Type</div></div>
 <div class="api-item">
@@ -276,9 +310,13 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <div class="api-item">
 <div class="api-signature">type PHTTP_CONNECTION_LIMIT_INFO = pointer</div></div>
 <div class="api-item">
+<div class="api-signature">type PHTTP_BANDWIDTH_LIMIT_INFO = pointer</div></div>
+<div class="api-item">
+<div class="api-signature">type PHTTP_TIMEOUT_LIMIT_INFO = pointer</div></div>
+<div class="api-item">
 <div class="api-signature">type PHTTP_BINDING_INFO = pointer</div></div>
 <div class="api-item">
-<div class="api-signature">type HTTP_SERVICE_CONFIG_ID = enumeration</div><div class="enum-values">Values: HttpServiceConfigSslCertInfo, HttpServiceConfigUrlAclInfo, HttpServiceConfigTimeout, HttpServiceConfigMax</div></div>
+<div class="api-signature">type HTTP_SERVICE_CONFIG_ID = enumeration</div><div class="enum-values">Values: HttpServiceConfigIPListenList, HttpServiceConfigSslCertInfo, HttpServiceConfigUrlAclInfo, HttpServiceConfigTimeout, HttpServiceConfigCache, HttpServiceConfigSslSniCertInfo, HttpServiceConfigSslCcsCertInfo, HttpServiceConfigMax</div></div>
 <div class="api-item">
 <div class="api-signature">type PSOCKADDR_IN = pointer</div></div>
 <div class="api-item">
@@ -287,6 +325,8 @@ class HTTP_SERVICE_CONFIG_SSL_QUERY {}
 <div class="api-signature">type PHTTP_SERVICE_CONFIG_SSL_SET = pointer</div></div>
 <div class="api-item">
 <div class="api-signature">type HTTP_SERVICE_CONFIG_QUERY_TYPE = enumeration</div><div class="enum-values">Values: HttpServiceConfigQueryExact, HttpServiceConfigQueryNext, HttpServiceConfigQueryMax</div></div>
+<div class="api-item">
+<div class="api-signature">type PHTTP_SERVICE_CONFIG_SSL_SNI_SET = pointer</div></div>
 </div>
 
         </div>

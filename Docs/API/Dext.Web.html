@@ -457,7 +457,9 @@ class THttpAppBuilderHelper {    +CreateCorsOptions()
 <div class="api-item">
 <div class="api-signature">type TPathBaseMiddleware = Type</div><div class="description">Type alias for TDextPathBaseMiddleware.</div></div>
 <div class="api-item">
-<div class="api-signature">type AuthorizeAttribute = Type</div><div class="description">Attribute to require authentication or a specific policy.</div></div>
+<div class="api-signature">type AuthorizeAttribute = Type</div><div class="description">Attribute to require authentication or a specific role/scheme.</div></div>
+<div class="api-item">
+<div class="api-signature">type AuthorizePolicyAttribute = Type</div><div class="description">Attribute to require a named authorization policy.</div></div>
 <div class="api-item">
 <div class="api-signature">type AllowAnonymousAttribute = Type</div><div class="description">Attribute to skip authentication for a controller or method.</div></div>
 <div class="api-item">
@@ -568,6 +570,8 @@ class THttpAppBuilderHelper {    +CreateCorsOptions()
 <div class="api-signature">type THealthCheckService = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type THealthCheckMiddleware = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type THealthCheckOptions = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type THealthCheckBuilder = Type</div></div>
 <div class="api-item">
@@ -831,6 +835,10 @@ class THttpAppBuilderHelper {    +CreateCorsOptions()
 <div class="api-item">
 <div class="api-signature">type EValidationException = Type</div></div>
 <div class="api-item">
+<div class="api-signature">type EDomainException = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type EDomainValidationException = Type</div></div>
+<div class="api-item">
 <div class="api-signature">type TExceptionHandlerOptions = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type TExceptionHandlerBuilder = Type</div></div>
@@ -910,6 +918,14 @@ class THttpAppBuilderHelper {    +CreateCorsOptions()
 <div class="api-signature">type TContentResult = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type TStreamResult = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TCreatedResult = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TAcceptedResult = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TProblemDetailsResult = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TValidationProblemResult = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type TContextualResults = Type</div></div>
 <div class="api-item">

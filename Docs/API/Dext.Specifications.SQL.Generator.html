@@ -82,6 +82,7 @@ ISQLColumnMapper <|.. TSQLColumnMapper~T~
 class TSQLGeneratorHelper {    +GetCascadeSQL()
     +GetColumnNameForProperty()
     +GetRelatedTableAndPK()
+    +ResolveDialect()
 }
 TObject <|-- TSQLGeneratorHelper
 class TJoinTableSQLHelper {    +GenerateInsert()
@@ -103,6 +104,9 @@ class TSQLGenerator~T~ {    +Initialize()
     +QuoteColumnOrAlias()
     +QualifyBaseColumn()
     +TryUnwrapSmartValue()
+    +IsTenantAwareEntity()
+    +AppendTenantWhereParams()
+    +AppendTenantWhereTemplate()
     +Create()
     +Destroy()
     +GenerateInsertTemplate()
@@ -210,6 +214,8 @@ TObject <|-- TSQLParamCollector
 <div class="api-signature">function GetColumnNameForProperty(ATyp: TRttiType; const const: string; ANamingStrategy: INamingStrategy): string</div></div>
 <div class="api-item">
 <div class="api-signature">function GetRelatedTableAndPK(AClass: TClass; out out: string; out out: string; out out: string; ANamingStrategy: INamingStrategy): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function ResolveDialect(const const: ISQLDialect): TDatabaseDialect</div><div class="description">The dialect of ADialect, recognized from its quoting when GetDialect does not say.</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -291,6 +297,12 @@ TObject <|-- TSQLParamCollector
 <div class="api-signature">function QualifyBaseColumn(const const: string; const const: string; AHasJoins: Boolean): string</div></div>
 <div class="api-item">
 <div class="api-signature">function TryUnwrapSmartValue(var var: TValue): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function IsTenantAwareEntity: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AppendTenantWhereParams(SBWhere: TStringBuilder; var var: Boolean)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AppendTenantWhereTemplate(SBWhere: TStringBuilder; var var: Boolean; AWhereProps: IList)</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure Initialize(ADialect: ISQLDialect; AMap: TEntityMap; ATenantProvider: ITenantProvider)</div></div>
@@ -299,7 +311,7 @@ TObject <|-- TSQLParamCollector
 <div class="class-header">
 <h3>class TSQLParamCollector</h3><a name="TSQLParamCollector"></a><div class="ancestor">Inherits from: TObject</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">constructor Create(AParams: IDictionary)</div></div>
+<div class="api-signature">constructor Create(AParams: IDictionary; ADialect: TDatabaseDialect)</div><div class="description"><param name="ADialect">The dialect the cached statement was generated for: StartsWith / EndsWith / Contains escape their value per dialect.</param></div></div>
 <div class="api-item">
 <div class="api-signature">procedure Collect(const const: IExpression)</div></div>
 </div>

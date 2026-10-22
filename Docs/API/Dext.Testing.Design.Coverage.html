@@ -47,19 +47,30 @@
 <div class="mermaid-container">
 <div class="mermaid">
 classDiagram
-class TCoverageManager {    +ClearCoverage()
+class TCoverageFileSummary {    +Percent()
+}
+class TCoverageManager {    +NormalizePathKey()
+    +FindFileCoverage()
+    +FindLineCovering()
+    +ClearCoverage()
     +Create()
     +Destroy()
     +GetInstance()
     +LoadCoverageFromXML()
+    +LoadCoverageFromLcov()
     +GetLineState()
+    +GetDisplayLineState()
     +GetCoveringTests()
     +GetTestsCoveringFile()
+    +GetFileSummaries()
+    +FirstLineOfInterest()
+    +LoadedFileCount()
+    +Clear()
     +RegisterView()
     +UnregisterView()
     +RefreshActiveViews()
     +ShowCoveringTestsPopup()
-    +Test
+    +LastLoadedPath
 }
 TObject <|-- TCoverageManager
 class TEditorViewNotifier {    +Create()
@@ -95,84 +106,114 @@ IOTAKeyboardBinding <|.. TDextKeyboardBinding
 </details>
 <h2>API Details</h2>
 <div class="class-header">
-<h3>class TCoverageManager</h3><a name="TCoverageManager"></a><div class="ancestor">Inherits from: TObject</div></div>
+<h3>record TCoverageFileSummary</h3><a name="TCoverageFileSummary"></a><div class="description">Covered, uncovered and partial line counts for one source file.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">constructor Create</div></div>
+<div class="api-signature">function Percent: Double</div><div class="description">Covered lines divided by total lines, or zero when the file has no lines.</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class TCoverageManager</h3><a name="TCoverageManager"></a><div class="ancestor">Inherits from: TObject</div><div class="description">In-memory line coverage painted by the editor gutter.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create</div><div class="description">Creates an empty coverage map.</div></div>
 <div class="api-item">
-<div class="api-signature">destructor Destroy</div></div>
+<div class="api-signature">destructor Destroy</div><div class="description">Releases the coverage maps.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetInstance: TCoverageManager</div></div>
+<div class="api-signature">function GetInstance: TCoverageManager</div><div class="description">Process-wide coverage map used by the editor notifiers.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure LoadCoverageFromXML(const const: string)</div></div>
+<div class="api-signature">procedure LoadCoverageFromXML(const const: string; const const: string)</div><div class="description">Load Delphi Code Coverage XML. ASourceRoot rewrites paths when the report stored a different root.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetLineState(const const: string; ALineNumber: Integer): TCoverageLineState</div></div>
+<div class="api-signature">procedure LoadCoverageFromLcov(const const: string)</div><div class="description">LCOV from llvm-cov export -format=lcov. Hits &gt; 0 are covered lines.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetCoveringTests(const const: string; ALineNumber: Integer): TArray</div></div>
+<div class="api-signature">function GetLineState(const const: string; ALineNumber: Integer): TCoverageLineState</div><div class="description">Line state stored for this file and line, without filling gaps.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetTestsCoveringFile(const const: string): TList</div></div>
+<div class="api-signature">function GetDisplayLineState(const const: string; ALineNumber: Integer; const const: string): TCoverageLineState</div><div class="description">Like GetLineState, but fills begin/end gaps: when a line has no hit data but nearby instrumented lines share the same status, that status is used for painting. Blank lines (between methods) are never filled — pass the line text to enforce that.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure RegisterView(const const: IOTAEditView)</div></div>
+<div class="api-signature">function GetCoveringTests(const const: string; ALineNumber: Integer): TArray</div><div class="description">Test names recorded against this line.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure UnregisterView(const const: IOTAEditView)</div></div>
+<div class="api-signature">function GetTestsCoveringFile(const const: string): Dext.Collections.TList</div><div class="description">Distinct test names that hit any line of this file. The caller does not free the list.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure RefreshActiveViews</div></div>
+<div class="api-signature">function GetFileSummaries: TArray</div><div class="description">One summary per loaded file.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure ShowCoveringTestsPopup(const const: IOTAEditView; const const: TArray)</div></div>
+<div class="api-signature">function FirstLineOfInterest(const const: string; PreferUncovered: Boolean): Integer</div><div class="description">First uncovered line, or the first covered line when PreferUncovered is false.</div></div>
 <div class="api-item">
-<div class="api-signature">property Test: </div></div>
+<div class="api-signature">function LoadedFileCount: Integer</div><div class="description">How many source files are in the current map.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Clear</div><div class="description">Drop in-memory coverage and refresh editor gutters (failed/empty load).</div></div>
+<div class="api-item">
+<div class="api-signature">procedure RegisterView(const const: IOTAEditView)</div><div class="description">Attach the gutter notifier to an editor view.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UnregisterView(const const: IOTAEditView)</div><div class="description">Detach the gutter notifier. Safe when the view is already gone.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure RefreshActiveViews</div><div class="description">Ask every open editor view to repaint coverage.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ShowCoveringTestsPopup(const const: IOTAEditView; const const: TArray)</div><div class="description">Popup listing the tests that hit the current line.</div></div>
+<div class="api-item">
+<div class="api-signature">property LastLoadedPath: </div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">function NormalizePathKey(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function FindFileCoverage(const const: string; out out: Dext.Collections.Dict.TDictionary): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function FindLineCovering(const const: string; out out: Dext.Collections.Dict.TDictionary): Boolean</div></div>
+<div class="api-item">
 <div class="api-signature">procedure ClearCoverage</div></div>
 </div>
 <hr>
 <div class="class-header">
-<h3>class TEditorViewNotifier</h3><a name="TEditorViewNotifier"></a><div class="ancestor">Inherits from: TInterfacedObject</div></div>
+<h3>class TEditorViewNotifier</h3><a name="TEditorViewNotifier"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Paints coverage on one editor view. The IDE owns the notifier lifetime.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">constructor Create(const const: IOTAEditView)</div></div>
+<div class="api-signature">constructor Create(const const: IOTAEditView)</div><div class="description">Keeps the view this notifier paints.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure AfterSave</div></div>
+<div class="api-signature">procedure AfterSave</div><div class="description">OTA hook. The coverage notifier does not save the buffer.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure BeforeSave</div></div>
+<div class="api-signature">procedure BeforeSave</div><div class="description">OTA hook. The coverage notifier does not change the buffer before save.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Destroyed</div></div>
+<div class="api-signature">procedure Destroyed</div><div class="description">OTA hook. The IDE releases the notifier.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Modified</div></div>
+<div class="api-signature">procedure Modified</div><div class="description">OTA hook. A buffer edit does not reload coverage.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure EditorDestroyed(const const: IOTAEditView)</div></div>
+<div class="api-signature">procedure EditorDestroyed(const const: IOTAEditView)</div><div class="description">Drops the view when the editor closes.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FrameFormCreated(const const: TCustomFrame)</div></div>
+<div class="api-signature">procedure FrameFormCreated(const const: TCustomFrame)</div><div class="description">OTA hook. Coverage does not use the editor frame form.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure PaintLine(const const: IOTAEditView; LineNumber: Integer; const const: PAnsiChar; const const: Word; const const: TOTAAttributeArray; const const: TCanvas; const const: TRect; const const: TRect; const const: TSize)</div></div>
+<div class="api-signature">procedure PaintLine(const const: IOTAEditView; LineNumber: Integer; const const: PAnsiChar; const const: Word; const const: TOTAAttributeArray; const const: TCanvas; const const: TRect; const const: TRect; const const: TSize)</div><div class="description">Paints the covered or uncovered stripe for one source line.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure EditorIdle(const const: IOTAEditView)</div></div>
+<div class="api-signature">procedure EditorIdle(const const: IOTAEditView)</div><div class="description">OTA hook. Coverage paints in PaintLine.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure BeginPaint(const const: IOTAEditView; var var: Boolean)</div></div>
+<div class="api-signature">procedure BeginPaint(const const: IOTAEditView; var var: Boolean)</div><div class="description">OTA hook. The stripe is drawn per line.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure EndPaint(const const: IOTAEditView)</div></div>
+<div class="api-signature">procedure EndPaint(const const: IOTAEditView)</div><div class="description">OTA hook. Nothing to finish after the line paint.</div></div>
 </div>
 <hr>
 <div class="class-header">
-<h3>class TDextKeyboardBinding</h3><a name="TDextKeyboardBinding"></a><div class="ancestor">Inherits from: TInterfacedObject</div></div>
+<h3>class TDextKeyboardBinding</h3><a name="TDextKeyboardBinding"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Binds the shortcut that lists the tests covering the current line.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">procedure AfterSave</div></div>
+<div class="api-signature">procedure AfterSave</div><div class="description">OTA hook. The binding does not save a file.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure BeforeSave</div></div>
+<div class="api-signature">procedure BeforeSave</div><div class="description">OTA hook. The binding does not change a file before save.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Destroyed</div></div>
+<div class="api-signature">procedure Destroyed</div><div class="description">OTA hook. The IDE releases the binding.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Modified</div></div>
+<div class="api-signature">procedure Modified</div><div class="description">OTA hook. An edit does not change the binding.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetBindingType: TBindingType</div></div>
+<div class="api-signature">function GetBindingType: TBindingType</div><div class="description">Partial binding: the shortcut is added next to the IDE defaults.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetDisplayName: string</div></div>
+<div class="api-signature">function GetDisplayName: string</div><div class="description">Name shown in the IDE keyboard options.</div></div>
 <div class="api-item">
-<div class="api-signature">function GetName: string</div></div>
+<div class="api-signature">function GetName: string</div><div class="description">Internal binding name.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure BindKeyboard(const const: IOTAKeyBindingServices)</div></div>
+<div class="api-signature">procedure BindKeyboard(const const: IOTAKeyBindingServices)</div><div class="description">Registers the shortcut that opens the covering-tests popup.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure ShowCoveringTestsProc(const const: IOTAKeyContext; KeyCode: TShortcut; var var: TKeyBindingResult)</div></div>
+<div class="api-signature">procedure ShowCoveringTestsProc(const const: IOTAKeyContext; KeyCode: TShortcut; var var: TKeyBindingResult)</div><div class="description">Opens the popup for the line under the cursor.</div></div>
 </div>
 <hr>
+<h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">procedure RegisterCoverageEditorPainting</div><div class="description">Reserve IDE gutter column (D13+) so coverage is not painted over by the editor.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UnregisterCoverageEditorPainting</div></div>
+</div>
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
 <div class="api-signature">type TCoverageLineState = enumeration</div><div class="enum-values">Values: clsNone, clsCovered, clsUncovered, clsPartiallyCovered</div></div>

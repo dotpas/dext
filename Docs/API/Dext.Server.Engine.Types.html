@@ -51,6 +51,7 @@ class TServerEngineOptions {    +Default()
 }
 class TServerEngineOptionsHelper {    +WithHttps()
     +WithSslCertHash()
+    +WithSslBindingValidation()
     +WithIoThreads()
     +WithReceiveBufferSize()
     +WithMaxConnections()
@@ -60,6 +61,10 @@ class TServerEngineOptionsHelper {    +WithHttps()
     +WithMaxExecutorThreads()
     +WithMaxQueueCapacity()
     +WithOutstandingReceiveDepth()
+    +WithOutstandingReceives()
+    +WithQueueLength()
+    +WithMaxBandwidth()
+    +WithHttpSysTimeouts()
     +WithRequestSizeLimits()
     +WithPathBase()
 }
@@ -84,6 +89,8 @@ class TDextHttpParserCommon {    +FindByte()
 <div class="api-item">
 <div class="api-signature">function WithSslCertHash(const const: string): TServerEngineOptions</div><div class="description">Configures the SSL Certificate Hash (Thumbprint) for Windows Schannel / http.sys.</div></div>
 <div class="api-item">
+<div class="api-signature">function WithSslBindingValidation(AValue: Boolean): TServerEngineOptions</div><div class="description">Enables or disables the http.sys SSL binding validation at startup.</div></div>
+<div class="api-item">
 <div class="api-signature">function WithIoThreads(ACount: Integer): TServerEngineOptions</div><div class="description">Configures the number of worker I/O threads.</div></div>
 <div class="api-item">
 <div class="api-signature">function WithReceiveBufferSize(ASize: Integer): TServerEngineOptions</div><div class="description">Configures the connection socket read/receive buffer size.</div></div>
@@ -101,6 +108,14 @@ class TDextHttpParserCommon {    +FindByte()
 <div class="api-signature">function WithMaxQueueCapacity(ACapacity: Integer): TServerEngineOptions</div><div class="description">Configures max queue capacity for request executor.</div></div>
 <div class="api-item">
 <div class="api-signature">function WithOutstandingReceiveDepth(ADepth: Integer): TServerEngineOptions</div><div class="description">Configures outstanding Http.Sys receives per worker (1..8).</div></div>
+<div class="api-item">
+<div class="api-signature">function WithOutstandingReceives(ACount: Integer): TServerEngineOptions</div><div class="description">Configures the total outstanding Http.Sys receives (0 = one per logical processor, or workers x depth when IoThreadCount is set).</div></div>
+<div class="api-item">
+<div class="api-signature">function WithQueueLength(ALength: Integer): TServerEngineOptions</div><div class="description">Configures the http.sys request-queue length (0 = kernel default).</div></div>
+<div class="api-item">
+<div class="api-signature">function WithMaxBandwidth(ABytesPerSec: Integer): TServerEngineOptions</div><div class="description">Configures the http.sys max bandwidth in bytes/sec (0 = unlimited).</div></div>
+<div class="api-item">
+<div class="api-signature">function WithHttpSysTimeouts(AEntityBodySec: Integer; AHeaderWaitSec: Integer; ARequestQueueSec: Integer; ADrainEntityBodySec: Integer; AMinSendRate: Integer): TServerEngineOptions</div><div class="description">Configures http.sys kernel timeouts (seconds; 0 = system default).</div></div>
 <div class="api-item">
 <div class="api-signature">function WithRequestSizeLimits(AHeaderBytes: Integer; ABodyBytes: Int64): TServerEngineOptions</div><div class="description">Configures native request header and body size limits.</div></div>
 <div class="api-item">

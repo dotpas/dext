@@ -49,6 +49,7 @@
 classDiagram
 class TTestRunnerServerThread {    +TriggerTestResult()
     +QueueResult()
+    +DrainPendingToUi()
     +Execute()
     +Create()
     +Destroy()
@@ -88,6 +89,8 @@ TObject <|-- TTestRunnerServer
 <div class="api-signature">procedure TriggerTestResult(const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure QueueResult(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure DrainPendingToUi</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -111,11 +114,27 @@ TObject <|-- TTestRunnerServer
 <div class="api-signature">function GetPort: Word</div></div>
 </div>
 <hr>
+<h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">procedure BeginTestingDesignShutdown</div><div class="description">Call before unloading the Design package / freeing the Explorer form. Sets a flag so queued UI callbacks exit without touching freed code. Does not call RemoveQueuedEvents(nil) â€” that can hard-kill the IDE mid-build.</div></div>
+<div class="api-item">
+<div class="api-signature">function IsTestingDesignShuttingDown: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function IsDextTestExplorerEnabled: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetDextTestExplorerEnabled(AValue: Boolean)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure LoadDextTestExplorerEnabledFromIni</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetDextEnabledChangedHook(AHook: TDextEnabledChangedProc)</div></div>
+</div>
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
 <div class="api-signature">type TTestResultEvent = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type TGetSelectedTestsEvent = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TDextEnabledChangedProc = Type</div></div>
 </div>
 
         </div>

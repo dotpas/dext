@@ -52,6 +52,7 @@ class TRawOrderedDictionary {    +GetCount()
     +Create()
     +Destroy()
     +AddRaw()
+    +TryAddRaw()
     +AddOrSetRaw()
     +TryGetRaw()
     +ContainsKeyRaw()
@@ -77,6 +78,8 @@ TObject <|-- TRawOrderedDictionary
 <div class="api-signature">destructor Destroy</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddRaw(Key: Pointer; Value: Pointer)</div><div class="description">Appends a new pair. Raises if the key already exists.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryAddRaw(Key: Pointer; Value: Pointer): Boolean</div><div class="description">Appends a new pair if the key is not there yet, with a single lookup in the index. Returns False, and changes nothing, if the key exists.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddOrSetRaw(Key: Pointer; Value: Pointer)</div><div class="description">Adds a new pair (appended) or, if the key exists, updates its value in place without changing its position.</div></div>
 <div class="api-item">

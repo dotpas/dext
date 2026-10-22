@@ -53,7 +53,12 @@ class IEntityDataSetStore {    +ApplyChanges()
 class TDbContextEntityDataSetStore {    +GetEntityKeys()
     +ReadPropertyValue()
     +SetPropertyValue()
+    +StageChange()
+    +ApplyAtomic()
+    +ApplyEachItem()
+    +Create()
     +ApplyChanges()
+    +ContinueOnError
 }
 TInterfacedObject <|-- TDbContextEntityDataSetStore
 IEntityDataSetStore <|.. TDbContextEntityDataSetStore
@@ -76,7 +81,11 @@ TObject <|-- TEntityDataSetApi
 <div class="class-header">
 <h3>class TDbContextEntityDataSetStore</h3><a name="TDbContextEntityDataSetStore"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">DBContext-based store engine for persisting change logs.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">function ApplyChanges(AEntityClass: TClass; const const: IDextJsonArray; ADbContext: TDbContext): IList</div><div class="description">Persists changes using the ORM DbContext SaveChanges.</div></div>
+<div class="api-signature">constructor Create(AContinueOnError: Boolean)</div><div class="description">Creates the store. By default a batch is applied all-or-nothing.</div></div>
+<div class="api-item">
+<div class="api-signature">function ApplyChanges(AEntityClass: TClass; const const: IDextJsonArray; ADbContext: TDbContext): IList</div><div class="description">Persists changes using the ORM DbContext SaveChanges. By default the whole batch is staged and saved with a single SaveChanges, in one transaction (the context's own, or the caller's if one is open): if any item fails, nothing is applied and every item is reported as failed. With ContinueOnError each item is saved on its own.</div></div>
+<div class="api-item">
+<div class="api-signature">property ContinueOnError: </div><div class="description">Opt-in partial success: each item is saved with its own SaveChanges, and a failing item is detached so that later items do not retry it. Items applied before a failure stay committed. Default: False.</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">function GetEntityKeys(AEntity: TObject; Map: TEntityMap): IDictionary</div></div>
@@ -84,6 +93,12 @@ TObject <|-- TEntityDataSetApi
 <div class="api-signature">function ReadPropertyValue(AEntity: TObject; PropMap: TPropertyMap; out out: Variant): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SetPropertyValue(AEntity: TObject; PropMap: TPropertyMap; const const: Variant)</div></div>
+<div class="api-item">
+<div class="api-signature">function StageChange(AEntityClass: TClass; Map: TEntityMap; const const: IDextJsonObject; ADbContext: TDbContext): TObject</div></div>
+<div class="api-item">
+<div class="api-signature">function ApplyAtomic(AEntityClass: TClass; const const: IDextJsonArray; ADbContext: TDbContext): IList</div></div>
+<div class="api-item">
+<div class="api-signature">function ApplyEachItem(AEntityClass: TClass; const const: IDextJsonArray; ADbContext: TDbContext): IList</div></div>
 </div>
 <hr>
 <div class="class-header">

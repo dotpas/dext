@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.Testing.StackTrace - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.Testing.StackTrace</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class IDextStackTraceProvider {    +GetStackTrace()
+}
+class TDextDefaultStackTraceProvider {    +GetStackTrace()
+}
+TInterfacedObject <|-- TDextDefaultStackTraceProvider
+IDextStackTraceProvider <|.. TDextDefaultStackTraceProvider
+class TDextStackFrame {}
+class TDextStackTrace {    +GetProvider()
+    +SetProvider()
+}
+TObject <|-- TDextStackTrace
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>interface IDextStackTraceProvider</h3><a name="IDextStackTraceProvider"></a><div class="description">Supplies a stack trace string for a raised exception.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function GetStackTrace(const const: Exception): string</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class TDextDefaultStackTraceProvider</h3><a name="TDextDefaultStackTraceProvider"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Default provider: uses Exception.StackTrace (Dext.Core.Debug hooks), falling back to TStackTrace.Capture when empty.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function GetStackTrace(const const: Exception): string</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>record TDextStackFrame</h3><a name="TDextStackFrame"></a><div class="description">One parsed frame from a multi-line stack dump.</div></div>
+<hr>
+<div class="class-header">
+<h3>class TDextStackTrace</h3><a name="TDextStackTrace"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Access to the current stack-trace provider used by the test runner.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function GetProvider: IDextStackTraceProvider</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetProvider(const const: IDextStackTraceProvider)</div></div>
+</div>
+<hr>
+<h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">function FilterStackTrace(const const: string): string</div><div class="description">Removes noisy frames (SysUtils, Rtti, Runner, Attributes, Dext.MM, FastMM). If filtering would remove every line, returns the original stack.</div></div>
+<div class="api-item">
+<div class="api-signature">function ParseStackFrames(const const: string; AMaxFrames: Integer): TArray</div><div class="description">Parses common Delphi stack-trace line formats into structured frames.</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatStackTraceForDisplay(const const: string): string</div><div class="description">Normalizes a stack string for display: unwraps {"raw":"..."} JSON and turns escaped \r\n into real line breaks.</div></div>
+<div class="api-item">
+<div class="api-signature">function CleanStackMethodName(const const: string): string</div><div class="description">Strips MAP offsets like " + $9" / " + $4BE" from a method/symbol name.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SplitStackMethodAndFile(const const: string; out out: string; out out: string)</div><div class="description">Splits "Method @ File.cpp" / legacy "Method (File.cpp)" into columns. AMethod is never a path; AFileName is a leaf like SmokeDeep.cpp (may be '').</div></div>
+</div>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

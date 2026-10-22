@@ -63,6 +63,9 @@ EHttpException <|-- EForbiddenException
 class EValidationException {    +Create()
 }
 EHttpException <|-- EValidationException
+class EDomainException {    +Create()
+}
+EHttpException <|-- EDomainException
 class TExceptionHandlerOptions {    +Development()
     +Production()
 }
@@ -134,6 +137,12 @@ TMiddleware <|-- THttpLoggingMiddleware
 <h3>class EValidationException</h3><a name="EValidationException"></a><div class="ancestor">Inherits from: EHttpException</div><div class="description">Exception representing HTTP 400 Bad Request / Validation Failure.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: string)</div><div class="description">Creates a new validation exception.</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class EDomainException</h3><a name="EDomainException"></a><div class="ancestor">Inherits from: EHttpException</div><div class="description">Domain invariant / business-rule violation mapped to HTTP 422 Unprocessable Entity by <see cref="TExceptionHandlerMiddleware"/> (RFC 9457 Problem Details).</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string)</div><div class="description">Creates a domain exception (HTTP 422).</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -227,6 +236,10 @@ TMiddleware <|-- THttpLoggingMiddleware
 <div class="api-signature">function ExceptionHandlerOptions: TExceptionHandlerBuilder</div><div class="description">Factory function returning a fluent TExceptionHandlerBuilder instance.</div></div>
 <div class="api-item">
 <div class="api-signature">function HttpLoggingOptions: THttpLoggingBuilder</div><div class="description">Factory function returning a fluent THttpLoggingBuilder instance.</div></div>
+</div>
+<h2>Types</h2>
+<div class="visibility-group"><div class="api-item">
+<div class="api-signature">type EDomainValidationException = Type</div><div class="description">Alias for <see cref="EDomainException"/> emphasizing validation semantics.</div></div>
 </div>
 
         </div>

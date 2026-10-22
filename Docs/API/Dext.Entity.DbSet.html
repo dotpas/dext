@@ -74,6 +74,7 @@ class TDbSet~T~ {    +CreateGenerator()
     +GetRelatedId()
     +GetItem()
     +ApplyTenantFilter()
+    +StampCurrentTenant()
     +DoLoadIncludes()
     +Create()
     +Destroy()
@@ -351,6 +352,8 @@ TQueryIterator <|-- TStreamingViewIterator~T~
 <div class="api-signature">function GetItem(Index: Integer): T</div></div>
 <div class="api-item">
 <div class="api-signature">procedure ApplyTenantFilter(var var: ISpecification)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure StampCurrentTenant(const const: TObject)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure DoLoadIncludes(const const: IList; const const: TArray)</div></div>
 </div>

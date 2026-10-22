@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.AI.Graph.State - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.AI.Graph.State</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class TAgentState {    +CreateInternal()
+    +CloneMetadata()
+    +CloneMessages()
+    +ClonePendingCalls()
+    +Create()
+    +Destroy()
+    +WithMessage()
+    +WithMessages()
+    +WithPendingCalls()
+    +ClearPendingCalls()
+    +WithCurrentNode()
+    +WithIteration()
+    +NextIteration()
+    +AsDone()
+    +WithMeta()
+    +RestartAt()
+    +ClearDone()
+    +ToJson()
+    +FromJson()
+    +HasPendingCalls()
+    +LastMessage()
+    +GetMeta()
+    +Messages
+    +PendingCalls
+    +CurrentNode
+    +Iteration
+    +IsDone
+    +FinalAnswer
+    +ThreadId
+}
+TObject <|-- TAgentState
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>class TAgentState</h3><a name="TAgentState"></a><div class="ancestor">Inherits from: TObject</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">destructor Destroy</div></div>
+<div class="api-item">
+<div class="api-signature">function WithMessage(const const: TLLMMessage): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function WithMessages(const const: TArray): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function WithPendingCalls(const const: TArray): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function ClearPendingCalls: TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function WithCurrentNode(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function WithIteration(AIteration: Integer): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function NextIteration: TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function AsDone(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function WithMeta(const const: string; const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function RestartAt(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function ClearDone: TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function ToJson: string</div></div>
+<div class="api-item">
+<div class="api-signature">function FromJson(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function HasPendingCalls: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function LastMessage: TLLMMessage</div></div>
+<div class="api-item">
+<div class="api-signature">function GetMeta(const const: string; const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">property Messages: </div></div>
+<div class="api-item">
+<div class="api-signature">property PendingCalls: </div></div>
+<div class="api-item">
+<div class="api-signature">property CurrentNode: </div></div>
+<div class="api-item">
+<div class="api-signature">property Iteration: </div></div>
+<div class="api-item">
+<div class="api-signature">property IsDone: </div></div>
+<div class="api-item">
+<div class="api-signature">property FinalAnswer: </div></div>
+<div class="api-item">
+<div class="api-signature">property ThreadId: </div></div>
+</div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">constructor CreateInternal(const const: TArray; const const: TArray; const const: string; AIteration: Integer; AIsDone: Boolean; const const: string; AMetadata: TDictionary; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">function CloneMetadata: TDictionary</div></div>
+<div class="api-item">
+<div class="api-signature">function CloneMessages: TArray</div></div>
+<div class="api-item">
+<div class="api-signature">function ClonePendingCalls: TArray</div></div>
+</div>
+<hr>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

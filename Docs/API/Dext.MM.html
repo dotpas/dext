@@ -43,11 +43,15 @@
             <!-- Main Documentation Content Injected Here -->
             <h1>Unit Dext.MM</h1><h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
-<div class="api-signature">procedure EnableMemoryLeakReporting</div><div class="description">Enables memory leak reporting on application shutdown. Only effective when FastMM5 is enabled via DEXT_USE_FASTMM5 define.</div></div>
+<div class="api-signature">procedure EnableMemoryLeakReporting</div><div class="description">Enables memory leak reporting on application shutdown. Only effective when FastMM5 is enabled via DEXT_USE_FASTMM5 define. With DEXT_USE_MIMALLOC there is no leak report: the report belongs to the RTL memory manager, which then holds no block. Use mimalloc for release builds and the default manager to look for leaks.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure DisableMemoryLeakReporting</div><div class="description">Disables memory leak reporting on application shutdown.</div></div>
 <div class="api-item">
 <div class="api-signature">function IsFastMMEnabled: Boolean</div><div class="description">Returns True if FastMM5 is active (DEXT_USE_FASTMM5 is defined).</div></div>
+<div class="api-item">
+<div class="api-signature">function IsMiMallocEnabled: Boolean</div><div class="description">Returns True if mimalloc is the memory manager of the process: DEXT_USE_MIMALLOC is defined and Dext.MM installed it. It is not installed when another unit allocated before Dext.MM (Dext.MM is then not the first unit): a block allocated by the RTL manager and freed by mimalloc would corrupt the heap, so the RTL manager stays.</div></div>
+<div class="api-item">
+<div class="api-signature">function MiMallocVersion: Integer</div><div class="description">The version of the loaded mimalloc (for example 252 for 2.5.2), or 0 when mimalloc is not active.</div></div>
 </div>
 
         </div>

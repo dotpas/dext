@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.Dashboard.Security - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.Dashboard.Security</h1><h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">function DashboardToken: string</div><div class="description">The token of this dashboard process: 32 random bytes from the system generator, in hex, created once.</div></div>
+<div class="api-item">
+<div class="api-signature">function IsLocalHostHeader(const const: string): Boolean</div><div class="description">True when AHost names this machine: localhost, 127.0.0.1 or [::1], with or without a port. An empty Host is refused.</div></div>
+<div class="api-item">
+<div class="api-signature">function IsJsonContentType(const const: string): Boolean</div><div class="description">True when AContentType is application/json (any parameters).</div></div>
+<div class="api-item">
+<div class="api-signature">function IsPublicDashboardRequest(const const: string; const const: string): Boolean</div><div class="description">True for a request that does not need the token: the page and its assets, /health, and the posts that applications (telemetry) and the IDE (projects, flush) send without a browser.</div></div>
+<div class="api-item">
+<div class="api-signature">function SameDashboardToken(const const: string; const const: string): Boolean</div><div class="description">Compares two tokens in a time that does not depend on where they differ.</div></div>
+<div class="api-item">
+<div class="api-signature">function DashboardAccessStatus(const const: string; const const: string; const const: string; const const: string; ABodySize: Int64; const const: string): Integer</div><div class="description">The decision for one request: 0 when it may go on, otherwise the status to answer (403 or 415). ACookie is the value of the dashboard cookie ('' when absent).</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetDashboardCookie(const const: IHttpResponse)</div><div class="description">Gives the page the token cookie (call it when serving the page).</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UseDashboardSecurity(const const: IApplicationBuilder)</div><div class="description">Registers the three checks. Register it before every other route.</div></div>
+</div>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

@@ -55,8 +55,14 @@ class JsonNameAttribute {    +Create()
     +Name
 }
 DextJsonAttribute <|-- JsonNameAttribute
-class JsonIgnoreAttribute {}
+class JsonIgnoreAttribute {    +Create()
+    +IgnoresWrite()
+    +IgnoresRead()
+    +Mode
+}
 DextJsonAttribute <|-- JsonIgnoreAttribute
+class JsonPublishedOnlyAttribute {}
+DextJsonAttribute <|-- JsonPublishedOnlyAttribute
 class JsonFormatAttribute {    +Create()
     +Format
 }
@@ -68,9 +74,19 @@ DextJsonAttribute <|-- JsonNumberAttribute
 class JsonBooleanAttribute {}
 DextJsonAttribute <|-- JsonBooleanAttribute
 class TJsonUtils {    +ToCamelCase()
+    +IsDateType()
+    +DateToJsonText()
+    +IsNoDate()
+    +TryJsonTextToDate()
     +ToPascalCase()
     +ToSnakeCase()
     +ApplyCaseStyle()
+    +IsReadableDateFormat()
+    +TryParseDateWithFormat()
+    +SmartRecordFieldName()
+    +IsBytesType()
+    +BytesToBase64()
+    +TryBase64ToBytes()
 }
 class TDextJson {    +GetProvider()
     +GetInterfaceMappings()
@@ -88,6 +104,10 @@ class TDextJson {    +GetProvider()
     +Provider
 }
 TObject <|-- TDextJson
+class TJsonFieldFormat {    +IsSet()
+    +FromAttributes()
+    +Validate()
+}
 class TSerializationPlanItem {}
 class TRecordPlanItem {}
 class TRecordPlan {}
@@ -96,14 +116,20 @@ class TDextSerializer {    +Create()
     +Destroy()
     +CreateInstanceForDeserialization()
     +GetOrBuildPlan()
+    +WriteFormattedValue()
+    +ReadFormattedValue()
     +GetOrBuildRecordPlan()
     +ResolveFieldName()
     +SerializeObjectWithPlan()
+    +TryReadBytesRoot()
+    +ParseJson()
     +GetFieldName()
     +GetRecordName()
     +SerializeRecord()
     +SerializeObject()
     +ShouldSkipField()
+    +SetDateMember()
+    +AddDateElement()
     +JsonToValue()
     +ValueToJson()
     +DeserializeArray()
@@ -161,7 +187,21 @@ TObject <|-- TJsonBuilder
 </div>
 <hr>
 <div class="class-header">
-<h3>class JsonIgnoreAttribute</h3><a name="JsonIgnoreAttribute"></a><div class="ancestor">Inherits from: DextJsonAttribute</div><div class="description">Indicates that a field should be ignored during serialization and deserialization.</div></div>
+<h3>class JsonIgnoreAttribute</h3><a name="JsonIgnoreAttribute"></a><div class="ancestor">Inherits from: DextJsonAttribute</div><div class="description">Indicates that a field should be ignored during serialization and deserialization, or in one direction only with a TJsonIgnoreMode: [JsonIgnore(TJsonIgnoreMode.OnRead)].</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create</div></div>
+<div class="api-item">
+<div class="api-signature">constructor Create(AMode: TJsonIgnoreMode)</div></div>
+<div class="api-item">
+<div class="api-signature">function IgnoresWrite: Boolean</div><div class="description">True when the member is not written to the JSON.</div></div>
+<div class="api-item">
+<div class="api-signature">function IgnoresRead: Boolean</div><div class="description">True when the member is not read from the JSON.</div></div>
+<div class="api-item">
+<div class="api-signature">property Mode: </div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class JsonPublishedOnlyAttribute</h3><a name="JsonPublishedOnlyAttribute"></a><div class="ancestor">Inherits from: DextJsonAttribute</div><div class="description">On a class: only its published properties are serialized. Public properties stay working members that never reach the JSON. Inherited by subclasses.</div></div>
 <hr>
 <div class="class-header">
 <h3>class JsonFormatAttribute</h3><a name="JsonFormatAttribute"></a><div class="ancestor">Inherits from: DextJsonAttribute</div><div class="description">Specifies a custom format string for date/time fields.</div></div>
@@ -185,11 +225,33 @@ TObject <|-- TJsonBuilder
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">function ToCamelCase(const const: string): string</div></div>
 <div class="api-item">
+<div class="api-signature">function IsDateType(AType: PTypeInfo): Boolean</div><div class="description">True for TDateTime, TDate and TTime.</div></div>
+<div class="api-item">
+<div class="api-signature">function DateToJsonText(const const: TDateTime; AType: PTypeInfo; const const: TJsonSettings): string</div><div class="description">The JSON text of a date, the same on every path. With TDateFormat.ISO8601 (the default) the standard (RFC 3339 / ISO 8601): a TDateTime is the local time with its UTC offset ("2026-07-15T10:30:00.000+02:00", Dext.Core.DateUtils.FormatJsonDateTime), a TDate the calendar day ("2026-07-15"), a TTime the wall clock ("10:30:00.000"). Otherwise FormatDateTime(ASettings.DateFormat), as before (records write TDateFormat.UnixTimestamp as a number).</div></div>
+<div class="api-item">
+<div class="api-signature">function IsNoDate(const const: TDateTime; AType: PTypeInfo; const const: TJsonSettings): Boolean</div><div class="description">True when a date is written as null: a TDateTime or TDate that is 0 ("no date") with ZeroDateAsNull, the default, or one of the NullDates. A TTime never is: 0 is midnight there. Every path that writes a date asks this first.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryJsonTextToDate(const const: string; AType: PTypeInfo; out out: TDateTime): Boolean</div><div class="description">Reads a JSON date for a TDateTime, TDate or TTime: the standard forms first (a 'Z' or an offset is converted to local time, no zone is local time; Dext.Core.DateUtils.TryParseJsonDateTime / TryParseJsonTime), then the other forms TryParseCommonDate knows. A TDate keeps the day, a TTime the time of day.</div></div>
+<div class="api-item">
 <div class="api-signature">function ToPascalCase(const const: string): string</div></div>
 <div class="api-item">
 <div class="api-signature">function ToSnakeCase(const const: string): string</div></div>
 <div class="api-item">
 <div class="api-signature">function ApplyCaseStyle(const const: string; Style: TCaseStyle): string</div></div>
+<div class="api-item">
+<div class="api-signature">function IsReadableDateFormat(const const: string): Boolean</div><div class="description">True when a [JsonFormat] date format can be read back: made of yyyy yy mm m dd d hh h nn n ss s zzz z and of fixed text (in quotes, or characters that are not letters). Month and day names, am/pm and the other FormatDateTime letters are written but cannot be read.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryParseDateWithFormat(const const: string; const const: string; out out: TDateTime): Boolean</div><div class="description">Reads AText with a [JsonFormat] date format (see IsReadableDateFormat): the digits of each part, the fixed text equal. A part the format does not have takes the value of 1899-12-30 00:00. False when the text does not match or is not a valid date or time.</div></div>
+<div class="api-item">
+<div class="api-signature">function SmartRecordFieldName(const const: string): string</div><div class="description">The JSON name of a record field under SmartRecordMapping. A backing field, 'F' followed by an uppercase letter or '_' (FName, FValue, F_Note), loses the 'F'; any other name is left as it is (Flag, Format, Fee, Fattura). One rule for the record plan and GetFieldName. </summary></div></div>
+<div class="api-item">
+<div class="api-signature">function IsBytesType(AType: PTypeInfo): Boolean</div><div class="description">True for a byte array: TBytes, TArray&lt;Byte&gt; or any other dynamic array of Byte. In JSON it is binary data, written as Base64.</div></div>
+<div class="api-item">
+<div class="api-signature">function BytesToBase64(const const: TBytes): string</div><div class="description">Base64 on one line, with padding (RFC 4648, TNetEncoding.Base64String): not the MIME form, which breaks the line every 76 characters.</div></div>
+<div class="api-item">
+<div class="api-signature">function BytesToBase64(AData: Pointer; ASize: Integer): string</div></div>
+<div class="api-item">
+<div class="api-signature">function TryBase64ToBytes(const const: string; out out: TBytes): Boolean</div><div class="description">Base64 (RFC 4648) to bytes. Also accepted: without the final '=', with line breaks and spaces (the MIME form), and the URL alphabet ('-' and '_'). False for any other character, the two alphabets mixed, a '=' that is not at the end, or an impossible length, so that a text that is not Base64 is not turned into random bytes. An empty text is an empty array.</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -244,6 +306,16 @@ TObject <|-- TJsonBuilder
 </div>
 <hr>
 <div class="class-header">
+<h3>record TJsonFieldFormat</h3><a name="TJsonFieldFormat"></a><div class="description">The format attributes of a field or property: [JsonFormat], [JsonString], [JsonNumber], [JsonBoolean] (#262). They work the same on classes and records, when writing and when reading; the plan checks them when it is built (Validate).</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function IsSet: Boolean</div><div class="description">True when one of the four attributes is present.</div></div>
+<div class="api-item">
+<div class="api-signature">function FromAttributes(const const: TArray): TJsonFieldFormat</div><div class="description">The format attributes among AAttributes.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Validate(AType: PTypeInfo; const const: string; const const: string)</div><div class="description">Raises EDextJsonException when the attributes cannot work on AType: more than one of them, [JsonFormat] not on a date or with a format that cannot be read back, [JsonString] not on a number or Boolean, [JsonNumber] not on a string, [JsonBoolean] not on an integer.</div></div>
+</div>
+<hr>
+<div class="class-header">
 <h3>record TSerializationPlanItem</h3><a name="TSerializationPlanItem"></a><div class="description">Pre-computed serialization metadata for a single property. Built once per type, reused across all instances.</div></div>
 <hr>
 <div class="class-header">
@@ -282,6 +354,10 @@ TObject <|-- TJsonBuilder
 <div class="api-signature">function SerializeObject(const const: TValue): IDextJsonObject</div></div>
 <div class="api-item">
 <div class="api-signature">function ShouldSkipField(AField: TRttiField; const const: TValue): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetDateMember(const const: IDextJsonObject; const const: string; const const: TDateTime; AType: PTypeInfo)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AddDateElement(const const: IDextJsonArray; const const: TDateTime; AType: PTypeInfo)</div></div>
 <div class="api-item">
 <div class="api-signature">function JsonToValue(AJson: IDextJsonObject; AType: PTypeInfo): TValue</div></div>
 <div class="api-item">
@@ -324,11 +400,19 @@ TObject <|-- TJsonBuilder
 <div class="api-item">
 <div class="api-signature">function GetOrBuildPlan(AType: PTypeInfo): PSerializationPlan</div></div>
 <div class="api-item">
+<div class="api-signature">procedure WriteFormattedValue(const const: IDextJsonObject; const const: string; const const: TValue; AType: PTypeInfo; const const: TJsonFieldFormat)</div><div class="description">Writes AValue with its format attributes (#262): [JsonFormat] with the invariant settings, [JsonString] as a string, [JsonNumber] as a number (empty text as null, text that is not a number as it is), [JsonBoolean] as true/false.</div></div>
+<div class="api-item">
+<div class="api-signature">function ReadFormattedValue(const const: IDextJsonNode; AType: PTypeInfo; const const: TJsonFieldFormat; out out: TValue): Boolean</div><div class="description">Reads ANode with its format attributes (#262). False when the node is in the normal form (a number for [JsonString], a standard date for [JsonFormat]...): the normal reading takes it, so both forms are read.</div></div>
+<div class="api-item">
 <div class="api-signature">function GetOrBuildRecordPlan(AType: PTypeInfo): PRecordPlan</div></div>
 <div class="api-item">
 <div class="api-signature">function ResolveFieldName(Item: PRecordPlanItem): string</div></div>
 <div class="api-item">
 <div class="api-signature">function SerializeObjectWithPlan(Obj: TObject; const const: TSerializationPlan): IDextJsonObject</div></div>
+<div class="api-item">
+<div class="api-signature">function TryReadBytesRoot(const const: string; AType: PTypeInfo; out out: TValue): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function ParseJson(const const: string): IDextJsonNode</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -386,6 +470,8 @@ TObject <|-- TJsonBuilder
 <div class="api-item">
 <div class="api-signature">type TDextJsonWriteProc = Type</div><div class="description">Non-capturing sink callback for direct UTF-8 serialization.</div></div>
 <div class="api-item">
+<div class="api-signature">type TJsonIgnoreMode = enumeration</div><div class="enum-values">Values: Always, OnWrite, OnRead</div></div>
+<div class="api-item">
 <div class="api-signature">type TDextCaseStyle = Type</div><div class="description">Deprecated alias for TCaseStyle.</div></div>
 <div class="api-item">
 <div class="api-signature">type TDextEnumStyle = Type</div><div class="description">Deprecated alias for TEnumStyle.</div></div>
@@ -396,7 +482,7 @@ TObject <|-- TJsonBuilder
 <div class="api-item">
 <div class="api-signature">type TDextSettings = Type</div><div class="description">Deprecated alias for TJsonSettings.</div></div>
 <div class="api-item">
-<div class="api-signature">type TSerializeKind = enumeration</div><div class="enum-values">Values: skInteger, skFloat, skDateTime, skString, skBoolean, skEnumAsString, skEnumAsNumber, skRecord, skRecordGUID, skRecordUUID, skClass, skList, skDynArray, skInterface, skUnknown</div><div class="description">Classification of how a property should be serialized. Pre-computed once per type to avoid repeated RTTI dispatch.</div></div>
+<div class="api-signature">type TSerializeKind = enumeration</div><div class="enum-values">Values: skInteger, skFloat, skDateTime, skString, skBoolean, skEnumAsString, skEnumAsNumber, skRecord, skRecordGUID, skRecordUUID, skClass, skList, skDynArray, skBytes, skInterface, skUnknown</div><div class="description">Classification of how a property should be serialized. Pre-computed once per type to avoid repeated RTTI dispatch.</div></div>
 <div class="api-item">
 <div class="api-signature">type PSerializationPlanItem = pointer</div></div>
 <div class="api-item">

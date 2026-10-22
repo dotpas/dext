@@ -43,11 +43,29 @@
             <!-- Main Documentation Content Injected Here -->
             <h1>Unit Dext.Core.DateUtils</h1><h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
-<div class="api-signature">function TryParseISODateTime(const const: string; out out: TDateTime): Boolean</div><div class="description">Tries to parse an ISO 8601 date/time string.</div></div>
+<div class="api-signature">function TryParseISODateTime(const const: string; out out: TDateTime): Boolean</div><div class="description">Tries to parse an ISO 8601 date/time string. The standard forms are read by TryParseJsonDateTime (a UTC offset or 'Z' is converted to local time); other forms as before.</div></div>
 <div class="api-item">
 <div class="api-signature">function TryParseCommonDate(const const: string; out out: TDateTime): Boolean</div><div class="description">Tries to parse a date/time string using common formats (ISO, dd/mm/yyyy, etc). Uses the system's default FormatSettings.</div></div>
 <div class="api-item">
 <div class="api-signature">function TryParseCommonDate(const const: string; out out: TDateTime; const const: TFormatSettings): Boolean</div><div class="description">Tries to parse a date/time string using the provided FormatSettings.</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonDateTime(const const: TDateTime): string</div><div class="description">A TDateTime as JSON text, RFC 3339 / ISO 8601: the LOCAL time with its offset from UTC, "2026-07-15T10:30:00.000+02:00" ("Z" when the offset is zero). The digits are the wall clock, so a reader that ignores the offset still shows 10:30; the offset gives the instant, also in the hour that repeats when daylight saving time ends. The offset is taken in whole minutes and kept per calendar year (per thread): the system is asked about 25 times for a year, to find the days the offset changes on, not for each value, however far apart the values are. On the two days around a change, and before 1900, it is asked for each value. A local time that does not exist (in the hour skipped when daylight saving time starts) takes the offset the system gives it.</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonDateTimeBuffer(const const: TDateTime; ABuffer: PChar): Integer</div><div class="description">FormatJsonDateTime written into ABuffer, which must hold at least JsonDateTimeMaxChars characters. Returns the number of characters.</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonDate(const const: TDateTime): string</div><div class="description">A TDate as JSON text: the calendar day, "2026-07-15".</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonDateBuffer(const const: TDateTime; ABuffer: PChar): Integer</div><div class="description">FormatJsonDate written into ABuffer, which must hold at least JsonDateChars characters. Returns JsonDateChars.</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonTime(const const: TDateTime): string</div><div class="description">A TTime as JSON text: the wall clock, "10:30:00.000".</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatJsonTimeBuffer(const const: TDateTime; ABuffer: PChar): Integer</div><div class="description">FormatJsonTime written into ABuffer, which must hold at least JsonTimeChars characters. Returns JsonTimeChars.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryGetLocalUtcOffset(const const: TDateTime; out out: Integer): Boolean</div><div class="description">The offset of a LOCAL date and time from UTC, in whole minutes (local minus UTC: +120 in Rome in July). False if the system cannot tell.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryParseJsonDateTime(const const: string; out out: TDateTime): Boolean</div><div class="description">Reads a JSON date and time as LOCAL time. Accepted: "yyyy-mm-dd", and "yyyy-mm-ddThh:nn[:ss[.fff]]" (also with a space instead of 'T') with an optional zone: 'Z' or an offset (+hh:mm, +hhmm, +hh) is converted to the local time of this machine; no zone is local time already. False for anything else.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryParseJsonTime(const const: string; out out: TDateTime): Boolean</div><div class="description">Reads a JSON time of day: "hh:nn[:ss[.fff]]" (a zone after it is ignored: a time of day has none), or a whole date and time, of which the local time of day is taken. False for anything else.</div></div>
 </div>
 
         </div>

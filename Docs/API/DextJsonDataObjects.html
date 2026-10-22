@@ -235,6 +235,8 @@ class TJsonBaseObject {    +StrToJSONStr()
     +GetStreamBytes()
     +InternToJSON()
     +NewInstance()
+    +GetDefaultMaxDepth()
+    +SetDefaultMaxDepth()
     +ParseUtf8()
     +ParseUtf8Bytes()
     +Parse()
@@ -254,6 +256,7 @@ class TJsonBaseObject {    +StrToJSONStr()
     +JSONToDateTime()
     +DateTimeToJSON()
     +UtcDateTimeToJSON()
+    +DefaultMaxDepth
 }
 TObject <|-- TJsonBaseObject
 class TJsonPrimitiveValue {    +GetValue()
@@ -882,17 +885,21 @@ TJsonBaseObject <|-- TJsonObject
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">function NewInstance: TObject</div></div>
 <div class="api-item">
-<div class="api-signature">function ParseUtf8(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">function GetDefaultMaxDepth: Integer</div></div>
 <div class="api-item">
-<div class="api-signature">function ParseUtf8(const const: UTF8String; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">procedure SetDefaultMaxDepth(const const: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">function ParseUtf8Bytes(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">function ParseUtf8(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
 <div class="api-item">
-<div class="api-signature">function Parse(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">function ParseUtf8(const const: UTF8String; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
 <div class="api-item">
-<div class="api-signature">function Parse(const const: string; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">function ParseUtf8Bytes(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
 <div class="api-item">
-<div class="api-signature">function Parse(const const: TBytes; Encoding: TEncoding; ByteIndex: Integer; ByteCount: Integer; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
+<div class="api-signature">function Parse(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
+<div class="api-item">
+<div class="api-signature">function Parse(const const: string; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
+<div class="api-item">
+<div class="api-signature">function Parse(const const: TBytes; Encoding: TEncoding; ByteIndex: Integer; ByteCount: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer): TJsonBaseObject</div></div>
 <div class="api-item">
 <div class="api-signature">function ParseFromFile(const const: string; Utf8WithoutBOM: Boolean; AProgress: PJsonReaderProgressRec): TJsonBaseObject</div></div>
 <div class="api-item">
@@ -914,15 +921,15 @@ TJsonBaseObject <|-- TJsonObject
 <div class="api-item">
 <div class="api-signature">procedure SaveToLines(Lines: TStrings; const const: TJsonSerializationConfig)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FromUtf8JSON(const const: UTF8String; AProgress: PJsonReaderProgressRec)</div></div>
+<div class="api-signature">procedure FromUtf8JSON(const const: UTF8String; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FromUtf8JSON(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec)</div></div>
+<div class="api-signature">procedure FromUtf8JSON(S: PAnsiChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FromUtf8JSON(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec)</div></div>
+<div class="api-signature">procedure FromUtf8JSON(S: PByte; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FromJSON(const const: UnicodeString; AProgress: PJsonReaderProgressRec)</div></div>
+<div class="api-signature">procedure FromJSON(const const: UnicodeString; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure FromJSON(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec)</div></div>
+<div class="api-signature">procedure FromJSON(S: PWideChar; Len: Integer; AProgress: PJsonReaderProgressRec; AMaxDepth: Integer)</div></div>
 <div class="api-item">
 <div class="api-signature">function ToJSON(Compact: Boolean): string</div></div>
 <div class="api-item">
@@ -945,6 +952,8 @@ TJsonBaseObject <|-- TJsonObject
 <div class="api-signature">function DateTimeToJSON(const const: TDateTime; UseUtcTime: Boolean): string</div></div>
 <div class="api-item">
 <div class="api-signature">function UtcDateTimeToJSON(const const: TDateTime): string</div></div>
+<div class="api-item">
+<div class="api-signature">property DefaultMaxDepth: </div></div>
 </div>
 <div class="visibility-group"><h5>PROTECTED</h5><div class="api-item">
 <div class="api-signature">procedure InternToJSON(var var: TJsonOutputWriter)</div></div>

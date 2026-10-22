@@ -57,6 +57,7 @@ TObject <|-- TUtf8JsonSerializerCache
 class TUtf8JsonSerializer {    +GetRecordInfo()
     +DeserializeRecord()
     +DeserializeFieldDirect()
+    +ReadBytes()
     +Deserialize~T~()
 }
 </div>
@@ -89,6 +90,8 @@ class TUtf8JsonSerializer {    +GetRecordInfo()
 <div class="api-signature">procedure DeserializeRecord(var var: TUtf8JsonReader; AType: PTypeInfo; AInstance: Pointer)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure DeserializeFieldDirect(var var: TUtf8JsonReader; const const: TJsonFieldInfo; Instance: Pointer)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ReadBytes(var var: TUtf8JsonReader; const const: TJsonFieldInfo; P: Pointer)</div></div>
 </div>
 <hr>
 <h2>Types</h2>

@@ -127,9 +127,11 @@ class TJsonPrimitiveAdapter {    +Create()
 }
 TInterfacedObject <|-- TJsonPrimitiveAdapter
 IDextJsonNode <|.. TJsonPrimitiveAdapter
-class TJsonDataObjectsProvider {    +CreateObject()
+class TJsonDataObjectsProvider {    +Create()
+    +CreateObject()
     +CreateArray()
     +Parse()
+    +MaxDepth
 }
 TInterfacedObject <|-- TJsonDataObjectsProvider
 IDextJsonProvider <|.. TJsonDataObjectsProvider
@@ -304,11 +306,15 @@ IDextJsonProvider <|.. TJsonDataObjectsProvider
 <div class="class-header">
 <h3>class TJsonDataObjectsProvider</h3><a name="TJsonDataObjectsProvider"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Provider implementation using the external DextJsonDataObjects library.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(AMaxDepth: Integer)</div><div class="description">Initializes the JsonDataObjects provider with a custom or default maximum nesting depth.</div></div>
+<div class="api-item">
 <div class="api-signature">function CreateObject: IDextJsonObject</div></div>
 <div class="api-item">
 <div class="api-signature">function CreateArray: IDextJsonArray</div></div>
 <div class="api-item">
 <div class="api-signature">function Parse(const const: string): IDextJsonNode</div></div>
+<div class="api-item">
+<div class="api-signature">property MaxDepth: </div><div class="description">Gets or sets the maximum nesting depth for JSON parsing.</div></div>
 </div>
 <hr>
 

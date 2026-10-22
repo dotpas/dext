@@ -64,7 +64,11 @@ class THealthCheckService {    +Create()
 }
 TInterfacedObject <|-- THealthCheckService
 IHealthCheckService <|.. THealthCheckService
-class THealthCheckMiddleware {    +Create()
+class THealthCheckOptions {    +Default()
+}
+class THealthCheckMiddleware {    +WriteLiveResponse()
+    +WriteChecksResponse()
+    +Create()
     +Invoke()
 }
 TMiddleware <|-- THealthCheckMiddleware
@@ -115,11 +119,24 @@ class THealthCheckBuilder {    +Create()
 </div>
 <hr>
 <div class="class-header">
-<h3>class THealthCheckMiddleware</h3><a name="THealthCheckMiddleware"></a><div class="ancestor">Inherits from: TMiddleware</div><div class="description">Middleware that intercepts "/health" endpoint requests and returns system status in JSON. Registered as Singleton in the DI container. Receives IHealthCheckService via constructor injection.</div></div>
+<h3>record THealthCheckOptions</h3><a name="THealthCheckOptions"></a><div class="description">Path options for health probe endpoints (Kubernetes-style live/ready + aggregate).</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function Default: THealthCheckOptions</div><div class="description">Returns the framework defaults for health probe paths.</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class THealthCheckMiddleware</h3><a name="THealthCheckMiddleware"></a><div class="ancestor">Inherits from: TMiddleware</div><div class="description">Middleware that intercepts health probe paths and returns system status in JSON. Defaults: <c>/health</c> (aggregate), <c>/health/live</c> (liveness), <c>/health/ready</c> (readiness). Registered as Singleton in the DI container. Receives IHealthCheckService via constructor injection.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(AService: IHealthCheckService)</div></div>
 <div class="api-item">
+<div class="api-signature">constructor Create(AService: IHealthCheckService; const const: THealthCheckOptions)</div><div class="description">Creates middleware with custom probe paths.</div></div>
+<div class="api-item">
 <div class="api-signature">procedure Invoke(AContext: IHttpContext; ANext: TRequestDelegate)</div></div>
+</div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">procedure WriteLiveResponse(AContext: IHttpContext)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure WriteChecksResponse(AContext: IHttpContext)</div></div>
 </div>
 <hr>
 <div class="class-header">

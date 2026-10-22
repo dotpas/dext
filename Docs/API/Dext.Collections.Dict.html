@@ -105,6 +105,7 @@ class TDictionary~K__V~ {    +GetCount()
     +Destroy()
     +GetEnumerator()
     +Add()
+    +TryAdd()
     +AddOrSetValue()
     +TryGetValue()
     +ContainsKey()
@@ -262,6 +263,8 @@ IStringDictionary <|.. TDextStringDictionary
 <div class="api-signature">function GetEnumerator: TDictionaryEnumerator</div><div class="description">Returns a Record-based enumerator for high performance in for-in loops.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Add(const const: K; const const: V)</div></div>
+<div class="api-item">
+<div class="api-signature">function TryAdd(const const: K; const const: V): Boolean</div><div class="description">Adds the pair if the key is not there yet, with a single lookup. Returns False, and changes nothing, if the key already exists: with OwnsValues the dictionary does not take the refused value.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddOrSetValue(const const: K; const const: V)</div></div>
 <div class="api-item">

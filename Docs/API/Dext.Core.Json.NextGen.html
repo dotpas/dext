@@ -49,6 +49,8 @@
 classDiagram
 class EJsonException {}
 Exception <|-- EJsonException
+class EJsonParserException {}
+EJsonException <|-- EJsonParserException
 class IJSONBufferOwner {}
 class TJSONBufferOwner {    +Create()
 }
@@ -59,6 +61,7 @@ class IDextJsonNodeGetter {    +GetSelf()
 class TJsonBaseObject {    +QueryInterface()
     +_AddRef()
     +_Release()
+    +AdoptManualLifetime()
     +Create()
     +GetSelf()
     +Parse()
@@ -74,6 +77,7 @@ class TNextGenJsonValue {    +GetNodeRef()
     +SetNodeRef()
     +Init()
     +SetStrValue()
+    +FreeNode()
     +AsString()
     +AsInteger()
     +AsInt64()
@@ -87,7 +91,8 @@ class TNextGenJsonValue {    +GetNodeRef()
 class TNextGenJsonPair {}
 class TJsonLookupTable {    +Create()
 }
-class TNextGenJsonParser {    +ScanString()
+class TNextGenJsonParser {    +CheckDepth()
+    +ScanString()
     +ParseNumber()
     +ParseInt64()
     +ParseValue()
@@ -116,6 +121,7 @@ class TJsonObject {    +BuildHash()
     +SetA()
     +GetTypes()
     +_Release()
+    +AdoptManualLifetime()
     +Create()
     +Destroy()
     +AddPair()
@@ -157,6 +163,8 @@ class TJsonObject {    +BuildHash()
     +A
     +Types
     +Count
+    +Names
+    +Nodes
 }
 TJsonBaseObject <|-- TJsonObject
 IDextJsonNode <|.. TJsonObject
@@ -175,6 +183,7 @@ class TJsonArray {    +GetS()
     +GetA()
     +GetTypes()
     +_Release()
+    +AdoptManualLifetime()
     +Create()
     +Add()
     +Destroy()
@@ -212,6 +221,7 @@ TJsonBaseObject <|-- TJsonArray
 IDextJsonNode <|.. TJsonArray
 IDextJsonArray <|.. TJsonArray
 class TNextGenJsonPrimitive {    +Create()
+    +Destroy()
     +GetNodeType()
     +AsString()
     +AsInteger()
@@ -253,9 +263,11 @@ class TNextGenJsonWriter {    +EnsureCapacity()
     +Buffer
     +Length
 }
-class TNextGenJsonProvider {    +CreateObject()
+class TNextGenJsonProvider {    +Create()
+    +CreateObject()
     +CreateArray()
     +Parse()
+    +MaxDepth
 }
 TInterfacedObject <|-- TNextGenJsonProvider
 IDextJsonProvider <|.. TNextGenJsonProvider
@@ -265,6 +277,9 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <h2>API Details</h2>
 <div class="class-header">
 <h3>class EJsonException</h3><a name="EJsonException"></a><div class="ancestor">Inherits from: Exception</div></div>
+<hr>
+<div class="class-header">
+<h3>class EJsonParserException</h3><a name="EJsonParserException"></a><div class="ancestor">Inherits from: EJsonException</div><div class="description">Exception raised when JSON syntax is invalid or maximum nesting depth is exceeded.</div></div>
 <hr>
 <div class="class-header">
 <h3>interface IJSONBufferOwner</h3><a name="IJSONBufferOwner"></a></div>
@@ -298,6 +313,8 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <div class="api-signature">function _AddRef: Integer</div></div>
 <div class="api-item">
 <div class="api-signature">function _Release: Integer</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AdoptManualLifetime</div><div class="description">Switches this node (and nested object/array children) to manual TObject ownership so TObject.Free destroys the tree instead of returning nodes to the per-thread pool (pool residency shows up as FastMM leaks on Indy worker threads at process shutdown).</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -309,11 +326,13 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 </div>
 <hr>
 <div class="class-header">
-<h3>record TNextGenJsonValue</h3><a name="TNextGenJsonValue"></a><div class="description">Representação leve e Zero-Allocation de um valor JSON.</div></div>
+<h3>record TNextGenJsonValue</h3><a name="TNextGenJsonValue"></a><div class="description">RepresentaÃ§Ã£o leve e Zero-Allocation de um valor JSON.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">procedure Init(AType: TDextJsonNodeType; const const: TByteSpan)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SetStrValue(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure FreeNode</div></div>
 <div class="api-item">
 <div class="api-signature">function AsString: string</div></div>
 <div class="api-item">
@@ -343,7 +362,7 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <h3>record TNextGenJsonPair</h3><a name="TNextGenJsonPair"></a></div>
 <hr>
 <div class="class-header">
-<h3>record TJsonLookupTable</h3><a name="TJsonLookupTable"></a><div class="description">Tabela de lookup de 256 bytes para validação léxica rápida.</div></div>
+<h3>record TJsonLookupTable</h3><a name="TJsonLookupTable"></a><div class="description">Tabela de lookup de 256 bytes para validaÃ§Ã£o lÃ©xica rÃ¡pida.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create</div></div>
 </div>
@@ -355,9 +374,11 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <div class="api-item">
 <div class="api-signature">function ScanStructural_SSE42(Ptr: PByte; Length: Integer): Integer</div></div>
 <div class="api-item">
-<div class="api-signature">function Parse(const const: TByteSpan; const const: IInterface): IDextJsonNode</div></div>
+<div class="api-signature">function Parse(const const: TByteSpan; const const: IInterface; AMaxDepth: Integer): IDextJsonNode</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">procedure CheckDepth</div></div>
+<div class="api-item">
 <div class="api-signature">procedure ScanString(var var: PByte)</div></div>
 <div class="api-item">
 <div class="api-signature">function ParseNumber(const const: TByteSpan): Double</div></div>
@@ -457,9 +478,15 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <div class="api-signature">property Types: </div></div>
 <div class="api-item">
 <div class="api-signature">property Count: </div></div>
+<div class="api-item">
+<div class="api-signature">property Names: </div></div>
+<div class="api-item">
+<div class="api-signature">property Nodes: </div></div>
 </div>
 <div class="visibility-group"><h5>PROTECTED</h5><div class="api-item">
 <div class="api-signature">function _Release: Integer</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AdoptManualLifetime</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure BuildHash</div></div>
@@ -584,6 +611,8 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 </div>
 <div class="visibility-group"><h5>PROTECTED</h5><div class="api-item">
 <div class="api-signature">function _Release: Integer</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AdoptManualLifetime</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">function GetS(Index: Integer): string</div></div>
@@ -617,6 +646,8 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 <h3>class TNextGenJsonPrimitive</h3><a name="TNextGenJsonPrimitive"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Node adaptador para valores primitivos de folha.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: TNextGenJsonValue)</div></div>
+<div class="api-item">
+<div class="api-signature">destructor Destroy</div></div>
 <div class="api-item">
 <div class="api-signature">function GetNodeType: TDextJsonNodeType</div></div>
 <div class="api-item">
@@ -707,13 +738,17 @@ IDextJsonProvider <|.. TNextGenJsonProvider
 </div>
 <hr>
 <div class="class-header">
-<h3>class TNextGenJsonProvider</h3><a name="TNextGenJsonProvider"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Provedor padrão de JSON NextGen.</div></div>
+<h3>class TNextGenJsonProvider</h3><a name="TNextGenJsonProvider"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Provedor padrÃ£o de JSON NextGen.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(AMaxDepth: Integer)</div><div class="description">Initializes the NextGen JSON provider with a custom or default maximum nesting depth.</div></div>
+<div class="api-item">
 <div class="api-signature">function CreateObject: IDextJsonObject</div></div>
 <div class="api-item">
 <div class="api-signature">function CreateArray: IDextJsonArray</div></div>
 <div class="api-item">
 <div class="api-signature">function Parse(const const: string): IDextJsonNode</div></div>
+<div class="api-item">
+<div class="api-signature">property MaxDepth: </div><div class="description">Gets or sets the maximum nesting depth for JSON parsing.</div></div>
 </div>
 <hr>
 <h2>Types</h2>

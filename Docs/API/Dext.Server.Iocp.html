@@ -81,7 +81,8 @@ class TDextIocpRequest {    +GetMethod()
 }
 TInterfacedObject <|-- TDextIocpRequest
 IDextRawRequest <|.. TDextIocpRequest
-class TDextIocpResponse {    +Create()
+class TDextIocpResponse {    +InternalSend()
+    +Create()
     +Init()
     +Destroy()
     +SetStatus()
@@ -95,6 +96,19 @@ class TDextIocpResponse {    +Create()
 TInterfacedObject <|-- TDextIocpResponse
 IDextRawResponse <|.. TDextIocpResponse
 class TIocpOverlapped {}
+class TDextIocpSession {    +Create()
+    +Destroy()
+    +PostRecv()
+    +CloseSession()
+    +Socket
+    +RemoteAddress
+    +RemotePort
+    +LocalPort
+    +Accum
+    +ConnIntf
+    +IsClosed
+}
+TObject <|-- TDextIocpSession
 class TDextIocpWorker {    +Execute()
     +Create()
 }
@@ -209,9 +223,38 @@ IDextServerEngine <|.. TDextIocpEngine
 <div class="api-item">
 <div class="api-signature">procedure Close</div><div class="description">Closes the response stream and connection.</div></div>
 </div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">procedure InternalSend(const const: TBytes)</div></div>
+</div>
 <hr>
 <div class="class-header">
 <h3>record TIocpOverlapped</h3><a name="TIocpOverlapped"></a></div>
+<hr>
+<div class="class-header">
+<h3>class TDextIocpSession</h3><a name="TDextIocpSession"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Maintains per-client connection state, accumulated read buffer and async I/O.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(AEngine: TDextIocpEngine; ASocket: TSocket; const const: string; ARemotePort: Word; ALocalPort: Word; AOverlapped: PIocpOverlapped)</div></div>
+<div class="api-item">
+<div class="api-signature">destructor Destroy</div></div>
+<div class="api-item">
+<div class="api-signature">function PostRecv: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CloseSession</div></div>
+<div class="api-item">
+<div class="api-signature">property Socket: </div></div>
+<div class="api-item">
+<div class="api-signature">property RemoteAddress: </div></div>
+<div class="api-item">
+<div class="api-signature">property RemotePort: </div></div>
+<div class="api-item">
+<div class="api-signature">property LocalPort: </div></div>
+<div class="api-item">
+<div class="api-signature">property Accum: </div></div>
+<div class="api-item">
+<div class="api-signature">property ConnIntf: </div></div>
+<div class="api-item">
+<div class="api-signature">property IsClosed: </div></div>
+</div>
 <hr>
 <div class="class-header">
 <h3>class TDextIocpWorker</h3><a name="TDextIocpWorker"></a><div class="ancestor">Inherits from: TThread</div><div class="description">Worker thread running GetQueuedCompletionStatus event loop.</div></div>
@@ -260,6 +303,8 @@ IDextServerEngine <|.. TDextIocpEngine
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
 <div class="api-signature">type TDextIocpEngine = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type TDextIocpSession = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type TAcceptEx = Type</div><div class="description">Winsock Extension functions types.</div></div>
 <div class="api-item">

@@ -66,6 +66,7 @@ class ETemplateException {    +Create()
 }
 Exception <|-- ETemplateException
 class ITemplateLoader {    +Load()
+    +Exists()
 }
 class ITemplateEngine {    +GetIsHtmlMode()
     +GetTemplateLoader()
@@ -125,8 +126,10 @@ class TLoopNode {    +Create()
     +Nodes
 }
 TTemplateNode <|-- TLoopNode
-class TFileSystemTemplateLoader {    +Create()
+class TFileSystemTemplateLoader {    +TryResolvePath()
+    +Create()
     +Load()
+    +Exists()
     +Root
 }
 TInterfacedObject <|-- TFileSystemTemplateLoader
@@ -134,6 +137,7 @@ ITemplateLoader <|.. TFileSystemTemplateLoader
 class TInMemoryTemplateLoader {    +Create()
     +AddTemplate()
     +Load()
+    +Exists()
 }
 TInterfacedObject <|-- TInMemoryTemplateLoader
 ITemplateLoader <|.. TInMemoryTemplateLoader
@@ -154,6 +158,7 @@ class TDextTemplateEngine {    +Create()
     +RenderTemplateInternal()
     +RenderResolvedTemplate()
     +ResolveTemplateName()
+    +TemplateExists()
     +MergeSectionContent()
     +ResolveNodeOutput()
     +GetTemplateSnippet()
@@ -240,6 +245,8 @@ ITemplateFilterRegistry <|.. TDextTemplateEngine
 <h3>interface ITemplateLoader</h3><a name="ITemplateLoader"></a><div class="description">Interface for loading template content from a source (e.g., file system, memory).</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">function Load(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function Exists(const const: string): Boolean</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -369,7 +376,12 @@ ITemplateFilterRegistry <|.. TDextTemplateEngine
 <div class="api-item">
 <div class="api-signature">function Load(const const: string): string</div></div>
 <div class="api-item">
+<div class="api-signature">function Exists(const const: string): Boolean</div></div>
+<div class="api-item">
 <div class="api-signature">property Root: </div></div>
+</div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">function TryResolvePath(const const: string; out out: string): Boolean</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -380,6 +392,8 @@ ITemplateFilterRegistry <|.. TDextTemplateEngine
 <div class="api-signature">procedure AddTemplate(const const: string; const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">function Load(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function Exists(const const: string): Boolean</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -447,6 +461,8 @@ ITemplateFilterRegistry <|.. TDextTemplateEngine
 <div class="api-signature">function RenderResolvedTemplate(const const: string; const const: string; const const: ITemplateContext): string</div></div>
 <div class="api-item">
 <div class="api-signature">function ResolveTemplateName(const const: string; const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function TemplateExists(const const: string): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function MergeSectionContent(const const: string; const const: string): string</div></div>
 <div class="api-item">

@@ -75,7 +75,10 @@ class TDextHttpSysRequest {    +GetMethod()
 }
 TInterfacedObject <|-- TDextHttpSysRequest
 IDextRawRequest <|.. TDextHttpSysRequest
-class TDextHttpSysResponse {    +ResetUnknownHeaders()
+class TDextHttpSysResponse {    +BuildEntityChunks()
+    +ResetBody()
+    +CancelRequest()
+    +ResetUnknownHeaders()
     +SendHeadersInternal()
     +_Release()
     +SetHeaderInt()
@@ -268,6 +271,12 @@ IDextServerEngine <|.. TDextHttpSysEngine
 <div class="api-signature">procedure Close</div><div class="description">Closes the response stream and connection.</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">function BuildEntityChunks: Integer</div><div class="description">Fills FChunks with the writer segments and returns how many chunks to pass to http.sys. Above MaxEntityChunks segments, consecutive segments are copied into larger buffers so that the count stays within the limit.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ResetBody</div><div class="description">Releases the segments and the merged buffers.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CancelRequest</div><div class="description">A send failed: cancel the request so that the client gets a reset instead of waiting until its own timeout.</div></div>
+<div class="api-item">
 <div class="api-signature">procedure ResetUnknownHeaders</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SendHeadersInternal(AMoreData: Boolean)</div></div>
@@ -445,6 +454,12 @@ IDextServerEngine <|.. TDextHttpSysEngine
 <div class="api-signature">procedure PostReceiveRequest(AContext: TDextHttpSysContext)</div></div>
 </div>
 <hr>
+<h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">function HttpSysWorkerCount(const const: TServerEngineOptions): Integer</div><div class="description">The worker threads the engine starts: IoThreadCount, or four per logical processor when it is 0.</div></div>
+<div class="api-item">
+<div class="api-signature">function HttpSysReceiveCount(const const: TServerEngineOptions; AWorkers: Integer): Integer</div><div class="description">The receives the engine keeps posted for AWorkers workers: OutstandingReceives when set; otherwise AWorkers x OutstandingReceiveDepth (1..8) when IoThreadCount is set, as before; otherwise (the default) one per logical processor, and OutstandingReceiveDepth is not used.</div></div>
+</div>
 <h2>Types</h2>
 <div class="visibility-group"><div class="api-item">
 <div class="api-signature">type TDextHttpSysEngine = Type</div></div>

@@ -82,6 +82,7 @@ class TOrderedDictionary~K__V~ {    +GetCount()
     +Destroy()
     +GetEnumerator()
     +Add()
+    +TryAdd()
     +AddOrSetValue()
     +TryGetValue()
     +ContainsKey()
@@ -176,6 +177,8 @@ IDictionary <|.. TOrderedDictionary~K__V~
 <div class="api-signature">function GetEnumerator: TOrderedDictionaryEnumerator</div><div class="description">Returns a record-based enumerator for high-performance for-in loops.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Add(const const: K; const const: V)</div><div class="description">Adds a new key-value pair. Raises if the key already exists.</div></div>
+<div class="api-item">
+<div class="api-signature">function TryAdd(const const: K; const const: V): Boolean</div><div class="description">Appends the pair if the key is not there yet, with a single lookup. Returns False, and changes nothing, if the key already exists: with OwnsValues the dictionary does not take the refused value.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddOrSetValue(const const: K; const const: V)</div><div class="description">Adds a new pair or updates the existing value in-place without changing key order.</div></div>
 <div class="api-item">

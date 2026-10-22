@@ -56,6 +56,8 @@ class IDextHttpEngine {    +SetConnectionTimeout()
     +SetSendTimeout()
     +SetResponseTimeout()
     +SetIgnoreCertificateErrors()
+    +SetClientCertificate()
+    +ClearClientCertificate()
     +Execute()
     +ExecuteInto()
 }
@@ -85,6 +87,12 @@ class IDextHttpEngine {    +SetConnectionTimeout()
 <div class="api-signature">procedure SetResponseTimeout(AMilliseconds: Integer)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SetIgnoreCertificateErrors(AValue: Boolean)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetClientCertificate(const const: string; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetClientCertificate(AStream: TStream; const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ClearClientCertificate</div></div>
 <div class="api-item">
 <div class="api-signature">function Execute(const const: string; const const: string; const const: TStream; const const: TDextNetHeaders): IDextHttpResponse</div></div>
 <div class="api-item">

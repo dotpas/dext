@@ -53,6 +53,9 @@ class AuthorizeAttribute {    +Create()
     +Policy
 }
 TCustomAttribute <|-- AuthorizeAttribute
+class AuthorizePolicyAttribute {    +Create()
+}
+AuthorizeAttribute <|-- AuthorizePolicyAttribute
 class AllowAnonymousAttribute {}
 TCustomAttribute <|-- AllowAnonymousAttribute
 </div>
@@ -73,6 +76,12 @@ TCustomAttribute <|-- AllowAnonymousAttribute
 <div class="api-signature">property Scheme: </div><div class="description">Required authentication scheme.</div></div>
 <div class="api-item">
 <div class="api-signature">property Policy: </div><div class="description">Required authorization policy name.</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class AuthorizePolicyAttribute</h3><a name="AuthorizePolicyAttribute"></a><div class="ancestor">Inherits from: AuthorizeAttribute</div><div class="description">Requires authentication and evaluates a named authorization policy. Use this instead of named arguments (Delphi has no <c>Policy =</c> syntax). Does not collide with <see cref="AuthorizeAttribute.Create(string)"/> (roles/scheme).</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string)</div><div class="description">Initializes a new instance requiring the given policy name.</div></div>
 </div>
 <hr>
 <div class="class-header">

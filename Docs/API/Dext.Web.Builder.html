@@ -72,6 +72,8 @@ class TApplicationBuilder {    +CreateMiddlewarePipeline()
     +GetRoutes()
     +UpdateLastRouteMetadata()
     +SetServiceProvider()
+    +UseApiVersionReader()
+    +GetApiVersionReader()
     +RegisterForDisposal()
 }
 TInterfacedObject <|-- TApplicationBuilder
@@ -141,6 +143,10 @@ IMiddleware <|.. TMiddleware
 <div class="api-signature">procedure UpdateLastRouteMetadata(const const: TEndpointMetadata)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SetServiceProvider(const const: IServiceProvider)</div></div>
+<div class="api-item">
+<div class="api-signature">function UseApiVersionReader(const const: IApiVersionReader): IApplicationBuilder</div><div class="description">Configures the API version reader strategy for incoming requests.</div></div>
+<div class="api-item">
+<div class="api-signature">function GetApiVersionReader: IApiVersionReader</div><div class="description">Gets the configured API version reader strategy, if any.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure RegisterForDisposal(AObject: TObject)</div></div>
 </div>

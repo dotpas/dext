@@ -49,6 +49,7 @@
 classDiagram
 class TOptionsServiceCollectionExtensions {    +AddOptions()
     +Configure~T~()
+    +ValidateOptionsOnStart()
 }
 TObject <|-- TOptionsServiceCollectionExtensions
 </div>
@@ -58,17 +59,23 @@ TObject <|-- TOptionsServiceCollectionExtensions
 <div class="class-header">
 <h3>class TOptionsServiceCollectionExtensions</h3><a name="TOptionsServiceCollectionExtensions"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Extension methods for IServiceCollection to register and configure strongly-typed options.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
-<div class="api-signature">procedure AddOptions(Services: IServiceCollection)</div></div>
+<div class="api-signature">procedure AddOptions(Services: IServiceCollection)</div><div class="description">Registers the options infrastructure (reserved for future shared services).</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Configuration: IConfiguration)</div></div>
+<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Configuration: IConfiguration)</div><div class="description">Binds <typeparamref name="T"/> from the root configuration.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Configuration: IConfiguration; const const: TFunc)</div></div>
+<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Configuration: IConfiguration; const const: TFunc; AValidateOnStart: Boolean)</div><div class="description">Binds <typeparamref name="T"/> from the root configuration with a validator. When <paramref name="AValidateOnStart"/> is True, validation runs during host service-provider build (before listening), raising <see cref="EConfigurationException"/> on failure.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Section: IConfigurationSection)</div></div>
+<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Section: IConfigurationSection)</div><div class="description">Binds <typeparamref name="T"/> from a configuration section.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Section: IConfigurationSection; const const: TFunc)</div></div>
+<div class="api-signature">procedure Configure&lt;T&gt;(Services: IServiceCollection; Section: IConfigurationSection; const const: TFunc; AValidateOnStart: Boolean)</div><div class="description">Binds <typeparamref name="T"/> from a section with a validator. When <paramref name="AValidateOnStart"/> is True, validation runs at host build time.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ValidateOptionsOnStart(const const: IServiceProvider)</div><div class="description">Resolves every options registration marked with ValidateOnStart. Called automatically by <c>TWebApplication.BuildServices</c>.</div></div>
 </div>
 <hr>
+<h2>Global Routines</h2>
+<div class="visibility-group"><h5>Routines</h5><div class="api-item">
+<div class="api-signature">procedure RegisterOptionsValidateOnStart(const const: TProc)</div><div class="description">Registers an action to resolve options eagerly at host build time. Declared in the interface so generic Configure&lt;T&gt; methods may call it (E2506).</div></div>
+</div>
 
         </div>
     </div>

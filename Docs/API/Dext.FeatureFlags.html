@@ -55,6 +55,8 @@ class IFeatureFilter {    +GetName()
 }
 class IFeatureManager {    +IsEnabled()
 }
+class TFeatureConfiguration {    +Reload()
+}
 class FeatureGateAttribute {    +Create()
     +FeatureName
 }
@@ -106,6 +108,12 @@ IFeatureFilter <|.. TTimeWindowFilter
 <div class="api-signature">function IsEnabled(const const: string; const const: TObject): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function IsEnabled(const const: string; const const: string): Boolean</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>record TFeatureConfiguration</h3><a name="TFeatureConfiguration"></a><div class="description">Reloads configuration providers so FeatureManagement keys refresh without redeploy.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function Reload(const const: IConfiguration): Boolean</div><div class="description">Invokes <c>IConfigurationRoot.Reload</c> when the configuration root supports it. Returns True when reload ran; False when AConfiguration is not an IConfigurationRoot.</div></div>
 </div>
 <hr>
 <div class="class-header">

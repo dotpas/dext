@@ -89,6 +89,12 @@ class TDextNativeHttpRequest {    +ParseQueryString()
 }
 TInterfacedObject <|-- TDextNativeHttpRequest
 IHttpRequest <|.. TDextNativeHttpRequest
+class TDextResponseSinkStream {    +Create()
+    +Read()
+    +Write()
+    +Seek()
+}
+TStream <|-- TDextResponseSinkStream
 class TDextNativeHttpResponse {    +Create()
     +Destroy()
     +GetStatusCode()
@@ -242,6 +248,18 @@ IWebHost <|.. TDextNativeWebServer
 </div>
 <hr>
 <div class="class-header">
+<h3>class TDextResponseSinkStream</h3><a name="TDextResponseSinkStream"></a><div class="ancestor">Inherits from: TStream</div><div class="description">Write-only stream handed out by GetOutputStream. Every write is forwarded straight to the response sink, so a caller that prefers a TStream gets the same zero-copy path as SendJsonUtf8, with no intermediate buffer.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(AOwner: TDextNativeHttpResponse)</div></div>
+<div class="api-item">
+<div class="api-signature">function Read(var var; Count: Longint): Longint</div></div>
+<div class="api-item">
+<div class="api-signature">function Write(const const; Count: Longint): Longint</div></div>
+<div class="api-item">
+<div class="api-signature">function Seek(const const: Int64; Origin: TSeekOrigin): Int64</div></div>
+</div>
+<hr>
+<div class="class-header">
 <h3>class TDextNativeHttpResponse</h3><a name="TDextNativeHttpResponse"></a><div class="ancestor">Inherits from: TInterfacedObject</div><div class="description">Dext native implementation of IHttpResponse.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: IDextRawResponse)</div><div class="description">Initializes a new instance of the native HTTP response adapter.</div></div>
@@ -388,6 +406,10 @@ IWebHost <|.. TDextNativeWebServer
 <h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
 <div class="api-signature">function UrlDecode(const const: string): string</div><div class="description">Helper method to perform URL decoding on paths and query strings.</div></div>
+</div>
+<h2>Types</h2>
+<div class="visibility-group"><div class="api-item">
+<div class="api-signature">type TDextNativeHttpResponse = Type</div></div>
 </div>
 
         </div>

@@ -73,8 +73,13 @@ class TFileScanCache {    +Create()
     +Destroy()
 }
 TObject <|-- TFileScanCache
-class TTelemetryTracker {    +RecordTestResult()
+class TPendingTestResult {}
+class TTelemetryTracker {    +EnsurePending()
+    +FlushPendingResults()
+    +RecordTestResult()
     +AnalyzeHistory()
+    +RecordSuiteRun()
+    +AnalyzeSuiteHistory()
 }
 TObject <|-- TTelemetryTracker
 class TFormDextTestRunner {    +ActionsButtonClick()
@@ -87,6 +92,7 @@ class TFormDextTestRunner {    +ActionsButtonClick()
     +ExpandAllMenuItemClick()
     +CollapseAllMenuItemClick()
     +ActiveFilterEdit()
+    +CompileCppProject()
     +CompileProjectDirect()
     +FindMethodImplementationLine()
     +FindNodeByPath()
@@ -98,6 +104,29 @@ class TFormDextTestRunner {    +ActionsButtonClick()
     +ApplyLayout()
     +ClearLogsClick()
     +ClearTestStatus()
+    +ConsoleListViewDblClick()
+    +StackFramesListViewDblClick()
+    +StackFramesListViewKeyDown()
+    +OpenStackFrame()
+    +LayoutInspectorDetails()
+    +ResolveStackFrameFile()
+    +FindUnitFileByName()
+    +IsUnreliableMapLocation()
+    +UnitHintFromMethodName()
+    +ClearStackFrameNavs()
+    +LogAnalyticsLines()
+    +ReloadCoverageClick()
+    +EnsureCoverageToolClick()
+    +CollectCoverageMenuClick()
+    +UpdateCoverageUiState()
+    +ApplyCoverageForActivePlatform()
+    +IsCodeCoverageToolAvailable()
+    +SetupListViewClipboard()
+    +ListViewCopySelectedClick()
+    +ListViewCopyAllClick()
+    +ListViewClipboardKeyDown()
+    +FormatListViewRow()
+    +CopyListViewLines()
     +CloseActiveSessionClick()
     +CloseSession()
     +CollapseSuccessAndFocusFailures()
@@ -108,18 +137,35 @@ class TFormDextTestRunner {    +ActionsButtonClick()
     +ExpandTestsTreeView()
     +ExportMenuClick()
     +ExportResults()
+    +ApplyDebugTraceOptionsClick()
+    +ApplyDebugTraceOptionsToProject()
     +FilterEditChange()
     +FormKeyDown()
     +GroupingMenuClick()
     +IdleTimerTimer()
+    +CoveragePlatformTimerTimer()
     +InitializeGroupSummaries()
     +InvalidateGroupNode()
     +LaunchTestExe()
+    +LaunchDiscoverExe()
+    +DiscoverCppProjectTests()
+    +PopulateCppTestsFromAstOnly()
+    +EnrichCppLocationsFromSources()
+    +ResolveActiveProjectExe()
+    +IsLikelyBinaryTestName()
     +LayoutMenuClick()
     +LogMsg()
     +LogPerformance()
     +NotifyProcessExited()
     +OnTestResultReceived()
+    +ScheduleUiResultFlush()
+    +FlushPendingResultsUi()
+    +ProcessResultPayload()
+    +BuildNodeIndex()
+    +ClearNodeIndex()
+    +SyncProgressAndSummaryLabels()
+    +NormalizeStackTraceText()
+    +ExtractStackTraceFromErrorJson()
     +RebuildStatusImages()
     +RefreshTreeView()
     +RunAllProjectsClick()
@@ -138,24 +184,49 @@ class TFormDextTestRunner {    +ActionsButtonClick()
     +TestsTreeViewMouseUp()
     +ToggleEnabledClick()
     +TryLoadCoverage()
+    +RefreshCoverageReportTab()
+    +SetCoverageProblem()
+    +ClearCoverageProblemStyle()
+    +EnsureCoverageListColumns()
+    +FormatCoveragePercentBar()
+    +FindCoverageHtmlReport()
+    +CoverageArtifactsPresent()
+    +OpenCoverageHtmlClick()
+    +ClearCoverageArtifactsClick()
+    +GenerateHtmlMenuClick()
+    +CoverageListViewDblClick()
+    +OpenSourceFileAtLine()
     +UpdateGroupSummary()
     +UpdateNodeResultCache()
     +UpdateSummaryCounts()
     +UpdateTabVisibility()
     +UpdateTestInspector()
     +UpdateTestNode()
+    +EnsureRuntimeTestNode()
     +UpdateTimingLabels()
     +UpdateTotalTimeLabel()
     +ApplyDpiScaling()
+    +ScalePx()
     +ClearFilterButtonClick()
+    +FreeDesktopNameCollisions()
+    +IsDfmNonVisual()
     +GetProjectByFileName()
     +RefreshActiveProjectTestsList()
     +ResetSummaryLabels()
     +CMStyleChanged()
     +DoShow()
+    +DoHide()
+    +DoDock()
     +Resize()
+    +ExplorerSurfaceReady()
+    +LogExplorerSurface()
+    +FlushRefreshWhenShown()
+    +ArmSurfaceSettle()
+    +CancelSurfaceSettle()
+    +SurfaceSettleTimerFired()
     +Create()
     +Destroy()
+    +GetChildren()
     +HandleFileSaved()
     +RunActiveProjectTests()
     +RunImpactedTests()
@@ -220,11 +291,23 @@ TDockableForm <|-- TFormDextTestRunner
 </div>
 <hr>
 <div class="class-header">
+<h3>record TPendingTestResult</h3><a name="TPendingTestResult"></a></div>
+<hr>
+<div class="class-header">
 <h3>class TTelemetryTracker</h3><a name="TTelemetryTracker"></a><div class="ancestor">Inherits from: TObject</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">procedure RecordTestResult(const const: string; const const: string; const const: string; ADurationMs: Integer)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure AnalyzeHistory(const const: string; AMemo: TMemo)</div></div>
+<div class="api-signature">procedure AnalyzeHistory(const const: string; ALines: TStrings)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure RecordSuiteRun(const const: string; APassed: Integer; AFailed: Integer; ASkipped: Integer; ATotal: Integer; ADurationMs: Double)</div><div class="description">S75 F-10: persist suite-total run history (passed/failed/skipped/duration).</div></div>
+<div class="api-item">
+<div class="api-signature">procedure AnalyzeSuiteHistory(const const: string; ALines: TStrings)</div></div>
+</div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">procedure EnsurePending</div></div>
+<div class="api-item">
+<div class="api-signature">procedure FlushPendingResults</div></div>
 </div>
 <hr>
 <div class="class-header">
@@ -252,6 +335,8 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">destructor Destroy</div></div>
 <div class="api-item">
+<div class="api-signature">procedure GetChildren(Proc: TGetChildProc; Root: TComponent)</div></div>
+<div class="api-item">
 <div class="api-signature">procedure HandleFileSaved(const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure RunActiveProjectTests(const const: string; AutoSave: Boolean)</div></div>
@@ -267,10 +352,28 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure DoShow</div></div>
 <div class="api-item">
+<div class="api-signature">procedure DoHide</div></div>
+<div class="api-item">
+<div class="api-signature">procedure DoDock(NewDockSite: TWinControl; var var: TRect)</div></div>
+<div class="api-item">
 <div class="api-signature">procedure Resize</div></div>
+<div class="api-item">
+<div class="api-signature">function ExplorerSurfaceReady: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure LogExplorerSurface(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure FlushRefreshWhenShown</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ArmSurfaceSettle</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CancelSurfaceSettle</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SurfaceSettleTimerFired(Sender: TObject)</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">function ActiveFilterEdit: TEdit</div></div>
+<div class="api-item">
+<div class="api-signature">function CompileCppProject(const const: string): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function CompileProjectDirect(const const: string): Boolean</div></div>
 <div class="api-item">
@@ -294,6 +397,52 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure ClearTestStatus</div></div>
 <div class="api-item">
+<div class="api-signature">procedure ConsoleListViewDblClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure StackFramesListViewDblClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure StackFramesListViewKeyDown(Sender: TObject; var var: Word; Shift: TShiftState)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OpenStackFrame(const const: string; const const: string; ALine: Integer)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure LayoutInspectorDetails(AHasErrorMemo: Boolean; AFrameCount: Integer)</div></div>
+<div class="api-item">
+<div class="api-signature">function ResolveStackFrameFile(const const: string; const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function FindUnitFileByName(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function IsUnreliableMapLocation(const const: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function UnitHintFromMethodName(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ClearStackFrameNavs</div></div>
+<div class="api-item">
+<div class="api-signature">procedure LogAnalyticsLines(ALines: TStrings)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ReloadCoverageClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure EnsureCoverageToolClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CollectCoverageMenuClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UpdateCoverageUiState</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ApplyCoverageForActivePlatform</div></div>
+<div class="api-item">
+<div class="api-signature">function IsCodeCoverageToolAvailable(out out: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetupListViewClipboard(AListView: TListView)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ListViewCopySelectedClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ListViewCopyAllClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ListViewClipboardKeyDown(Sender: TObject; var var: Word; Shift: TShiftState)</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatListViewRow(AItem: TListItem): string</div></div>
+<div class="api-item">
+<div class="api-signature">function CopyListViewLines(AListView: TListView; ASelectedOnly: Boolean): string</div></div>
+<div class="api-item">
 <div class="api-signature">procedure CloseActiveSessionClick(Sender: TObject)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure CloseSession(ASession: TTestSession)</div></div>
@@ -314,6 +463,10 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure ExportResults(const const: string; const const: string)</div></div>
 <div class="api-item">
+<div class="api-signature">procedure ApplyDebugTraceOptionsClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">function ApplyDebugTraceOptionsToProject(const const: IOTAProject; out out: string): Boolean</div></div>
+<div class="api-item">
 <div class="api-signature">procedure FilterEditChange(Sender: TObject)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure FormKeyDown(Sender: TObject; var var: Word; Shift: TShiftState)</div></div>
@@ -322,21 +475,51 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure IdleTimerTimer(Sender: TObject)</div></div>
 <div class="api-item">
+<div class="api-signature">procedure CoveragePlatformTimerTimer(Sender: TObject)</div></div>
+<div class="api-item">
 <div class="api-signature">procedure InitializeGroupSummaries</div></div>
 <div class="api-item">
 <div class="api-signature">procedure InvalidateGroupNode(const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure LaunchTestExe(const const: string)</div></div>
 <div class="api-item">
+<div class="api-signature">procedure LaunchDiscoverExe</div></div>
+<div class="api-item">
+<div class="api-signature">procedure DiscoverCppProjectTests</div><div class="description">Host --discover when exe exists; else AST-only. Never auto-builds.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure PopulateCppTestsFromAstOnly</div></div>
+<div class="api-item">
+<div class="api-signature">procedure EnrichCppLocationsFromSources</div></div>
+<div class="api-item">
+<div class="api-signature">function ResolveActiveProjectExe(out out: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function IsLikelyBinaryTestName(const const: string): Boolean</div></div>
+<div class="api-item">
 <div class="api-signature">procedure LayoutMenuClick(Sender: TObject)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure LogMsg(const const: string)</div></div>
+<div class="api-signature">procedure LogMsg(const const: string; AKind: TDextConsoleKind)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure LogPerformance(const const: string)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure NotifyProcessExited</div></div>
 <div class="api-item">
 <div class="api-signature">procedure OnTestResultReceived(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ScheduleUiResultFlush</div></div>
+<div class="api-item">
+<div class="api-signature">procedure FlushPendingResultsUi</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ProcessResultPayload(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure BuildNodeIndex</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ClearNodeIndex</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SyncProgressAndSummaryLabels</div></div>
+<div class="api-item">
+<div class="api-signature">function NormalizeStackTraceText(const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function ExtractStackTraceFromErrorJson(ErrorObj: TJSONObject): string</div></div>
 <div class="api-item">
 <div class="api-signature">procedure RebuildStatusImages</div></div>
 <div class="api-item">
@@ -372,7 +555,31 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure ToggleEnabledClick(Sender: TObject)</div></div>
 <div class="api-item">
-<div class="api-signature">procedure TryLoadCoverage</div></div>
+<div class="api-signature">procedure TryLoadCoverage(AReportExpected: Boolean)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure RefreshCoverageReportTab</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetCoverageProblem(const const: string)</div><div class="description">Explicit Coverage-tab failure (tab mark + amber summary); clears stale list/gutter.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ClearCoverageProblemStyle</div></div>
+<div class="api-item">
+<div class="api-signature">procedure EnsureCoverageListColumns</div></div>
+<div class="api-item">
+<div class="api-signature">function FormatCoveragePercentBar(APercent: Double): string</div></div>
+<div class="api-item">
+<div class="api-signature">function FindCoverageHtmlReport: string</div></div>
+<div class="api-item">
+<div class="api-signature">function CoverageArtifactsPresent: Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OpenCoverageHtmlClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ClearCoverageArtifactsClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure GenerateHtmlMenuClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CoverageListViewDblClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure OpenSourceFileAtLine(const const: string; ALine: Integer)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure UpdateGroupSummary(const const: string; const const: string; ADurationMs: Double)</div></div>
 <div class="api-item">
@@ -386,13 +593,21 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-item">
 <div class="api-signature">procedure UpdateTestNode(const const: string; const const: string; const const: string; const const: string)</div></div>
 <div class="api-item">
+<div class="api-signature">function EnsureRuntimeTestNode(const const: string): TTreeNode</div></div>
+<div class="api-item">
 <div class="api-signature">procedure UpdateTimingLabels</div></div>
 <div class="api-item">
 <div class="api-signature">procedure UpdateTotalTimeLabel</div></div>
 <div class="api-item">
 <div class="api-signature">procedure ApplyDpiScaling</div></div>
 <div class="api-item">
+<div class="api-signature">function ScalePx(ADesignPx: Integer): Integer</div></div>
+<div class="api-item">
 <div class="api-signature">procedure ClearFilterButtonClick(Sender: TObject)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure FreeDesktopNameCollisions</div><div class="description">Drop AutoSave/desktop debris named _1, _2, … before recreating runtime UI.</div></div>
+<div class="api-item">
+<div class="api-signature">function IsDfmNonVisual(AComponent: TComponent): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function GetProjectByFileName(const const: string): IOTAProject</div></div>
 <div class="api-item">
@@ -418,6 +633,8 @@ TDockableForm <|-- TFormDextTestRunner
 <div class="api-signature">type TTestExplorerLayout = enumeration</div><div class="enum-values">Values: telCompact, telSplitBottom, telSplitRight</div></div>
 <div class="api-item">
 <div class="api-signature">type TTestGroupingMode = enumeration</div><div class="enum-values">Values: tgmCodeStructure, tgmStatus</div></div>
+<div class="api-item">
+<div class="api-signature">type TDextConsoleKind = enumeration</div><div class="enum-values">Values: dckAuto, dckLog, dckPass, dckFail, dckSkip, dckWarn</div><div class="description">Console Kind column. dckAuto only for live runner messages; analytics must pass explicit kind.</div></div>
 </div>
 
         </div>

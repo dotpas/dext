@@ -67,6 +67,7 @@ class THandlerInvoker {    +Validate()
     +Invoke~T1,T2,TResult~()
     +Invoke~T1,T2,T3,TResult~()
     +InvokeAction()
+    +WriteBindingProblem()
     +Context
     +ModelBinder
 }
@@ -117,6 +118,8 @@ TObject <|-- THandlerInvoker
 <div class="api-item">
 <div class="api-signature">function InvokeAction(AInstance: TObject; AMethod: TRttiMethod): Boolean</div><div class="description">Dynamically invokes a controller action method using RTTI. Supports parameter injection, auto-validation, and automatic result serialization.</div></div>
 <div class="api-item">
+<div class="api-signature">function InvokeAction(AInstance: TObject; AMethod: TRttiMethod; const const: TArray; const const: TActionDescriptor): Boolean</div><div class="description">Invokes a controller action after binding, then runs action filters (with bound <c>ActionArguments</c>) before the method body.</div></div>
+<div class="api-item">
 <div class="api-signature">property Context: </div></div>
 <div class="api-item">
 <div class="api-signature">property ModelBinder: </div></div>
@@ -125,6 +128,8 @@ TObject <|-- THandlerInvoker
 <div class="api-signature">function Validate(const const: TValue): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">procedure CleanupBoundObjects</div><div class="description">Frees all objects instantiated by binding that are not managed elsewhere.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure WriteBindingProblem(const const: string)</div></div>
 </div>
 <hr>
 <h2>Types</h2>

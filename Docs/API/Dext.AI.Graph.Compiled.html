@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dext.AI.Graph.Compiled - Dext Framework 1.0</title>
+    
+    <!-- Blocking script to avoid theme flicker --> 
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('dext-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme);
+        })();
+    </script>
+    
+    <!-- Theme & Layout (Separate files for internal Dext Tooling) -->
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="layout.css">
+    
+    <!-- Mermaid for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>Dext Framework 1.0</h3>
+            <small>Documentation</small>
+        </div>
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="Search API..." id="searchInput">
+        </div>
+        <div class="nav-list" id="navList">
+            <!-- Sidebar Content Loaded Dynamically via toc.json -->
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode">&#x1F313;</button>
+        </div>
+        
+        <div id="contentArea">
+            <!-- Main Documentation Content Injected Here -->
+            <h1>Unit Dext.AI.Graph.Compiled</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class TCompiledAgent {    +ExecuteNode()
+    +ResolveNextNode()
+    +ShouldInterrupt()
+    +GenerateThreadId()
+    +CheckpointSave()
+    +CheckpointLoad()
+    +ExecuteLoop()
+    +DescribePending()
+    +RunAsSubgraph()
+    +Create()
+    +Destroy()
+    +Run()
+    +Resume()
+    +Cancel()
+    +GetState()
+    +AsNode()
+}
+TInterfacedObject <|-- TCompiledAgent
+ICompiledAgent <|.. TCompiledAgent
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>class TCompiledAgent</h3><a name="TCompiledAgent"></a><div class="ancestor">Inherits from: TInterfacedObject</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(ANodes: TDictionary; AEdges: TList; const const: string; const const: TArray; const const: TNodeContext; ACheckpointer: ICheckpointer; AMaxIterations: Integer)</div></div>
+<div class="api-item">
+<div class="api-signature">destructor Destroy</div></div>
+<div class="api-item">
+<div class="api-signature">function Run(const const: string; const const: string): TGraphRunResult</div></div>
+<div class="api-item">
+<div class="api-signature">function Resume(const const: string): TGraphRunResult</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Cancel(const const: string)</div></div>
+<div class="api-item">
+<div class="api-signature">function GetState(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function AsNode: TNodeHandler</div></div>
+</div>
+<div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
+<div class="api-signature">function ExecuteNode(const const: string; const const: TAgentState): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function ResolveNextNode(const const: string; const const: TAgentState): string</div></div>
+<div class="api-item">
+<div class="api-signature">function ShouldInterrupt(const const: string): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function GenerateThreadId: string</div></div>
+<div class="api-item">
+<div class="api-signature">procedure CheckpointSave(const const: string; AState: TAgentState)</div></div>
+<div class="api-item">
+<div class="api-signature">function CheckpointLoad(const const: string): TAgentState</div></div>
+<div class="api-item">
+<div class="api-signature">function ExecuteLoop(AState: TAgentState; ASkipFirstInterrupt: Boolean): TGraphRunResult</div></div>
+<div class="api-item">
+<div class="api-signature">function DescribePending(AState: TAgentState; const const: string): string</div></div>
+<div class="api-item">
+<div class="api-signature">function RunAsSubgraph(const const: TAgentState): TAgentState</div></div>
+</div>
+<hr>
+
+        </div>
+    </div>
+
+    <script src="toc.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>

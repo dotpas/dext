@@ -61,6 +61,7 @@ class TWebApplication {    +Setup()
     +GetServices()
     +GetBuilder()
     +BuildServices()
+    +BuildRequestPipeline()
     +UseMiddleware()
     +UsePathBase()
     +UseStartup()
@@ -74,6 +75,9 @@ class TWebApplication {    +Setup()
     +GetPort()
     +DefaultPort
     +Port
+    +Builder
+    +Configuration
+    +Services
 }
 TInterfacedObject <|-- TWebApplication
 IWebApplication <|.. TWebApplication
@@ -98,6 +102,8 @@ IWebHost <|.. TWebApplication
 <div class="api-signature">function GetBuilder: TAppBuilder</div></div>
 <div class="api-item">
 <div class="api-signature">function BuildServices: IServiceProvider</div><div class="description">Builds the final ServiceProvider by integrating all registered dependencies.</div></div>
+<div class="api-item">
+<div class="api-signature">function BuildRequestPipeline: TRequestDelegate</div><div class="description">Builds the middleware/routing pipeline without starting a TCP host. Used by <c>TDextApplicationFactory.CreateClient</c> for in-process integration tests.</div></div>
 <div class="api-item">
 <div class="api-signature">function UseMiddleware(Middleware: TClass): IWebApplication</div><div class="description">Registers a class-based middleware in the pipeline.</div></div>
 <div class="api-item">
@@ -130,6 +136,12 @@ IWebHost <|.. TWebApplication
 <div class="api-signature">property DefaultPort: </div></div>
 <div class="api-item">
 <div class="api-signature">property Port: </div></div>
+<div class="api-item">
+<div class="api-signature">property Builder: </div><div class="description">Fluent pipeline builder (routes and middleware).</div></div>
+<div class="api-item">
+<div class="api-signature">property Configuration: </div><div class="description">Unified application configuration.</div></div>
+<div class="api-item">
+<div class="api-signature">property Services: </div><div class="description">DI service registration facade.</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure Setup(Port: Integer)</div></div>

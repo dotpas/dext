@@ -71,6 +71,14 @@ class TContentResult {    +Create()
     +Execute()
 }
 TResult <|-- TContentResult
+class TCreatedResult {    +Create()
+    +Execute()
+}
+TResult <|-- TCreatedResult
+class TAcceptedResult {    +Create()
+    +Execute()
+}
+TResult <|-- TAcceptedResult
 class TObjectResult~T~ {    +Create()
     +Execute()
 }
@@ -92,6 +100,10 @@ class TValidationProblemResult {    +Create()
     +Execute()
 }
 TResult <|-- TValidationProblemResult
+class TProblemDetailsResult {    +Create()
+    +Execute()
+}
+TResult <|-- TProblemDetailsResult
 class TChallengeResult {    +Create()
     +Execute()
 }
@@ -118,11 +130,14 @@ class TContextualResults {    +Create()
     +Ok~T~()
     +Created()
     +Created~T~()
+    +Accepted()
+    +Accepted~T~()
     +BadRequest()
     +BadRequest~T~()
     +NotFound()
     +Conflict()
     +Conflict~T~()
+    +UnsupportedMediaType()
     +NoContent()
     +Unauthorized()
     +Unauthorized~T~()
@@ -147,11 +162,14 @@ class Results {    +GetFullViewPath()
     +Ok~T~()
     +Created()
     +Created~T~()
+    +Accepted()
+    +Accepted~T~()
     +BadRequest()
     +BadRequest~T~()
     +NotFound()
     +Conflict()
     +Conflict~T~()
+    +UnsupportedMediaType()
     +NoContent()
     +Unauthorized()
     +Unauthorized~T~()
@@ -159,6 +177,8 @@ class Results {    +GetFullViewPath()
     +Forbidden~T~()
     +InternalServerError()
     +Problem()
+    +ProblemDetails()
+    +BindingProblem()
     +ValidationProblem()
     +Fail()
     +Redirect()
@@ -232,6 +252,22 @@ TObject <|-- Results
 </div>
 <hr>
 <div class="class-header">
+<h3>class TCreatedResult</h3><a name="TCreatedResult"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Result that returns HTTP 201 Created and sets the Location header to the resource URI. Optionally wraps a body result (JSON string or negotiated object payload).</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string; const const: IResult)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Execute(AContext: IHttpContext)</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class TAcceptedResult</h3><a name="TAcceptedResult"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Result that returns HTTP 202 Accepted and optionally sets the Location header to a status/monitor URI for an asynchronous operation.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string; const const: IResult)</div><div class="description">Creates an Accepted result with optional Location and body.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Execute(AContext: IHttpContext)</div></div>
+</div>
+<hr>
+<div class="class-header">
 <h3>class TObjectResult&lt;T&gt;</h3><a name="TObjectResult_lt_T_gt_"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Generic result that uses content negotiation to format an object. Attempts to find a registered formatter (JSON, XML) that accepts type T.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: T; AStatusCode: Integer)</div></div>
@@ -266,9 +302,17 @@ TObject <|-- Results
 </div>
 <hr>
 <div class="class-header">
-<h3>class TValidationProblemResult</h3><a name="TValidationProblemResult"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Result that returns a standardized validation error response (RFC 7807).</div></div>
+<h3>class TValidationProblemResult</h3><a name="TValidationProblemResult"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Result that returns a standardized validation error response (RFC 7807/9457). Copies field errors so the source TValidationResult may be freed immediately.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create(const const: TValidationResult)</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Execute(AContext: IHttpContext)</div></div>
+</div>
+<hr>
+<div class="class-header">
+<h3>class TProblemDetailsResult</h3><a name="TProblemDetailsResult"></a><div class="ancestor">Inherits from: TResult</div><div class="description">Result that returns an RFC 9457 Problem Details document with Content-Type application/problem+json.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">constructor Create(const const: string; const const: string; const const: string; const const: string; AStatus: Integer)</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Execute(AContext: IHttpContext)</div></div>
 </div>
@@ -332,6 +376,12 @@ TObject <|-- Results
 <div class="api-item">
 <div class="api-signature">procedure Created&lt;T&gt;(const const: string; const const: T)</div><div class="description">Dispatches 201 Created with object serialized via Content Negotiation.</div></div>
 <div class="api-item">
+<div class="api-signature">procedure Accepted(const const: string)</div><div class="description">Dispatches 202 Accepted.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Accepted(const const: string; const const: string)</div><div class="description">Dispatches 202 Accepted with a JSON/string body.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure Accepted&lt;T&gt;(const const: string; const const: T)</div><div class="description">Dispatches 202 Accepted with object serialized via Content Negotiation.</div></div>
+<div class="api-item">
 <div class="api-signature">procedure BadRequest</div><div class="description">Dispatches 400 Bad Request.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure BadRequest(const const: string)</div><div class="description">Dispatches 400 Bad Request with an error message.</div></div>
@@ -347,6 +397,10 @@ TObject <|-- Results
 <div class="api-signature">procedure Conflict(const const: string)</div><div class="description">Dispatches 409 Conflict with a detailed message.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Conflict&lt;T&gt;(const const: T)</div><div class="description">Dispatches 409 Conflict with a serialized object.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UnsupportedMediaType</div><div class="description">Dispatches 415 Unsupported Media Type.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure UnsupportedMediaType(const const: string)</div><div class="description">Dispatches 415 Unsupported Media Type with a detailed message.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure NoContent</div><div class="description">Dispatches 204 No Content.</div></div>
 <div class="api-item">
@@ -408,6 +462,12 @@ TObject <|-- Results
 <div class="api-item">
 <div class="api-signature">function Created&lt;T&gt;(const const: string; const const: T): IResult</div><div class="description">Returns 201 Created with the object serialized via Content Negotiation.</div></div>
 <div class="api-item">
+<div class="api-signature">function Accepted(const const: string): IResult</div><div class="description">Returns 202 Accepted (optional Location for async status URI).</div></div>
+<div class="api-item">
+<div class="api-signature">function Accepted(const const: string; const const: string): IResult</div><div class="description">Returns 202 Accepted with Location and a JSON/string body.</div></div>
+<div class="api-item">
+<div class="api-signature">function Accepted&lt;T&gt;(const const: string; const const: T): IResult</div><div class="description">Returns 202 Accepted with Location and a negotiated object body.</div></div>
+<div class="api-item">
 <div class="api-signature">function BadRequest: IResult</div><div class="description">Returns 400 Bad Request.</div></div>
 <div class="api-item">
 <div class="api-signature">function BadRequest(const const: string): IResult</div><div class="description">Returns 400 Bad Request with an error message.</div></div>
@@ -423,6 +483,10 @@ TObject <|-- Results
 <div class="api-signature">function Conflict(const const: string): IResult</div><div class="description">Returns 409 Conflict with a detailed message.</div></div>
 <div class="api-item">
 <div class="api-signature">function Conflict&lt;T&gt;(const const: T): IResult</div><div class="description">Returns 409 Conflict with a serialized object.</div></div>
+<div class="api-item">
+<div class="api-signature">function UnsupportedMediaType: IResult</div><div class="description">Returns 415 Unsupported Media Type.</div></div>
+<div class="api-item">
+<div class="api-signature">function UnsupportedMediaType(const const: string): IResult</div><div class="description">Returns 415 Unsupported Media Type with a detailed message.</div></div>
 <div class="api-item">
 <div class="api-signature">function NoContent: IResult</div><div class="description">Returns 204 No Content.</div></div>
 <div class="api-item">
@@ -443,6 +507,10 @@ TObject <|-- Results
 <div class="api-signature">function InternalServerError(const const: Exception): IResult</div><div class="description">Returns 500 Internal Server Error from a captured exception.</div></div>
 <div class="api-item">
 <div class="api-signature">function Problem(const const: string; AStatusCode: Integer): IResult</div><div class="description">Returns a standardized error response (RFC 7807).</div></div>
+<div class="api-item">
+<div class="api-signature">function ProblemDetails(const const: string; const const: string; const const: string; const const: string; AStatusCode: Integer): IResult</div><div class="description">Returns a full RFC 9457 Problem Details document with application/problem+json.</div></div>
+<div class="api-item">
+<div class="api-signature">function BindingProblem(const const: string; const const: string): IResult</div><div class="description">Returns Problem Details for model-binding failures (400).</div></div>
 <div class="api-item">
 <div class="api-signature">function ValidationProblem(const const: TValidationResult): IResult</div><div class="description">Returns a standardized validation error response (RFC 7807).</div></div>
 <div class="api-item">

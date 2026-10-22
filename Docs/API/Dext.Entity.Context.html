@@ -51,6 +51,7 @@ class TEntityShadowState {    +Create()
     +Destroy()
     +ShadowValues
     +ModifiedProperties
+    +ExplicitlyModified
 }
 TObject <|-- TEntityShadowState
 class TChangeTracker {    +Create()
@@ -155,6 +156,8 @@ IPoolable <|.. TDbContext
 <div class="api-signature">property ShadowValues: </div></div>
 <div class="api-item">
 <div class="api-signature">property ModifiedProperties: </div></div>
+<div class="api-item">
+<div class="api-signature">property ExplicitlyModified: </div><div class="description">Properties marked with Entry(...).Member(...).IsModified := True. DetectChanges keeps them modified even when the current value equals the snapshot: setting a value back to its default (0, '', False, null) on an entity attached for update is still a change to write.</div></div>
 </div>
 <hr>
 <div class="class-header">

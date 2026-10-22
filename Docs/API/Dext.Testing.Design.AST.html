@@ -50,6 +50,7 @@ classDiagram
 class TTestLocation {}
 class TTestASTScanner {    +ScanFile()
     +ScanText()
+    +ScanCppText()
 }
 TObject <|-- TTestASTScanner
 </div>
@@ -65,6 +66,8 @@ TObject <|-- TTestASTScanner
 <div class="api-signature">function ScanFile(const const: string; out out: TList): Boolean</div></div>
 <div class="api-item">
 <div class="api-signature">function ScanText(const const: string; out out: TList): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function ScanCppText(const const: string; out out: TList): Boolean</div><div class="description">C++: DUnit TTestCase + Google Test TEST/TEST_F/TEST_P.</div></div>
 </div>
 <hr>
 

@@ -55,6 +55,8 @@ class TRawDictionary {    +GetCount()
     +GetKeyPtr()
     +GetValuePtr()
     +FindSlot()
+    +SlotForNewKey()
+    +StoreNew()
     +Grow()
     +Rehash()
     +FreeSlotContent()
@@ -62,6 +64,7 @@ class TRawDictionary {    +GetCount()
     +Destroy()
     +AddOrSetRaw()
     +AddRaw()
+    +TryAddRaw()
     +TryGetRaw()
     +ContainsKeyRaw()
     +RemoveRaw()
@@ -90,6 +93,8 @@ TObject <|-- TRawDictionary
 <div class="api-signature">procedure AddOrSetRaw(Key: Pointer; Value: Pointer)</div><div class="description">Adds or updates a key-value pair</div></div>
 <div class="api-item">
 <div class="api-signature">procedure AddRaw(Key: Pointer; Value: Pointer)</div><div class="description">Adds a key-value pair. Raises exception if key already exists</div></div>
+<div class="api-item">
+<div class="api-signature">function TryAddRaw(Key: Pointer; Value: Pointer): Boolean</div><div class="description">Adds a key-value pair if the key is not there yet, with a single lookup. Returns False, and changes nothing, if the key already exists.</div></div>
 <div class="api-item">
 <div class="api-signature">function TryGetRaw(Key: Pointer; out out: Pointer): Boolean</div><div class="description">Tries to get the value for a key. Returns pointer to value storage or nil</div></div>
 <div class="api-item">
@@ -131,6 +136,12 @@ TObject <|-- TRawDictionary
 <div class="api-signature">function GetValuePtr(SlotPtr: Pointer): Pointer</div></div>
 <div class="api-item">
 <div class="api-signature">function FindSlot(Key: Pointer; out out: Integer): Boolean</div></div>
+<div class="api-item">
+<div class="api-signature">function FindSlot(Key: Pointer; out out: Integer; out out: Cardinal): Boolean</div><div class="description">FindSlot that also hands back the hash of Key, so that an insertion can store its H2 byte without hashing the key again.</div></div>
+<div class="api-item">
+<div class="api-signature">function SlotForNewKey(Key: Pointer; SlotIndex: Integer): Integer</div><div class="description">Finds the slot for a key that FindSlot reported absent, growing the table first if the new entry would exceed the load factor. Only a key that is really added can grow the table.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure StoreNew(SlotIndex: Integer; Key: Pointer; Value: Pointer; Hash: Cardinal)</div><div class="description">Writes a new entry in a free slot.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Grow</div></div>
 <div class="api-item">
