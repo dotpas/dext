@@ -117,6 +117,12 @@ templates:
       - src: ./Apps/Sidecar/*.dproj
       - src: ./Apps/Sidecar/**.res
       - src: ./Apps/Sidecar/**.ico
+      # Expert project files travel with the package. The compiled DLL does not.
+      - src: ./Apps/TestExplorerExpert/*.dpr
+      - src: ./Apps/TestExplorerExpert/*.dproj
+      - src: ./Apps/TestExplorerExpert/*.res
+      - src: ./Apps/TestExplorerExpert/README.md
+      - src: ./Installers/DextTestExplorer/*.ps1
     build:
       - project: ./Packages/$packageSource$/Dext.Core.dproj
       - project: ./Packages/$packageSource$/Dext.AST.Core.dproj
@@ -142,3 +148,15 @@ templates:
         platforms:
           - win32
           - win64
+      # Expert DLL: do not enable yet.
+      # Dext.Testing.Design above is the design BPL, and its Register calls
+      # RegisterExpert, so a dpm install already loads the Test Explorer.
+      # The DLL is a second entry point (INITWIZARD0001, HKCU Experts).
+      # dpm blocks pre/post-build events, so Install-DextTestExplorer.ps1
+      # cannot run from here. The dproj is Windows-only and is not safe to
+      # build for every compiler in this template (XE2..13, including linux64).
+      # When a Delphi 13-only template exists, the build entry is:
+      # - project: ./Apps/TestExplorerExpert/Dext.Testing.Design.ExpertLib.dproj
+      #   platforms:
+      #     - win32
+      #     - win64

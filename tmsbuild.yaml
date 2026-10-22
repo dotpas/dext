@@ -43,6 +43,13 @@ packages:
   - Dext.EF.Design: [design, vcl]
   - Dext.Testing.Core: [runtime, vcl]
   - Dext.Testing.Design: [design, vcl]
+  # Expert DLL (Apps/TestExplorerExpert/Dext.Testing.Design.ExpertLib.dproj)
+  # is not a package, so it does not belong in this list. Installing the
+  # design BPL above already calls RegisterExpert. Registering the DLL as
+  # well would load the explorer twice. The DLL stays a manual install
+  # (unsigned, HKCU Experts key, Install-DextTestExplorer.ps1) until there
+  # is a Smart Setup expert entry that does not double-register.
+  # - Dext.Testing.Design.ExpertLib: [design, vcl]
 
 # The settings in the this section are only needed if the packages don't follow smartsetup conventions.
 package options:
