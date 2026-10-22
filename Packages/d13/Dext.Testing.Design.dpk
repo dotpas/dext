@@ -49,6 +49,7 @@ contains
   Dext.Testing.Design.Coverage.Runner in '..\..\Sources\Testing\Design\Dext.Testing.Design.Coverage.Runner.pas',
   Dext.Testing.Design.Presenter in '..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas',
   Dext.Testing.Design.ProjectKinds in '..\..\Sources\Testing\Design\Dext.Testing.Design.ProjectKinds.pas',
-  Dext.Testing.Design.ExpertTrace in '..\..\Sources\Testing\Design\Dext.Testing.Design.ExpertTrace.pas';
+  Dext.Testing.Design.ExpertTrace in '..\..\Sources\Testing\Design\Dext.Testing.Design.ExpertTrace.pas',
+  Dext.Testing.Design.KnownEditors in '..\..\Sources\Testing\Design\Dext.Testing.Design.KnownEditors.pas';
 
 end.

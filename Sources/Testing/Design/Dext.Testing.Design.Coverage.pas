@@ -29,7 +29,7 @@ unit Dext.Testing.Design.Coverage;
 interface
 
 uses
-  Winapi.Windows, System.SysUtils, System.Classes, System.Generics.Collections,
+  Winapi.Windows, System.SysUtils, System.Classes, Dext.Collections, Dext.Collections.Dict,
   System.Math, Vcl.Graphics, Vcl.Controls, Vcl.Forms, ToolsAPI, System.IOUtils, Vcl.Menus;
 
 {$IFDEF DEXT_DELPHI13_UP}
@@ -55,13 +55,13 @@ type
   private
     class var FInstance: TCoverageManager;
   var
-    FFileCoverage: TDictionary<string, TDictionary<Integer, TCoverageLineState>>;
-    FLineCoveringTests: TDictionary<string, TDictionary<Integer, TList<string>>>;
-    FNotifiers: TDictionary<IOTAEditView, Integer>;
+    FFileCoverage: Dext.Collections.Dict.TDictionary<string, Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>>;
+    FLineCoveringTests: Dext.Collections.Dict.TDictionary<string, Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>>;
+    FNotifiers: Dext.Collections.Dict.TDictionary<IOTAEditView, Integer>;
     FLastLoadedPath: string;
     function NormalizePathKey(const AFileName: string): string;
-    function FindFileCoverage(const AFileName: string; out ADict: TDictionary<Integer, TCoverageLineState>): Boolean;
-    function FindLineCovering(const AFileName: string; out ADict: TDictionary<Integer, TList<string>>): Boolean;
+    function FindFileCoverage(const AFileName: string; out ADict: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>): Boolean;
+    function FindLineCovering(const AFileName: string; out ADict: Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>): Boolean;
     procedure ClearCoverage;
   public
     /// <summary>Creates an empty coverage map.</summary>
@@ -86,7 +86,7 @@ type
     /// <summary>Test names recorded against this line.</summary>
     function GetCoveringTests(const AFileName: string; ALineNumber: Integer): TArray<string>;
     /// <summary>Distinct test names that hit any line of this file. The caller does not free the list.</summary>
-    function GetTestsCoveringFile(const AFileName: string): TList<string>;
+    function GetTestsCoveringFile(const AFileName: string): Dext.Collections.TList<string>;
     /// <summary>One summary per loaded file.</summary>
     function GetFileSummaries: TArray<TCoverageFileSummary>;
     /// <summary>First uncovered line, or the first covered line when PreferUncovered is false.</summary>
@@ -111,36 +111,53 @@ type
   private
     FView: IOTAEditView;
   public
+    /// <summary>Keeps the view this notifier paints.</summary>
     constructor Create(const AView: IOTAEditView);
-    // IOTANotifier
+    /// <summary>OTA hook. The coverage notifier does not save the buffer.</summary>
     procedure AfterSave;
+    /// <summary>OTA hook. The coverage notifier does not change the buffer before save.</summary>
     procedure BeforeSave;
+    /// <summary>OTA hook. The IDE releases the notifier.</summary>
     procedure Destroyed;
+    /// <summary>OTA hook. A buffer edit does not reload coverage.</summary>
     procedure Modified;
-    // INTAEditViewNotifier
+    /// <summary>Drops the view when the editor closes.</summary>
     procedure EditorDestroyed(const View: IOTAEditView);
+    /// <summary>OTA hook. Coverage does not use the editor frame form.</summary>
     procedure FrameFormCreated(const FrameForm: TCustomFrame);
+    /// <summary>Paints the covered or uncovered stripe for one source line.</summary>
     procedure PaintLine(const View: IOTAEditView; LineNumber: Integer;
       const LineText: PAnsiChar; const TextWidth: Word;
       const LineAttributes: TOTAAttributeArray; const Canvas: TCanvas;
       const TextRect: TRect; const LineRect: TRect; const CellSize: TSize);
+    /// <summary>OTA hook. Coverage paints in PaintLine.</summary>
     procedure EditorIdle(const View: IOTAEditView);
+    /// <summary>OTA hook. The stripe is drawn per line.</summary>
     procedure BeginPaint(const View: IOTAEditView; var FullRepaint: Boolean);
+    /// <summary>OTA hook. Nothing to finish after the line paint.</summary>
     procedure EndPaint(const View: IOTAEditView);
   end;
 
+  /// <summary>Binds the shortcut that lists the tests covering the current line.</summary>
   TDextKeyboardBinding = class(TInterfacedObject, IOTANotifier, IOTAKeyboardBinding)
   public
-    // IOTANotifier
+    /// <summary>OTA hook. The binding does not save a file.</summary>
     procedure AfterSave;
+    /// <summary>OTA hook. The binding does not change a file before save.</summary>
     procedure BeforeSave;
+    /// <summary>OTA hook. The IDE releases the binding.</summary>
     procedure Destroyed;
+    /// <summary>OTA hook. An edit does not change the binding.</summary>
     procedure Modified;
-    // IOTAKeyboardBinding
+    /// <summary>Partial binding: the shortcut is added next to the IDE defaults.</summary>
     function GetBindingType: TBindingType;
+    /// <summary>Name shown in the IDE keyboard options.</summary>
     function GetDisplayName: string;
+    /// <summary>Internal binding name.</summary>
     function GetName: string;
+    /// <summary>Registers the shortcut that opens the covering-tests popup.</summary>
     procedure BindKeyboard(const BindingServices: IOTAKeyBindingServices);
+    /// <summary>Opens the popup for the line under the cursor.</summary>
     procedure ShowCoveringTestsProc(const Context: IOTAKeyContext; KeyCode: TShortcut; var BindingResult: TKeyBindingResult);
   end;
 
@@ -151,10 +168,12 @@ procedure UnregisterCoverageEditorPainting;
 implementation
 
 uses
+  Dext.Testing.Coverage.Lcov,
   Dext.Testing.Design.DockableForm,
   Dext.Testing.Design.Server
 {$IFDEF DEXT_COVERAGE_GUTTER_COLUMN}
   , ToolsAPI.Editor
+  , Dext.Testing.Design.KnownEditors
 {$ENDIF}
   ;
 
@@ -247,9 +266,9 @@ end;
 constructor TCoverageManager.Create;
 begin
   inherited Create;
-  FFileCoverage := TDictionary<string, TDictionary<Integer, TCoverageLineState>>.Create;
-  FLineCoveringTests := TDictionary<string, TDictionary<Integer, TList<string>>>.Create;
-  FNotifiers := TDictionary<IOTAEditView, Integer>.Create;
+  FFileCoverage := Dext.Collections.Dict.TDictionary<string, Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>>.Create;
+  FLineCoveringTests := Dext.Collections.Dict.TDictionary<string, Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>>.Create;
+  FNotifiers := Dext.Collections.Dict.TDictionary<IOTAEditView, Integer>.Create;
   FLastLoadedPath := '';
 end;
 
@@ -267,10 +286,10 @@ begin
 end;
 
 function TCoverageManager.FindFileCoverage(const AFileName: string;
-  out ADict: TDictionary<Integer, TCoverageLineState>): Boolean;
+  out ADict: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>): Boolean;
 var
   Key, Leaf: string;
-  Pair: TPair<string, TDictionary<Integer, TCoverageLineState>>;
+  Pair: Dext.Collections.Dict.TPair<string, Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>>;
 begin
   ADict := nil;
   Result := False;
@@ -293,10 +312,10 @@ begin
 end;
 
 function TCoverageManager.FindLineCovering(const AFileName: string;
-  out ADict: TDictionary<Integer, TList<string>>): Boolean;
+  out ADict: Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>): Boolean;
 var
   Key, Leaf: string;
-  Pair: TPair<string, TDictionary<Integer, TList<string>>>;
+  Pair: Dext.Collections.Dict.TPair<string, Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>>;
 begin
   ADict := nil;
   Result := False;
@@ -331,14 +350,14 @@ end;
 
 function TCoverageManager.GetFileSummaries: TArray<TCoverageFileSummary>;
 var
-  Pair: TPair<string, TDictionary<Integer, TCoverageLineState>>;
-  LinePair: TPair<Integer, TCoverageLineState>;
+  Pair: Dext.Collections.Dict.TPair<string, Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>>;
+  LinePair: Dext.Collections.Dict.TPair<Integer, TCoverageLineState>;
   Summary: TCoverageFileSummary;
-  List: TList<TCoverageFileSummary>;
+  List: Dext.Collections.TList<TCoverageFileSummary>;
   i, j: Integer;
   Tmp: TCoverageFileSummary;
 begin
-  List := TList<TCoverageFileSummary>.Create;
+  List := Dext.Collections.TList<TCoverageFileSummary>.Create;
   try
     for Pair in FFileCoverage do
     begin
@@ -370,8 +389,8 @@ end;
 
 function TCoverageManager.FirstLineOfInterest(const AFileName: string; PreferUncovered: Boolean): Integer;
 var
-  Dict: TDictionary<Integer, TCoverageLineState>;
-  Pair: TPair<Integer, TCoverageLineState>;
+  Dict: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>;
+  Pair: Dext.Collections.Dict.TPair<Integer, TCoverageLineState>;
   Best: Integer;
 begin
   Result := 1;
@@ -404,9 +423,9 @@ end;
 
 procedure TCoverageManager.ClearCoverage;
 var
-  pair: TPair<string, TDictionary<Integer, TCoverageLineState>>;
-  pairCovering: TPair<string, TDictionary<Integer, TList<string>>>;
-  innerPair: TPair<Integer, TList<string>>;
+  pair: Dext.Collections.Dict.TPair<string, Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>>;
+  pairCovering: Dext.Collections.Dict.TPair<string, Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>>;
+  innerPair: Dext.Collections.Dict.TPair<Integer, Dext.Collections.TList<string>>;
 begin
   for pair in FFileCoverage do
     pair.Value.Free;
@@ -433,7 +452,7 @@ var
   State: TCoverageLineState;
   LineNum: Integer;
   IsCovered: Boolean;
-  FileLines: TDictionary<Integer, TCoverageLineState>;
+  FileLines: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>;
   LinePos: Integer;
   LineEnd: Integer;
   Tag: string;
@@ -450,11 +469,11 @@ var
   TestsStart: Integer;
   TestsEnd: Integer;
   TestsStr: string;
-  TestsList: TList<string>;
+  TestsList: Dext.Collections.TList<string>;
   SplitTests: TArray<string>;
   TestName: string;
-  LineDict: TDictionary<Integer, TList<string>>;
-  UnitMap: TDictionary<string, string>;
+  LineDict: Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>;
+  UnitMap: Dext.Collections.Dict.TDictionary<string, string>;
   UnitKey: string;
   NameAttr: string;
   LineHitsPos: Integer;
@@ -475,7 +494,7 @@ var
   begin
     if UnitMap <> nil then
       Exit;
-    UnitMap := TDictionary<string, string>.Create;
+    UnitMap := Dext.Collections.Dict.TDictionary<string, string>.Create;
     if (ASourceRoot = '') or not TDirectory.Exists(ASourceRoot) then
       Exit;
     try
@@ -537,7 +556,7 @@ begin
         Continue;
       end;
 
-      FileLines := TDictionary<Integer, TCoverageLineState>.Create;
+      FileLines := Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>.Create;
       if FFileCoverage.ContainsKey(FilePath) then
         FFileCoverage[FilePath].Free;
       FFileCoverage.AddOrSetValue(FilePath, FileLines);
@@ -608,7 +627,7 @@ begin
             TestsStr := Tag.Substring(TestsStart, TestsEnd - TestsStart).Trim;
             if TestsStr <> '' then
             begin
-              TestsList := TList<string>.Create;
+              TestsList := Dext.Collections.TList<string>.Create;
               SplitTests := TestsStr.Split([',']);
               for TestName in SplitTests do
                 TestsList.Add(TestName.Trim);
@@ -616,7 +635,7 @@ begin
               LineDict := nil;
               if not FLineCoveringTests.TryGetValue(FilePath, LineDict) then
               begin
-                LineDict := TDictionary<Integer, TList<string>>.Create;
+                LineDict := Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>.Create;
                 FLineCoveringTests.Add(FilePath, LineDict);
               end;
               LineDict.AddOrSetValue(LineNum, TestsList);
@@ -661,7 +680,7 @@ begin
 
           if Resolved <> '' then
           begin
-            FileLines := TDictionary<Integer, TCoverageLineState>.Create;
+            FileLines := Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>.Create;
             if FFileCoverage.ContainsKey(Resolved) then
               FFileCoverage[Resolved].Free;
             FFileCoverage.AddOrSetValue(Resolved, FileLines);
@@ -695,10 +714,12 @@ end;
 
 procedure TCoverageManager.LoadCoverageFromLcov(const ALcovPath: string);
 var
-  Lines: TStringList;
-  I, Comma, LineNum, Hits: Integer;
-  Row, FilePath: string;
-  FileLines: TDictionary<Integer, TCoverageLineState>;
+  Parsed: TArray<TLcovFile>;
+  FileItem: TLcovFile;
+  LineItem: TLcovLine;
+  FilePath: string;
+  FileLines: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>;
+  i, j: Integer;
 begin
   ClearCoverage;
   FLastLoadedPath := '';
@@ -708,53 +729,34 @@ begin
     Exit;
   end;
 
-  Lines := TStringList.Create;
-  FileLines := nil;
-  try
-    Lines.LoadFromFile(ALcovPath);
-    for I := 0 to Lines.Count - 1 do
+  Parsed := ParseLcovFile(ALcovPath);
+  for i := 0 to High(Parsed) do
+  begin
+    FileItem := Parsed[i];
+    FilePath := NormalizePathKey(FileItem.Path);
+    if FilePath = '' then
+      Continue;
+    if not FFileCoverage.TryGetValue(FilePath, FileLines) then
     begin
-      Row := Lines[I].Trim;
-      if Row.StartsWith('SF:') then
-      begin
-        FilePath := NormalizePathKey(Row.Substring(3).Trim);
-        FileLines := nil;
-        if FilePath = '' then
-          Continue;
-        if not FFileCoverage.TryGetValue(FilePath, FileLines) then
-        begin
-          FileLines := TDictionary<Integer, TCoverageLineState>.Create;
-          FFileCoverage.Add(FilePath, FileLines);
-        end;
-      end
-      else if Row.StartsWith('DA:') and (FileLines <> nil) then
-      begin
-        Row := Row.Substring(3);
-        Comma := Row.IndexOf(',');
-        if Comma < 1 then
-          Continue;
-        LineNum := StrToIntDef(Row.Substring(0, Comma).Trim, 0);
-        Hits := StrToIntDef(Row.Substring(Comma + 1).Trim, 0);
-        if LineNum <= 0 then
-          Continue;
-        if Hits > 0 then
-          FileLines.AddOrSetValue(LineNum, clsCovered)
-        else
-          FileLines.AddOrSetValue(LineNum, clsUncovered);
-      end
-      else if SameText(Row, 'end_of_record') then
-        FileLines := nil;
+      FileLines := Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>.Create;
+      FFileCoverage.Add(FilePath, FileLines);
     end;
-    FLastLoadedPath := ALcovPath;
-  finally
-    Lines.Free;
+    for j := 0 to High(FileItem.Lines) do
+    begin
+      LineItem := FileItem.Lines[j];
+      if LineItem.Hits > 0 then
+        FileLines.AddOrSetValue(LineItem.Line, clsCovered)
+      else
+        FileLines.AddOrSetValue(LineItem.Line, clsUncovered);
+    end;
   end;
+  FLastLoadedPath := ALcovPath;
   RefreshActiveViews;
 end;
 
 function TCoverageManager.GetLineState(const AFileName: string; ALineNumber: Integer): TCoverageLineState;
 var
-  Dict: TDictionary<Integer, TCoverageLineState>;
+  Dict: Dext.Collections.Dict.TDictionary<Integer, TCoverageLineState>;
 begin
   Result := clsNone;
   if FindFileCoverage(AFileName, Dict) then
@@ -822,8 +824,8 @@ end;
 
 function TCoverageManager.GetCoveringTests(const AFileName: string; ALineNumber: Integer): TArray<string>;
 var
-  Dict: TDictionary<Integer, TList<string>>;
-  List: TList<string>;
+  Dict: Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>;
+  List: Dext.Collections.TList<string>;
 begin
   Result := [];
   if FindLineCovering(AFileName, Dict) then
@@ -831,13 +833,13 @@ begin
       Result := List.ToArray;
 end;
 
-function TCoverageManager.GetTestsCoveringFile(const AFileName: string): TList<string>;
+function TCoverageManager.GetTestsCoveringFile(const AFileName: string): Dext.Collections.TList<string>;
 var
-  Dict: TDictionary<Integer, TList<string>>;
+  Dict: Dext.Collections.Dict.TDictionary<Integer, Dext.Collections.TList<string>>;
   TestName: string;
-  Pair: TPair<Integer, TList<string>>;
+  Pair: Dext.Collections.Dict.TPair<Integer, Dext.Collections.TList<string>>;
 begin
-  Result := TList<string>.Create;
+  Result := Dext.Collections.TList<string>.Create;
   if FindLineCovering(AFileName, Dict) then
   begin
     for Pair in Dict do
@@ -889,27 +891,11 @@ var
   Iterator: IOTAEditBufferIterator;
   EditBuffer: IOTAEditBuffer;
   View: IOTAEditView;
-  I, B: Integer;
-{$IFDEF DEXT_COVERAGE_GUTTER_COLUMN}
-  CodeEditorServices: INTACodeEditorServices;
-  Editors: TList<TWinControl>;
-  Editor: TWinControl;
-{$ENDIF}
+  i, b: Integer;
 begin
 {$IFDEF DEXT_COVERAGE_GUTTER_COLUMN}
-  if (FCoverageGutterColumnIndex >= 0) and
-     Supports(BorlandIDEServices, INTACodeEditorServices, CodeEditorServices) then
-  begin
-    Editors := CodeEditorServices.GetKnownEditors;
-    try
-      if Assigned(Editors) then
-        for Editor in Editors do
-          CodeEditorServices.InvalidateEditor(Editor);
-    finally
-      Editors.Free;
-    end;
+  if (FCoverageGutterColumnIndex >= 0) and InvalidateKnownCodeEditors then
     Exit;
-  end;
 {$ENDIF}
 
   if not Supports(BorlandIDEServices, IOTAEditorServices, EditorServices) then
@@ -918,14 +904,14 @@ begin
   if not EditorServices.GetEditBufferIterator(Iterator) then
     Exit;
 
-  for B := 0 to Iterator.Count - 1 do
+  for b := 0 to Iterator.Count - 1 do
   begin
-    EditBuffer := Iterator.EditBuffers[B];
+    EditBuffer := Iterator.EditBuffers[b];
     if (EditBuffer = nil) or (EditBuffer.EditViewCount = 0) then
       Continue;
-    for I := 0 to EditBuffer.EditViewCount - 1 do
+    for i := 0 to EditBuffer.EditViewCount - 1 do
     begin
-      View := EditBuffer.EditViews[I];
+      View := EditBuffer.EditViews[i];
       RegisterView(View);
       try
         View.Paint;
@@ -1151,8 +1137,8 @@ end;
 
 destructor TCoverageManager.Destroy;
 var
-  Pair: TPair<IOTAEditView, Integer>;
-  Pairs: TArray<TPair<IOTAEditView, Integer>>;
+  Pair: Dext.Collections.Dict.TPair<IOTAEditView, Integer>;
+  Pairs: TArray<Dext.Collections.Dict.TPair<IOTAEditView, Integer>>;
 begin
   // Unregister all edit-view notifiers before freeing maps (avoids NotifyDestroyed crash).
   Pairs := FNotifiers.ToArray;

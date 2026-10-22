@@ -8,7 +8,7 @@ O Dext inclui um framework de testes poderoso inspirado no NUnit/xUnit, com mock
 2. [Assertions](assertions.md) - Sintaxe fluente `Should()`
 3. [Snapshots](snapshots.md) - Testes de snapshot JSON
 4. [Projetos não-Dext](projetos-nao-dext.md) - DUnit / DUnitX / DUnit2 no Explorer sem reescrever
-5. [Test Explorer](test-explorer.md) - Instalação manual e cobertura de linha
+5. [Test Explorer](test-explorer.md) - Compilar a DLL, instalar, DUnit, Google Test e cobertura só no Win64x
 
 ## Estrutura do Projeto de Testes (.dpr)
 
@@ -258,7 +258,7 @@ dext test --coverage
 Isso gerará relatórios consolidados em formatos compatíveis com analisadores de qualidade de código do mercado (como o SonarQube) e relatórios visuais estáticos (HTML).
 
 > [!TIP]
-> **Integração IDE**: a instalação manual do expert, o aviso sobre a DLL sem assinatura e a cobertura de linha no Win64x estão em [Test Explorer](test-explorer.md). O motor CLI (`dext test --coverage`) está **Stable**.
+> **Integração IDE**: compilar a DLL, instalar, os projetos DUnit e Google Test, e a cobertura de linha só no Win64x estão em [Test Explorer](test-explorer.md). O motor CLI (`dext test --coverage`) está **Stable**.
 
 ---
 

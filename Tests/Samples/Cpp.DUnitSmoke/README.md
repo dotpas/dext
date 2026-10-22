@@ -1,6 +1,6 @@
 # Cpp.DUnitSmoke — DUnit C++ ↔ Dext Test Explorer
 
-Project: `DextTestExplorerTests.cbproj` (name contains `test` → aparece no combo do Explorer).
+Project: `DextDUnitSmokeTestsP.cbproj` (name contains `test` → aparece no combo do Explorer).
 
 | File | Role |
 |------|------|

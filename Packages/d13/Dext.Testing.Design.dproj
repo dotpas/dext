@@ -101,6 +101,7 @@
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.Presenter.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.ProjectKinds.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.ExpertTrace.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Design\Dext.Testing.Design.KnownEditors.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

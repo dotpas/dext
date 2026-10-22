@@ -1,3 +1,27 @@
+{***************************************************************************}
+{                                                                           }
+{           Dext Framework                                                  }
+{                                                                           }
+{           Copyright (c) 2024 Dext Framework                               }
+{                                                                           }
+{           https://github.com/dext-framework/dext                          }
+{                                                                           }
+{***************************************************************************}
+{                                                                           }
+{  Licensed under the Apache License, Version 2.0 (the "License");          }
+{  you may not use this file except in compliance with the License.         }
+{  You may obtain a copy of the License at                                  }
+{                                                                           }
+{      http://www.apache.org/licenses/LICENSE-2.0                           }
+{                                                                           }
+{  Unless required by applicable law or agreed to in writing, software      }
+{  distributed under the License is distributed on an "AS IS" BASIS,        }
+{  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. }
+{  See the License for the specific language governing permissions and      }
+{  limitations under the License.                                           }
+{                                                                           }
+{***************************************************************************}
+
 unit Dext.Testing.Design.Expert;
 
 interface
@@ -5,7 +29,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.Generics.Collections,
+  Dext.Collections,
   ToolsAPI,
   Vcl.Menus;
 
@@ -92,7 +116,7 @@ end;
 
 procedure SetupMenus;
 var
-  LNTAServices: INTAServices;
+  NtaServices: INTAServices;
 begin
   { BPL Register runs late — LToolsMenu.Add sticks.
     Expert DLL InitWizard runs early — IDE rebuilds Tools and wipes manual Add.
@@ -111,7 +135,7 @@ begin
     Exit;
   end;
 
-  if not Supports(BorlandIDEServices, INTAServices, LNTAServices) then
+  if not Supports(BorlandIDEServices, INTAServices, NtaServices) then
   begin
     LogExpert('SetupMenus: INTAServices not available');
     Exit;
@@ -133,7 +157,7 @@ begin
   FTestExplorerMenu.OnClick := FMenuHelper.OnMenuClick;
 
   { Name, Action=nil, Item, InsertAdjacent=False, InsertChild=True → under Tools. }
-  LNTAServices.AddActionMenu('ToolsMenu', nil, FTestExplorerMenu, False, True);
+  NtaServices.AddActionMenu('ToolsMenu', nil, FTestExplorerMenu, False, True);
   LogExpert(Format('SetupMenus: AddActionMenu done; Parent=%s',
     [BoolToStr(Assigned(FTestExplorerMenu.Parent), True)]));
   if Assigned(FTestExplorerMenu.Parent) then
@@ -214,11 +238,11 @@ end;
 
 procedure AttachNotifierToModule(const AFileName: string);
 var
-  LModuleServices: IOTAModuleServices;
-  LModule: IOTAModule;
-  LIndex: Integer;
-  LInfo: TModuleNotifierInfo;
-  I: Integer;
+  ModuleServices: IOTAModuleServices;
+  Module: IOTAModule;
+  NotifierIndex: Integer;
+  Info: TModuleNotifierInfo;
+  i: Integer;
 begin
   if not IsDextTestExplorerEnabled then
     Exit;
@@ -228,57 +252,57 @@ begin
   LogExpert('AttachNotifierToModule: ' + AFileName);
 
   // Check if already attached
-  for I := 0 to FAttachedNotifiers.Count - 1 do
-    if SameText(FAttachedNotifiers[I].FileName, AFileName) then Exit;
+  for i := 0 to FAttachedNotifiers.Count - 1 do
+    if SameText(FAttachedNotifiers[i].FileName, AFileName) then Exit;
   
-  if Supports(BorlandIDEServices, IOTAModuleServices, LModuleServices) then
+  if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
   begin
-    LModule := LModuleServices.FindModule(AFileName);
-    if Assigned(LModule) then
+    Module := ModuleServices.FindModule(AFileName);
+    if Assigned(Module) then
     begin
-      LIndex := LModule.AddNotifier(TDextModuleNotifier.Create(AFileName));
-      LInfo.FileName := AFileName;
-      LInfo.NotifierIndex := LIndex;
-      FAttachedNotifiers.Add(LInfo);
+      NotifierIndex := Module.AddNotifier(TDextModuleNotifier.Create(AFileName));
+      Info.FileName := AFileName;
+      Info.NotifierIndex := NotifierIndex;
+      FAttachedNotifiers.Add(Info);
     end;
   end;
 end;
 
 procedure AttachNotifiersToOpenModules;
 var
-  LModuleServices: IOTAModuleServices;
-  LModule: IOTAModule;
-  I: Integer;
+  ModuleServices: IOTAModuleServices;
+  Module: IOTAModule;
+  i: Integer;
 begin
   if not IsDextTestExplorerEnabled then
     Exit;
-  if Supports(BorlandIDEServices, IOTAModuleServices, LModuleServices) then
+  if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
   begin
-    for I := 0 to LModuleServices.ModuleCount - 1 do
+    for i := 0 to ModuleServices.ModuleCount - 1 do
     begin
-      LModule := LModuleServices.Modules[I];
-      if Assigned(LModule) then
-        AttachNotifierToModule(LModule.FileName);
+      Module := ModuleServices.Modules[i];
+      if Assigned(Module) then
+        AttachNotifierToModule(Module.FileName);
     end;
   end;
 end;
 
 procedure RemoveAllModuleNotifiers;
 var
-  LModuleServices: IOTAModuleServices;
-  LModule: IOTAModule;
-  I: Integer;
+  ModuleServices: IOTAModuleServices;
+  Module: IOTAModule;
+  i: Integer;
 begin
   if not Assigned(FAttachedNotifiers) then Exit;
-  if not Supports(BorlandIDEServices, IOTAModuleServices, LModuleServices) then Exit;
+  if not Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then Exit;
   LogExpert('RemoveAllModuleNotifiers: Removing ' + FAttachedNotifiers.Count.ToString + ' notifiers');
   
-  for I := FAttachedNotifiers.Count - 1 downto 0 do
+  for i := FAttachedNotifiers.Count - 1 downto 0 do
   begin
     try
-      LModule := LModuleServices.FindModule(FAttachedNotifiers[I].FileName);
-      if Assigned(LModule) then
-        LModule.RemoveNotifier(FAttachedNotifiers[I].NotifierIndex);
+      Module := ModuleServices.FindModule(FAttachedNotifiers[i].FileName);
+      if Assigned(Module) then
+        Module.RemoveNotifier(FAttachedNotifiers[i].NotifierIndex);
     except
       // Ignore exceptions on cleanup
     end;
@@ -315,7 +339,7 @@ end;
 
 procedure RegisterExpert;
 var
-  LOTAServices: IOTAServices;
+  OtaServices: IOTAServices;
 begin
   LoadDextTestExplorerEnabledFromIni;
   SetDextEnabledChangedHook(OnDextEnabledChanged);
@@ -325,9 +349,9 @@ begin
      BoolToStr(Assigned(BorlandIDEServices), True)]));
   if FNotifierIndex = -1 then
   begin
-    if Supports(BorlandIDEServices, IOTAServices, LOTAServices) then
+    if Supports(BorlandIDEServices, IOTAServices, OtaServices) then
     begin
-      FNotifierIndex := LOTAServices.AddNotifier(TDextTestRunnerIDENotifier.Create);
+      FNotifierIndex := OtaServices.AddNotifier(TDextTestRunnerIDENotifier.Create);
       LogExpert('RegisterExpert: IDE notifier index=' + IntToStr(FNotifierIndex));
     end
     else
@@ -479,17 +503,18 @@ begin
 end;
 
 procedure TDextModuleNotifier.Destroyed;
+var
+  i: Integer;
 begin
   // The module is being destroyed, so we don't need to call RemoveNotifier anymore.
   // We just remove it from our FAttachedNotifiers tracking list.
   if Assigned(FAttachedNotifiers) then
   begin
-    var I: Integer;
-    for I := FAttachedNotifiers.Count - 1 downto 0 do
+    for i := FAttachedNotifiers.Count - 1 downto 0 do
     begin
-      if SameText(FAttachedNotifiers[I].FileName, FFileName) then
+      if SameText(FAttachedNotifiers[i].FileName, FFileName) then
       begin
-        FAttachedNotifiers.Delete(I);
+        FAttachedNotifiers.Delete(i);
         Break;
       end;
     end;
@@ -518,7 +543,7 @@ begin
       begin
         Info := FAttachedNotifiers[i];
         Info.FileName := NewName;
-        FAttachedNotifiers[I] := Info;
+        FAttachedNotifiers[i] := Info;
         Break;
       end;
     end;

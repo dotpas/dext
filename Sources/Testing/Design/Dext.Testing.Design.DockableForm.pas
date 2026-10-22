@@ -1929,8 +1929,8 @@ end;
 
 destructor TFormDextTestRunner.Destroy;
 var
-  LThemingServices: IOTAIDEThemingServices;
-  I: Integer;
+  ThemingServices: IOTAIDEThemingServices;
+  i: Integer;
 begin
   // Drop global alias immediately so queued UI work bails out.
   if FormDextTestRunner = Self then
@@ -1980,8 +1980,8 @@ begin
   if FThemeNotifierIndex <> -1 then
   begin
     try
-      if Supports(BorlandIDEServices, IOTAIDEThemingServices, LThemingServices) then
-        LThemingServices.RemoveNotifier(FThemeNotifierIndex);
+      if Supports(BorlandIDEServices, IOTAIDEThemingServices, ThemingServices) then
+        ThemingServices.RemoveNotifier(FThemeNotifierIndex);
     except
     end;
     FThemeNotifierIndex := -1;
@@ -2013,8 +2013,8 @@ begin
 
   if Assigned(ProjectsComboBox) then
   begin
-    for I := 0 to ProjectsComboBox.Items.Count - 1 do
-      ProjectsComboBox.Items.Objects[I].Free;
+    for i := 0 to ProjectsComboBox.Items.Count - 1 do
+      ProjectsComboBox.Items.Objects[i].Free;
   end;
 
   try
@@ -2100,13 +2100,13 @@ end;
 
 procedure TFormDextTestRunner.FreeDesktopNameCollisions;
 var
-  I: Integer;
+  i: Integer;
   Comp: TComponent;
   CompName: string;
 begin
-  for I := ComponentCount - 1 downto 0 do
+  for i := ComponentCount - 1 downto 0 do
   begin
-    Comp := Components[I];
+    Comp := Components[i];
     CompName := Comp.Name;
     // ReadRootComponent FindUniqueName('') → "_1"; old Coverage Create(PageControl) debris.
     if (Length(CompName) >= 2) and (CompName[1] = '_') and CharInSet(CompName[2], ['0'..'9']) then
@@ -2116,21 +2116,21 @@ end;
 
 procedure TFormDextTestRunner.GetChildren(Proc: TGetChildProc; Root: TComponent);
 var
-  I: Integer;
+  i: Integer;
   Comp: TComponent;
 begin
   // Visual children only (TWinControl). Do not stream runtime timers/menus/dynamic
   // helpers — 10.4 AutoSave resurrected them as "_1 already exists".
-  for I := 0 to ControlCount - 1 do
-    if Controls[I].Owner = Root then
-      Proc(Controls[I]);
+  for i := 0 to ControlCount - 1 do
+    if Controls[i].Owner = Root then
+      Proc(Controls[i]);
 
   if Root <> Self then
     Exit;
 
-  for I := 0 to ComponentCount - 1 do
+  for i := 0 to ComponentCount - 1 do
   begin
-    Comp := Components[I];
+    Comp := Components[i];
     if Comp.HasParent then
       Continue;
     if Comp is TControl then

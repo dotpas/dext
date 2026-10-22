@@ -1,54 +1,42 @@
-# Cpp.GTestSmoke — Google Test ↔ Dext Test Explorer
+# Cpp.GTestSmoke
 
-Project: `DextGTestSmokeTests.cbproj` (name contains `test` → aparece no combo do Explorer).
+Este projeto existe para exercitar o Dext Test Explorer com Google Test, na mão. Ele não faz parte da suíte do framework e não deve ser disparado por CI.
 
-## Prerequisite
+Dois testes falham de propósito. `IntentionalFail` e `DeepCallFail` existem para a árvore mostrar falha e para a stack abrir o `.cpp`. `DeepCallFail` espera saldo 2 e `Ledger::Balance` devolve 3. Por isso `DextGTestSmokeTests.exe` termina com código diferente de zero. Isso é o exemplo, não um defeito do build.
 
-**Tools → GetIt → Google Test 1.17** (package `GoogleTest-13-cb`).  
-GetIt builds `gtest` / libs under:
+`Scripts\run_examples.ps1` descobre só `.dproj` dentro de `Examples` e ainda recusa o nome `DextGTestSmokeTests` e qualquer caminho em `Tests\Samples`. Este arquivo é um `.cbproj` em `Tests\Samples`. Quem for automatizar examples não inclui esta pasta.
 
-`$(BDSCOMMONDIR)\CatalogRepository\GoogleTest-13-cb\1.17\`
+## Como rodar
 
-## Build settings (in `.cbproj`)
-
-1. **Include path:** `..\..\..\Sources\Testing\Cpp` + GetIt `googletest\include`
-2. **Library path:** GetIt `cbuilder\lib\$(Platform)\Release` (+ `$(BDSLIB)\win32c\$(Config)` on Win32 Clang)
-3. **Win32 Clang** (`BCC_UseClassicCompiler=false`)
-4. **Link with Dynamic RTL** = True (C++ Linker) — fixes `std::codecvt` / `locale` unresolved from `gtest.lib`
-5. **Link with Delphi Runtime Library** = False
-6. Link `gtest.lib` (Win32 / Win64x) or `gtest.a` (Win64) — `#pragma comment` in `SmokeGTestMain.cpp`
-
-Sources:
-- `SmokeGTestMain.cpp` — **MainSource** (`#pragma hdrstop` + `main` only). No `TEST`, no `System.hpp` (Delphi RTL is off for GetIt gtest).
-- `SmokeGTestSuite.cpp` — OnePlusOne, IntentionalFail (open this for the suite tests)
-- `SmokeGTestDeep.cpp` — DeepCallFail chain (`Gateway` → `Auditor` → `NoteFailureStack` + `EXPECT`)
-
-### MainSource will not open in the editor
-
-Known C++Builder quirk for this console project (Delphi RTL = False, GetIt gtest): double-click / File Open on the MainSource unit does nothing; sibling `.cpp` units open normally. **Acceptable for this sample.**
-
-Workarounds: edit `SmokeGTestSuite.cpp` / `SmokeGTestDeep.cpp`, or **Project → View Source**. Click-to-code from Test Explorer targets the suite/deep units, not MainSource.
-
-### Deep stack (Explorer)
-
-Win32 Clang often cannot unwind (`CaptureStackBackTrace` empty). The smoke uses **`FailureStackScope` breadcrumbs** in Gateway → Auditor → TEST, then `NoteFailureStack()` before `EXPECT`. Explorer should show 3 frames.
-
-The gtest message line `Ledger::Balance()` is only the **expression** inside `EXPECT_EQ` — not a stack frame. A single `[0] DeepCallFail @ …:line` means Host fell back to gtest location (no pending breadcrumb stack).
-
-After changing headers: **Project → Clean**, then Build. Open **only** this `.cbproj` (not the GetIt GoogleTest group) to avoid double-build / IDE AV.
-
-## Discover vs Run
-
-| Explorer | Exe args | Effect |
-|----------|----------|--------|
-| **Refresh** | `--port N --discover -no-wait` | Walk GTest registry, POST `Idle` |
-| **Run All / Selected** | `--port N -no-wait` | Execute; POST Passed/Failed |
-
-## Standalone
+Abra só este `.cbproj` no RAD Studio (não o grupo do Google Test do GetIt). Build, e rode pelo Explorer ou pelo exe em `Win32\Debug` ou `Win64x\Debug`.
 
 ```text
 Win32\Debug\DextGTestSmokeTests.exe
 Win32\Debug\DextGTestSmokeTests.exe --port 8102 --discover
 ```
 
-Exit code ≠ 0 on a normal run because of `IntentionalFail`.
+No Explorer, Refresh pede `--port N --discover -no-wait`. Run All pede `--port N -no-wait`.
+
+## O que cada fonte faz
+
+O projeto se chama `DextGTestSmokeTests.cbproj` porque o nome contém `test` e assim aparece no combo do Explorer.
+
+- `SmokeGTestMain.cpp` é o MainSource. Só tem `main`. Não tem `TEST`.
+- `SmokeGTestSuite.cpp` tem `OnePlusOne` e `IntentionalFail`.
+- `SmokeGTestDeep.cpp` tem a cadeia `Gateway` → `Auditor` → `NoteFailureStack` e o `EXPECT` de `DeepCallFail`.
+
+A linha do `EXPECT_EQ` é a mensagem do Google Test. Os frames da stack vêm dos `FailureStackScope` em Gateway, Auditor e no teste. No Win32 Clang o `CaptureStackBackTrace` costuma voltar vazio, e por isso o smoke grava essa trilha na mão.
+
+## Pré-requisito
+
+Tools → GetIt → Google Test 1.17 (`GoogleTest-13-cb`). As libs ficam em `$(BDSCOMMONDIR)\CatalogRepository\GoogleTest-13-cb\1.17\`.
+
+No `.cbproj`: include de `Sources\Testing\Cpp` e do `googletest\include`; library path do GetIt em `cbuilder\lib\$(Platform)\Release`. Win32 Clang usa o compilador clássico desligado. Link with Dynamic RTL fica ligado, para o `gtest.lib` achar `locale`. Link with Delphi Runtime Library fica desligado. O `#pragma` em `SmokeGTestMain.cpp` puxa `gtest.lib` no Win32 e no Win64x, e `gtest.a` no Win64 clássico.
+
+Cobertura de linha, quando for o caso, é só Win64x. O grupo dessa plataforma já leva `-fprofile-instrument=clang`, `-fcoverage-mapping` e `-lclang_rt.profile-x86_64`.
+
+## MainSource no editor
+
+Neste console, com a RTL do Delphi desligada, o duplo clique no MainSource não abre o arquivo. Os outros `.cpp` abrem. O clique do Explorer vai para `SmokeGTestSuite.cpp` e `SmokeGTestDeep.cpp`. Para editar o `main`, use Project → View Source.
+
+Depois de mudar header: Project → Clean, depois Build.

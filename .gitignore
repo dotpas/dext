@@ -12,6 +12,15 @@ __recovery
 Output
 Win32
 Win64
+Win64x
+*.pdb
+*.tds
+*.profraw
+*.profdata
+*.ilc
+*.ild
+*.ilf
+*.ils
 test-results.json
 /Tests/Testing/test-results.xml
 test-results.html

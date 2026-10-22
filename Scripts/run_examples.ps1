@@ -46,8 +46,14 @@ $DcuOutput = $env:OUTPUT_PATH
 
 # 2. Discover Projects
 Write-Host "`n[INIT] Discovering projects..." -ForegroundColor Cyan
+# Tests\Samples is manual. DextGTestSmokeTests exits non-zero on purpose
+# (IntentionalFail, DeepCallFail) so the Explorer can show a stack.
+# Keep that project out of this run even if a copy appears under Examples.
 $projects = Get-ChildItem -Path (Join-Path $DextRoot 'Examples') -Filter '*.dproj' -Recurse | Where-Object {
-    $_.FullName -notmatch 'Output' -and $_.FullName -notmatch '__history'
+    $_.FullName -notmatch '\\Output\\' -and
+    $_.FullName -notmatch '\\__history\\' -and
+    $_.FullName -notmatch '\\Tests\\Samples\\' -and
+    $_.BaseName -ne 'DextGTestSmokeTests'
 }
 
 Write-Host "[INIT] Found $($projects.Count) projects to process."

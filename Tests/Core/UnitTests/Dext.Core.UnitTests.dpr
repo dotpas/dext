@@ -56,7 +56,9 @@ uses
   Dext.Bcd.Tests in 'Dext.Bcd.Tests.pas',
   Dext.FeatureFlags.Tests in '..\Dext.FeatureFlags.Tests.pas',
   Dext.Configuration.CommandLine.Tests in 'Dext.Configuration.CommandLine.Tests.pas',
-  Dext.Configuration.UserSecrets.Tests in 'Dext.Configuration.UserSecrets.Tests.pas';
+  Dext.Configuration.UserSecrets.Tests in 'Dext.Configuration.UserSecrets.Tests.pas',
+  Dext.Testing.Coverage.Lcov in '..\..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas',
+  Dext.Testing.Coverage.Lcov.Tests in 'Dext.Testing.Coverage.Lcov.Tests.pas';
 
 begin
   SetConsoleCharSet();
@@ -113,7 +115,8 @@ begin
         TBoundedExecutorTests,
         TDextPoolTests,
         TBcdSupportTests,
-        TDextFeatureFlagsTests
+        TDextFeatureFlagsTests,
+        TLcovParserTests
       ]));
   except
     on E: Exception do

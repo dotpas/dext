@@ -90,7 +90,7 @@
 - [Assertions](08-testing/assertions.md) - Fluent `Should()` syntax
 - [Snapshots](08-testing/snapshots.md) - JSON snapshot testing
 - [Non-Dext projects](08-testing/non-dext-projects.md) - DUnit* in Explorer without rewrite
-- [Test Explorer](08-testing/test-explorer.md) - Manual DLL install and Win64x coverage
+- [Test Explorer](08-testing/test-explorer.md) - Build the DLL, install, DUnit and Google Test projects, coverage on Win64x only
 
 #### [9. CLI Tool](09-cli/README.md)
 

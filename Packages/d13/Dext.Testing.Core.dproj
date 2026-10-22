@@ -105,6 +105,7 @@
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.pas"/>
         <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Host.pas"/>
         <DCCReference Include="..\..\Sources\Common\Dext.Testing.Integration.pas"/>
+        <DCCReference Include="..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

@@ -53,7 +53,8 @@ uses
   Dext.Testing.Runner,
   Dext.Testing.Integration,
 
-  Dext.Testing.Host
+  Dext.Testing.Host,
+  Dext.Testing.Coverage.Lcov
   // {END_DEXT_USES}
   ;
 
@@ -166,6 +167,10 @@ type
 
   // Dext.Testing.Host
   TTestHost = Dext.Testing.Host.TTestHost;
+
+  // Dext.Testing.Coverage.Lcov
+  TLcovLine = Dext.Testing.Coverage.Lcov.TLcovLine;
+  TLcovFile = Dext.Testing.Coverage.Lcov.TLcovFile;
 
   // Dext.Testing.DI
   TTestServiceProvider = Dext.Testing.DI.TTestServiceProvider;
