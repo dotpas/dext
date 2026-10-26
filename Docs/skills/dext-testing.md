@@ -70,8 +70,15 @@ type
     [TestCase(1, 2, 3)]    // Parameters: A=1, B=2, Expected=3
     [TestCase(10, 5, 15)]
     procedure Should_Add_WithParams(A, B, Expected: Integer);
+
+    [Test]
+    [RepeatTest(3)]        // Repeat is reserved; [&Repeat(3)] is the .NET spelling
+    [Timeout(200)]         // Counts only this method, not [Setup] or [TearDown]
+    procedure Should_Finish;
   end;
 ```
+
+`[MaxTime(ms)]` warns and still passes. Its clock includes `[Setup]`. `[Timeout]` fails the test. A run that executes no tests fails unless the host calls `AllowEmptyRun` before `Run`. `dext test` exits with code 1 when the suite fails or coverage is below `CoverageThreshold`.
 
 ## Mocking with `Mock<T>`
 
@@ -115,26 +122,28 @@ begin
   FMockRepo.Setup.Returns(User).When.FindById(Arg.Any<Integer>);
 
   // Act
-  var Result := FService.GetById(1);
+  User := FService.GetById(1);
 
   // Assert
-  Should(Result).NotBeNil;
-  Should(Result.Name).Be('Alice');
+  Should(User).NotBeNil;
+  Should(User.Name).Be('Alice');
 
   // Verify
   FMockRepo.Received(Times.Once).FindById(1);
 end;
 
 procedure TUserServiceTests.GetUser_ReturnsNil_WhenNotFound;
+var
+  User: TUser;
 begin
   // Arrange
   FMockRepo.Setup.Returns(nil).When.FindById(Arg.Any<Integer>);
 
   // Act
-  var Result := FService.GetById(999);
+  User := FService.GetById(999);
 
   // Assert
-  Should(Result).BeNil;
+  Should(User).BeNil;
 end;
 ```
 
@@ -169,8 +178,8 @@ FMock.Received(Times.Never).MethodName(Arg.Any<T>);
 FMock.Received(Times.AtLeast(2)).MethodName(Arg.Any<T>);
 FMock.Received(Times.Exactly(3)).MethodName(Arg.Any<T>);
 
-// Access the interface instance
-var Instance := FMock.Instance;  // IUserRepository
+// Access the interface instance. Declare Instance: IUserRepository.
+Instance := FMock.Instance;
 ```
 
 ## Fluent Assertions (`Should`)
@@ -209,16 +218,24 @@ Should(Obj).BeAssignableTo<IPerson>;
 Should(Obj1).BeEquivalentTo(Obj2);
 Should(User).HaveProperty('Name').WithValue('Alice');
 
+// Dates. Be compares to the millisecond. ShouldDate is the named alternative.
+Should(DueDate).Be(Agreed);
+Should(IssuedAt).BeBefore(DueDate);
+
 // Exceptions
 Should.Raise<EArgumentException>(procedure begin Svc.BadCall end);
 Should.RaiseAny(procedure begin Svc.BadCall end);
 Should.NotRaise(procedure begin Svc.ValidCall end);
 
 // Smart assertions (strongly typed, with Prototype)
-var u := Prototype.Entity<TUser>;
-Should(User).HaveValue(u.Name, 'Alice');
-Should(User).HaveValue(u.Age, 30);
-Users.Should.AllMatch(u.Age > 0);
+var
+  UserShape: TUser;
+begin
+  UserShape := Prototype.Entity<TUser>;
+  Should(User).HaveValue(UserShape.Name, 'Alice');
+  Should(User).HaveValue(UserShape.Age, 30);
+  Users.Should.AllMatch(UserShape.Age > 0);
+end;
 ```
 
 ## `Assert` (Classic Style)
@@ -269,8 +286,10 @@ end;
 [TestCase(1, 2, 3)]
 [TestCase(10, -5, 5)]
 procedure Should_Add(A, B, Expected: Integer);
+var
+  Calc: TCalculator;
 begin
-  var Calc := TCalculator.Create;
+  Calc := TCalculator.Create;
   try
     Should(Calc.Add(A, B)).Be(Expected);
   finally
@@ -441,12 +460,14 @@ Compare complex objects against a saved JSON baseline instead of writing dozens 
 ```pascal
 [Test]
 procedure TestComplexReport;
+var
+  Report: TReport;
 begin
-  var Result := Service.GenerateReport(123);
+  Report := Service.GenerateReport(123);
 
   // First run: creates __snapshots__/MyTests.TestComplexReport.json
   // Subsequent runs: compares against the saved file
-  Result.MatchSnapshot;
+  Report.MatchSnapshot;
 end;
 ```
 
@@ -521,8 +542,13 @@ List.Should.BeEmpty;
 List.Should.Contain(Item);
 List.Should.ContainOnly(Item1, Item2);
 List.Should.BeOrdered;
-var u := Prototype.Entity<TUser>;
-Users.Should.AllMatch(u.Age > 0);
+
+var
+  UserShape: TUser;
+begin
+  UserShape := Prototype.Entity<TUser>;
+  Users.Should.AllMatch(UserShape.Age > 0);
+end;
 
 // Objects
 Obj.Should.BeOfType<TUser>;

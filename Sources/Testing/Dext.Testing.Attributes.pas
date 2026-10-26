@@ -267,6 +267,14 @@ type
   end;
 
   /// <summary>
+  ///   Alias for Repeat. Repeat is a Pascal reserved word, so the
+  ///   .NET spelling needs an ampersand. RepeatTest is the name you
+  ///   write in Delphi, and it is the same attribute. DUnitX already
+  ///   calls it RepeatTest.
+  /// </summary>
+  RepeatTestAttribute = class(RepeatAttribute);
+
+  /// <summary>
   ///   Sets a maximum expected execution time.
   ///   Test passes but emits a warning if exceeded.
   /// </summary>

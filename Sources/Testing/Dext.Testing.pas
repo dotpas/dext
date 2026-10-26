@@ -77,7 +77,8 @@ type
   ShouldVariant = Dext.Assertions.ShouldVariant;
   ShouldObject = Dext.Assertions.ShouldObject;
   ShouldProperty = Dext.Assertions.ShouldProperty;
-  ShouldObjectHelper = Dext.Assertions.ShouldObjectHelper;
+  ShouldObjectMembers = Dext.Assertions.ShouldObjectMembers;
+  // ShouldObjectHelper is a helper: an alias would not activate it, declare a delegating helper in this unit
   ShouldInterface = Dext.Assertions.ShouldInterface;
   ShouldHelper = Dext.Assertions.ShouldHelper;
   // ShouldList<T> is used via TShould or directly from Dext.Assertions
@@ -145,6 +146,7 @@ type
   SkipAttribute = Dext.Testing.Attributes.SkipAttribute;
   TimeoutAttribute = Dext.Testing.Attributes.TimeoutAttribute;
   RepeatAttribute = Dext.Testing.Attributes.RepeatAttribute;
+  RepeatTestAttribute = Dext.Testing.Attributes.RepeatTestAttribute;
   MaxTimeAttribute = Dext.Testing.Attributes.MaxTimeAttribute;
   ExplicitAttribute = Dext.Testing.Attributes.ExplicitAttribute;
   CategoryAttribute = Dext.Testing.Attributes.CategoryAttribute;
@@ -234,6 +236,21 @@ const
   ofJUnit = Dext.Testing.Runner.ofJUnit;
   // {END_DEXT_ALIASES}
 
+type
+  /// <summary>
+  ///   Property assertions for ShouldObject. A helper alias is not active in
+  ///   Delphi, so the facade declares its own helper and delegates to
+  ///   Dext.Assertions.ShouldObjectMembers.
+  /// </summary>
+  ShouldObjectHelper = record helper for ShouldObject
+  public
+    function HaveProperty(const PropertyName: string): ShouldProperty;
+    function HavePropertyValue(const PropertyName: string; const ExpectedValue: TValue): ShouldObject;
+    function HaveValue(const PropertyMetadata: StringType; const ExpectedValue: string): ShouldObject; overload;
+    function HaveValue(const PropertyMetadata: IntType; ExpectedValue: Integer): ShouldObject; overload;
+    function HaveValue<T>(const PropertyMetadata: T; ExpectedValue: T): ShouldObject; overload;
+  end;
+
 // Global helper functions for cleaner syntax
 /// <summary>Initiates a fluent assertion for strings.</summary>
 function Should(const Value: string): ShouldString; overload;
@@ -245,6 +262,18 @@ function Should(Value: Int64): ShouldInt64; overload;
 function Should(Value: Boolean): ShouldBoolean; overload;
 /// <summary>Initiates a fluent assertion for floating-point numbers (Double).</summary>
 function Should(Value: Double): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for Single values.</summary>
+function Should(Value: Single): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for Extended values and real literals.</summary>
+function Should(Value: Extended): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for Currency values.</summary>
+function Should(Value: Currency): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for dates and times.</summary>
+function Should(Value: TDateTime): ShouldDateTime; overload;
+/// <summary>Initiates a fluent assertion for dates.</summary>
+function Should(Value: TDate): ShouldDateTime; overload;
+/// <summary>Initiates a fluent assertion for times.</summary>
+function Should(Value: TTime): ShouldDateTime; overload;
 /// <summary>Initiates a fluent assertion to intercept exceptions in anonymous procedures.</summary>
 function Should(const Action: TProc): ShouldAction; overload;
 /// <summary>Initiates a fluent assertion for objects, allowing null and type checks.</summary>
@@ -277,6 +306,12 @@ function Should(Value: Integer): ShouldInteger; begin Result := Dext.Assertions.
 function Should(Value: Int64): ShouldInt64; begin Result := Dext.Assertions.Should(Value); end;
 function Should(Value: Boolean): ShouldBoolean; begin Result := Dext.Assertions.Should(Value); end;
 function Should(Value: Double): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: Single): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: Extended): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: Currency): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: TDateTime): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: TDate): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(Value: TTime): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
 function Should(const Action: TProc): ShouldAction; begin Result := Dext.Assertions.Should(Action); end;
 function Should(const Value: TObject): ShouldObject; begin Result := Dext.Assertions.Should(Value); end;
 function Should(const Value: IInterface): ShouldInterface; begin Result := Dext.Assertions.Should(Value); end;
@@ -285,6 +320,33 @@ function Should(const Value: TUUID): ShouldUUID; begin Result := Dext.Assertions
 function Should(const Value: Variant): ShouldVariant; begin Result := Dext.Assertions.Should(Value); end;
 function ShouldDate(Value: TDateTime): ShouldDateTime; begin Result := Dext.Assertions.ShouldDate(Value); end;
 function Should: ShouldHelper; begin end;
+
+{ ShouldObjectHelper }
+
+function ShouldObjectHelper.HaveProperty(const PropertyName: string): ShouldProperty;
+begin
+  Result := ShouldObjectMembers.HaveProperty(Self, PropertyName);
+end;
+
+function ShouldObjectHelper.HavePropertyValue(const PropertyName: string; const ExpectedValue: TValue): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HavePropertyValue(Self, PropertyName, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue(const PropertyMetadata: StringType; const ExpectedValue: string): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue(Self, PropertyMetadata, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue(const PropertyMetadata: IntType; ExpectedValue: Integer): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue(Self, PropertyMetadata, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue<T>(const PropertyMetadata: T; ExpectedValue: T): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue<T>(Self, PropertyMetadata, ExpectedValue);
+end;
 
 function ConfigureTests: TTestConfigurator; begin Result := Dext.Testing.Fluent.ConfigureTests; end;
 procedure RunTests(const Config: TTestConfigurator); begin Dext.Testing.Host.RunTests(Config); end;

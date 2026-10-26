@@ -689,7 +689,7 @@ Publish/Subscribe in-process inspirado no **MediatR** (`Dext.Events`). Handlers 
 
 ### 7.1 Test Runner
 - **CLI Runner** — `dext test` executa a suíte do projeto. Em Windows, `--coverage` gera HTML/XML e `dext_coverage.xml` (SonarQube coverage) via Delphi Code Coverage. O host vivo da suíte é o **Dext Test Explorer** (S36 / seção 7.7), não um dashboard web embutido.
-- **Fluent Runner API** (`Dext.Testing.Fluent`) — Configuração programática: `TTest.Configure.Verbose.RegisterFixtures([...]).Run`. O exe da suíte já lê `-filter:`, `-category:`, `-fixture:`, `-junit:`, `-html:`, `-json:`.
+- **Fluent Runner API** (`Dext.Testing.Fluent`) — Configuração programática: `TTest.Configure.Verbose.RegisterFixtures([...]).Run`. Uma execução sem nenhum teste falha, a menos que o host chame `AllowEmptyRun`. O exe da suíte já lê `-filter:`, `-category:`, `-fixture:`, `-junit:`, `-html:`, `-json:`. `dext test` termina com código de saída 1 quando a suíte falha ou quando a cobertura fica abaixo de `CoverageThreshold`.
 
 ### 7.2 Attribute-Based Runner (`Dext.Testing.Attributes`)
 Permite a escrita de testes sem herança de classes base, usando metadados RTTI.
@@ -702,14 +702,15 @@ Permite a escrita de testes sem herança de classes base, usando metadados RTTI.
   - `[Ignore('Reason')]`, `[Skip('Reason')]` — Pular testes.
   - `[Explicit]` — Testes executados apenas se selecionados nominalmente.
   - `[Category('Tag')]`, `[Trait('Name', 'Value')]` — Categorização e filtragem.
-  - `[MaxTime(ms)]` — Aviso se o teste passar do orçamento (não falha).
-  - `[Repeat(n)]` — Repete o método n vezes.
+  - `[MaxTime(ms)]` — Aviso se o teste passar do orçamento (não falha). O relógio inclui o `[Setup]` e o método, e não inclui o `[TearDown]`.
+  - `[RepeatTest(n)]` e `[&Repeat(n)]` — Repete o método n vezes. `Repeat` é palavra reservada; `RepeatTest` é o nome que se escreve. Cada repetição conta no total, e o `[Setup]` corre de novo.
+  - `[Timeout(ms)]` — Falha o teste se o método passar do prazo. O relógio não inclui `[Setup]`, `[TearDown]`, `[BeforeAll]` nem `[AfterAll]`.
   - `[Priority(n)]` — Ordem de execução (menor número primeiro). Não é filtro de CLI.
   - `[Platform('Windows, Linux')]` — Restrição por sistema operacional.
 
 ### 7.3 Fluent Assertions (`Dext.Assertions`)
 API fluente baseada no padrão `Should(Value)`.
-- **Typed Assertions** — Métodos específicos para `ShouldString`, `ShouldInteger`, `ShouldDouble` (aproximação), `ShouldBoolean`, `ShouldDateTime`, `ShouldGuid`, `ShouldUUID`, `ShouldObject`.
+- **Typed Assertions** — Métodos específicos para `ShouldString`, `ShouldInteger`, `ShouldDouble` (aproximação), `ShouldBoolean`, `ShouldDateTime`, `ShouldGuid`, `ShouldUUID`, `ShouldObject`. `Should(TDateTime)`, `Should(TDate)` e `Should(TTime)` entram em `ShouldDateTime`; `Be` compara com precisão de milissegundo.
 - **List/Collection Assertions** — `Should(List).HaveCount(5).Contain(X).OnlyContain(Predicate).AllSatisfy(Predicate)`.
 - **Structural Comparison** — `BeEquivalentTo` for deep object and collection comparison (order-independent).
 - **Soft Asserts** — `Assert.Multiple(procedure ... end)` to collect multiple failures in a block before interrupting the test.

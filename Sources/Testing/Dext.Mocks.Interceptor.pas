@@ -45,11 +45,13 @@ type
     FAction: TProc<IInvocation>;
     FArgumentMatchers: TArray<TPredicate<TValue>>;
     FSetupArguments: TArray<TValue>;
+    FDescription: string;
   public
     constructor Create(const AName: string);
     function MatchesArguments(const Args: TArray<TValue>): Boolean;
     function GetNextReturnValue: TValue;
     property Name: string read FName;
+    property Description: string read FDescription;
     property ReturnValues: TArray<TValue> read FReturnValues write FReturnValues;
     property ExceptionClass: ExceptClass read FExceptionClass write FExceptionClass;
     property ExceptionMessage: string read FExceptionMessage write FExceptionMessage;
@@ -78,6 +80,7 @@ type
     FPendingSetup: TMethodSetup;
     FVerifyTimes: Times;
     FCallBase: Boolean;
+    function DescribeReceivedCalls(const AMethodName: string): string;
   public
     constructor Create(ABehavior: TMockBehavior);
     destructor Destroy; override;
@@ -85,6 +88,7 @@ type
     procedure Intercept(const Invocation: IInvocation);
     procedure BeginSetup(ASetup: TMethodSetup);
     procedure BeginVerify(const ATimes: Times);
+    procedure Verify;
     procedure VerifyNoOtherCalls;
     procedure Reset;
     property Behavior: TMockBehavior read FBehavior write FBehavior;
@@ -197,6 +201,194 @@ begin
   end;
 end;
 
+function IsDefaultValue(const V: TValue): Boolean;
+var
+  P: PByte;
+  I: Integer;
+begin
+  if V.IsEmpty then Exit(True);
+  P := V.GetReferenceToRawData;
+  if P = nil then Exit(True);
+  for I := 0 to V.DataSize - 1 do
+    if P[I] <> 0 then Exit(False);
+  Result := True;
+end;
+
+function IsMatcherCompatible(const Matcher: TArgMatcher; ParamType: PTypeInfo): Boolean;
+const
+  StringKinds = [tkChar, tkWChar, tkString, tkWString, tkLString, tkUString];
+begin
+  if (Matcher.TypeInfo = nil) or (ParamType = nil) then Exit(True);
+  if Matcher.TypeInfo = ParamType then Exit(True);
+  if (Matcher.TypeInfo.Kind in StringKinds) and (ParamType.Kind in StringKinds) then Exit(True);
+  Result := (Matcher.TypeInfo.Kind = ParamType.Kind) and
+    SameText(string(Matcher.TypeInfo.Name), string(ParamType.Name));
+end;
+
+function FormatArgument(const V: TValue): string;
+begin
+  if V.IsEmpty then Exit('nil');
+  case V.Kind of
+    tkChar, tkWChar, tkString, tkWString, tkLString, tkUString:
+      Result := QuotedStr(V.AsString);
+    tkClass:
+      if V.AsObject = nil then Result := 'nil' else Result := V.AsObject.ClassName;
+    tkInterface:
+      if V.AsInterface = nil then Result := 'nil' else Result := '<interface>';
+  else
+    try
+      Result := V.ToString;
+    except
+      Result := '?';
+    end;
+  end;
+end;
+
+function FormatCall(const AMethodName: string; const Args: TArray<TValue>): string;
+var
+  I: Integer;
+begin
+  Result := AMethodName + '(';
+  for I := 0 to High(Args) do
+  begin
+    if I > 0 then Result := Result + ', ';
+    Result := Result + FormatArgument(Args[I]);
+  end;
+  Result := Result + ')';
+end;
+
+/// <summary>
+///   Builds one predicate per parameter. Arg.* matchers are placed on the
+///   parameters that received their placeholder (the default value of the
+///   matcher type); every other parameter must equal the literal passed.
+///   Raises when more than one placement is possible, so a literal default
+///   value (0, '', nil) never silently swallows a matcher.
+/// </summary>
+function ResolveArgumentMatchers(const Method: TRttiMethod; const Args: TArray<TValue>;
+  const Entries: TArray<TArgMatcher>; out Description: string): TArray<TPredicate<TValue>>;
+var
+  Params: TArray<TRttiParameter>;
+  ParamTypes: TArray<PTypeInfo>;
+  Ways: TArray<TArray<Integer>>;
+  Assigned_: TArray<Integer>;
+  ArgCount, MatcherCount, I, K: Integer;
+  MethodName, Part: string;
+
+  function CanTake(AMatcher, AArg: Integer): Boolean;
+  begin
+    Result := IsDefaultValue(Args[AArg]) and IsMatcherCompatible(Entries[AMatcher], ParamTypes[AArg]);
+  end;
+
+  function MakeLiteral(const Expected: TValue): TPredicate<TValue>;
+  begin
+    Result := function(Actual: TValue): Boolean
+      begin
+        Result := DextTValueEquals(Actual, Expected);
+      end;
+  end;
+
+begin
+  ArgCount := Length(Args);
+  MatcherCount := Length(Entries);
+  if Method <> nil then MethodName := Method.Name else MethodName := '?';
+
+  SetLength(ParamTypes, ArgCount);
+  if Method <> nil then
+  begin
+    Params := Method.GetParameters;
+    if Length(Params) = ArgCount then
+      for I := 0 to ArgCount - 1 do
+        if Params[I].ParamType <> nil then
+          ParamTypes[I] := Params[I].ParamType.Handle;
+  end;
+
+  if MatcherCount > ArgCount then
+    raise EMockException.CreateFmt(
+      '%s received %d argument matchers for %d parameters. An Arg.* call was made outside a Setup or Received expression.',
+      [MethodName, MatcherCount, ArgCount]);
+
+  SetLength(Assigned_, ArgCount);
+  for I := 0 to ArgCount - 1 do
+    Assigned_[I] := -1;
+
+  if MatcherCount = ArgCount then
+  begin
+    for I := 0 to ArgCount - 1 do
+      Assigned_[I] := I;
+  end
+  else if MatcherCount > 0 then
+  begin
+    // Ways[K][I] = number of placements of matchers K.. on arguments I.., capped at 2
+    SetLength(Ways, MatcherCount + 1);
+    for K := 0 to MatcherCount do
+      SetLength(Ways[K], ArgCount + 1);
+    for I := 0 to ArgCount do
+      Ways[MatcherCount][I] := 1;
+    for K := MatcherCount - 1 downto 0 do
+    begin
+      Ways[K][ArgCount] := 0;
+      for I := ArgCount - 1 downto 0 do
+      begin
+        Ways[K][I] := Ways[K][I + 1];
+        if CanTake(K, I) then
+          Ways[K][I] := Ways[K][I] + Ways[K + 1][I + 1];
+        if Ways[K][I] > 2 then Ways[K][I] := 2;
+      end;
+    end;
+
+    if Ways[0][0] = 0 then
+      raise EMockException.CreateFmt(
+        'Could not place %d argument matcher(s) on the parameters of %s. Use an Arg.* matcher for every parameter.',
+        [MatcherCount, MethodName]);
+    if Ways[0][0] > 1 then
+      raise EMockException.CreateFmt(
+        'Ambiguous argument matchers for %s: a literal default value (0, '''', nil) sits next to an Arg.* matcher of the same type. ' +
+        'Use Arg.IsEqual for that literal, or an Arg.* matcher for every parameter.',
+        [MethodName]);
+
+    K := 0;
+    I := 0;
+    while K < MatcherCount do
+    begin
+      if CanTake(K, I) and (Ways[K + 1][I + 1] > 0) then
+      begin
+        Assigned_[I] := K;
+        Inc(K);
+      end;
+      Inc(I);
+    end;
+  end;
+
+  SetLength(Result, ArgCount);
+  Description := MethodName + '(';
+  for I := 0 to ArgCount - 1 do
+  begin
+    if Assigned_[I] >= 0 then
+    begin
+      Result[I] := Entries[Assigned_[I]].Predicate;
+      Part := '<matcher>';
+    end
+    else
+    begin
+      Result[I] := MakeLiteral(Args[I]);
+      Part := FormatArgument(Args[I]);
+    end;
+    if I > 0 then Description := Description + ', ';
+    Description := Description + Part;
+  end;
+  Description := Description + ')';
+end;
+
+function MatchesAll(const Matchers: TArray<TPredicate<TValue>>; const Args: TArray<TValue>): Boolean;
+var
+  I: Integer;
+begin
+  if Length(Args) <> Length(Matchers) then Exit(False);
+  for I := 0 to High(Args) do
+    if Assigned(Matchers[I]) and not Matchers[I](Args[I]) then Exit(False);
+  Result := True;
+end;
+
 function TMethodSetup.MatchesArguments(const Args: TArray<TValue>): Boolean;
 var
   I: Integer;
@@ -209,10 +401,7 @@ begin
     Exit(True);
   end;
   
-  if Length(Args) <> Length(FArgumentMatchers) then Exit(False);
-  for I := 0 to High(Args) do
-    if Assigned(FArgumentMatchers[I]) and not FArgumentMatchers[I](Args[I]) then Exit(False);
-  Result := True;
+  Result := MatchesAll(FArgumentMatchers, Args);
 end;
 
 function TMethodSetup.GetNextReturnValue: TValue;
@@ -251,28 +440,34 @@ end;
 
 procedure TMockInterceptor.Intercept(const Invocation: IInvocation);
 var
-  MethodName: string;
+  MethodName, Description: string;
   Setup: TMethodSetup;
   I: Integer;
   MatchingCall: TMethodCall;
   CallCount: Integer;
   Matchers: TArray<TPredicate<TValue>>;
-  AllMatch: Boolean;
+  CallBase: IInvocationCallBase;
 begin
   MethodName := Invocation.Method.Name;
   case FState of
     TMockState.Arranging:
     begin
-      if Assigned(FPendingSetup) then
-      begin
-        FPendingSetup.FName := MethodName;
-        FPendingSetup.FSetupArguments := Copy(Invocation.Arguments);
-        Matchers := TMatcherFactory.GetMatchers;
-        if Length(Matchers) > 0 then FPendingSetup.FArgumentMatchers := Matchers;
-        FSetups.Add(FPendingSetup);
-        FPendingSetup := nil;
-      end;
       FState := TMockState.Acting;
+      Setup := FPendingSetup;
+      FPendingSetup := nil;
+      if Assigned(Setup) then
+      begin
+        try
+          Setup.FName := MethodName;
+          Setup.FSetupArguments := Copy(Invocation.Arguments);
+          Setup.FArgumentMatchers := ResolveArgumentMatchers(Invocation.Method,
+            Invocation.Arguments, TMatcherFactory.GetMatcherEntries, Setup.FDescription);
+        except
+          Setup.Free;
+          raise;
+        end;
+        FSetups.Add(Setup);
+      end;
     end;
     TMockState.Acting:
     begin
@@ -291,45 +486,72 @@ begin
           Exit;
         end;
       end;
-      if FBehavior = TMockBehavior.Strict then raise EMockException.CreateFmt('Unexpected call to %s', [MethodName]);
+      if FCallBase and Supports(Invocation, IInvocationCallBase, CallBase) then
+      begin
+        CallBase.RequestCallBase;
+        Exit;
+      end;
+      if FBehavior = TMockBehavior.Strict then
+        raise EMockException.CreateFmt('Unexpected call to %s',
+          [FormatCall(MethodName, Invocation.Arguments)]);
     end;
     TMockState.Asserting:
     begin
+      FState := TMockState.Acting;
+      Matchers := ResolveArgumentMatchers(Invocation.Method, Invocation.Arguments,
+        TMatcherFactory.GetMatcherEntries, Description);
       CallCount := 0;
-      Matchers := TMatcherFactory.GetMatchers;
       for MatchingCall in FReceivedCalls do
       begin
-        if SameText(MatchingCall.Name, MethodName) then
+        if SameText(MatchingCall.Name, MethodName) and MatchesAll(Matchers, MatchingCall.Arguments) then
         begin
-          if Length(Matchers) = 0 then
-          begin
-            Inc(CallCount);
-            MatchingCall.Verified := True;
-          end
-          else
-          begin
-            AllMatch := True;
-            for I := 0 to High(Matchers) do
-            begin
-              if (I < Length(MatchingCall.Arguments)) and Assigned(Matchers[I]) and not Matchers[I](MatchingCall.Arguments[I]) then
-              begin
-                AllMatch := False;
-                Break;
-              end;
-            end;
-            if AllMatch then
-            begin
-              Inc(CallCount);
-              MatchingCall.Verified := True;
-            end;
-          end;
+          Inc(CallCount);
+          MatchingCall.Verified := True;
         end;
       end;
-      FState := TMockState.Acting;
       if not FVerifyTimes.Matches(CallCount) then
-        raise EMockException.Create(FVerifyTimes.ToString(CallCount) + ' for ' + MethodName);
+        raise EMockException.Create(FVerifyTimes.ToString(CallCount) + ' for ' + Description +
+          DescribeReceivedCalls(MethodName));
     end;
   end;
+end;
+
+function TMockInterceptor.DescribeReceivedCalls(const AMethodName: string): string;
+var
+  Call: TMethodCall;
+begin
+  Result := '';
+  for Call in FReceivedCalls do
+    if SameText(Call.Name, AMethodName) then
+      Result := Result + sLineBreak + '    ' + FormatCall(Call.Name, Call.Arguments);
+  if Result = '' then
+    Result := '. No calls to ' + AMethodName + ' were received.'
+  else
+    Result := '. Received calls:' + Result;
+end;
+
+procedure TMockInterceptor.Verify;
+var
+  Setup: TMethodSetup;
+  Call: TMethodCall;
+  Exercised: Boolean;
+  Missing: string;
+begin
+  Missing := '';
+  for Setup in FSetups do
+  begin
+    Exercised := False;
+    for Call in FReceivedCalls do
+      if SameText(Call.Name, Setup.Name) and Setup.MatchesArguments(Call.Arguments) then
+      begin
+        Exercised := True;
+        Break;
+      end;
+    if not Exercised then
+      Missing := Missing + sLineBreak + '    ' + Setup.Description;
+  end;
+  if Missing <> '' then
+    raise EMockException.Create('Expected every setup to be called, but these were never called:' + Missing);
 end;
 
 procedure TMockInterceptor.BeginSetup(ASetup: TMethodSetup);
@@ -564,6 +786,7 @@ end;
 
 procedure TMock<T>.Verify;
 begin
+  FInterceptorObj.Verify;
 end;
 
 procedure TMock<T>.VerifyNoOtherCalls;

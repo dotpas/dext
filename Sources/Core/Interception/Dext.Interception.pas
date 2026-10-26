@@ -80,6 +80,19 @@ type
   end;
 
   /// <summary>
+  ///   Optional capability of an invocation: lets an interceptor ask the proxy
+  ///   to run the original implementation instead of the intercepted result.
+  ///   Class proxies run the inherited method body; interface proxies with a
+  ///   target forward the call to the target.
+  /// </summary>
+  IInvocationCallBase = interface
+    ['{E4A1C7D2-8B3F-4E6A-9D5C-2F7B1A8E3C60}']
+    procedure RequestCallBase;
+    function GetCallBaseRequested: Boolean;
+    property CallBaseRequested: Boolean read GetCallBaseRequested;
+  end;
+
+  /// <summary>
   ///   Interface for method interceptors. Implement this interface to
   ///   intercept method calls on proxied objects.
   /// </summary>

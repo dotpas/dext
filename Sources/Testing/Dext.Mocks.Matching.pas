@@ -43,22 +43,36 @@ uses
 
 type
   /// <summary>
-  ///   Thread-local storage for argument matchers.
+  ///   An argument matcher captured by an Arg method, together with the type
+  ///   it was declared for. The type lets the mock place the matcher on the
+  ///   right parameter when matchers and literal values are mixed.
+  /// </summary>
+  TArgMatcher = record
+    Predicate: TPredicate<TValue>;
+    TypeInfo: PTypeInfo;
+  end;
+
+  /// <summary>
+  ///   Storage for argument matchers.
   ///   Matchers registered via Arg methods are captured when a method is called
   ///   during setup, allowing the mock to later match actual call arguments.
   /// </summary>
   TMatcherFactory = class
   private class var
-    FMatcherStack: IList<TPredicate<TValue>>;
+    FMatcherStack: IList<TArgMatcher>;
   public
     class constructor Create;
     class destructor Destroy;
 
-    /// <summary>Adds a matcher to the stack and returns an index wrapper.</summary>
-    class function AddMatcher(const Predicate: TPredicate<TValue>): Integer;
+    /// <summary>Adds a matcher to the stack and returns its index.</summary>
+    class function AddMatcher(const Predicate: TPredicate<TValue>;
+      ATypeInfo: PTypeInfo = nil): Integer;
 
     /// <summary>Gets and clears all matchers from the stack.</summary>
     class function GetMatchers: TArray<TPredicate<TValue>>;
+
+    /// <summary>Gets and clears all matchers from the stack, with their declared types.</summary>
+    class function GetMatcherEntries: TArray<TArgMatcher>;
 
     /// <summary>Clears the matcher stack.</summary>
     class procedure Clear;
@@ -122,7 +136,7 @@ implementation
 
 class constructor TMatcherFactory.Create;
 begin
-  FMatcherStack := TCollections.CreateList<TPredicate<TValue>>;
+  FMatcherStack := TCollections.CreateList<TArgMatcher>;
 end;
 
 class destructor TMatcherFactory.Destroy;
@@ -130,13 +144,29 @@ begin
   // ARC will free it
 end;
 
-class function TMatcherFactory.AddMatcher(const Predicate: TPredicate<TValue>): Integer;
+class function TMatcherFactory.AddMatcher(const Predicate: TPredicate<TValue>;
+  ATypeInfo: PTypeInfo): Integer;
+var
+  Entry: TArgMatcher;
 begin
-  FMatcherStack.Add(Predicate);
+  Entry.Predicate := Predicate;
+  Entry.TypeInfo := ATypeInfo;
+  FMatcherStack.Add(Entry);
   Result := FMatcherStack.Count - 1;
 end;
 
 class function TMatcherFactory.GetMatchers: TArray<TPredicate<TValue>>;
+var
+  Entries: TArray<TArgMatcher>;
+  I: Integer;
+begin
+  Entries := GetMatcherEntries;
+  SetLength(Result, Length(Entries));
+  for I := 0 to High(Entries) do
+    Result[I] := Entries[I].Predicate;
+end;
+
+class function TMatcherFactory.GetMatcherEntries: TArray<TArgMatcher>;
 begin
   Result := FMatcherStack.ToArray;
   FMatcherStack.Clear;
@@ -160,7 +190,7 @@ begin
     function(V: TValue): Boolean
     begin
       Result := True; // Match anything
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -177,7 +207,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -206,7 +236,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -232,7 +262,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -256,7 +286,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -266,7 +296,7 @@ begin
     function(V: TValue): Boolean
     begin
       Result := V.IsEmpty;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -276,7 +306,7 @@ begin
     function(V: TValue): Boolean
     begin
       Result := not V.IsEmpty;
-    end);
+    end, TypeInfo(T));
   Result := CreateDefaultValue<T>;
 end;
 
@@ -296,7 +326,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(string));
   Result := '';
 end;
 
@@ -313,7 +343,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(string));
   Result := '';
 end;
 
@@ -330,7 +360,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(string));
   Result := '';
 end;
 
@@ -347,7 +377,7 @@ begin
       except
         Result := False;
       end;
-    end);
+    end, TypeInfo(string));
   Result := '';
 end;
 

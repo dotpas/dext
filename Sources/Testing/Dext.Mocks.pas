@@ -168,7 +168,7 @@ type
     function DidNotReceive: T;
     /// <summary>Clears the Mock's expectations and call history.</summary>
     procedure Reset;
-    /// <summary>Formally validates if all Strict expectations were met.</summary>
+    /// <summary>Raises EMockException listing every Setup that no received call has matched.</summary>
     procedure Verify; overload;
     function Verify(const ATimes: Times): T; overload;
     /// <summary>Verifies if there were no other calls besides the explicitly validated ones.</summary>

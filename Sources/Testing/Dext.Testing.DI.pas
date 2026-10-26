@@ -191,14 +191,29 @@ end;
 
 procedure TTestServiceProvider.Replace<T>(const MockInstance: Mock<T>);
 begin
-  // Replace simply adds to mocks dictionary - mocks take priority
+  // Mocks are registered after every real service in Build, so the latest
+  // mock for T wins both direct resolution and constructor injection.
   AddMock<T>(MockInstance);
 end;
 
+function MockFactory(const Instance: IInterface): TFunc<IServiceProvider, TObject>;
+begin
+  Result := function(Provider: IServiceProvider): TObject
+    begin
+      Result := Instance as TObject;
+    end;
+end;
+
 procedure TTestServiceProvider.Build;
+var
+  Pair: TPair<TGUID, IInterface>;
 begin
   if not FBuilt then
   begin
+    // Registered last, so the container resolves the mock instead of an
+    // earlier real registration, also for constructor injection.
+    for Pair in FMocks do
+      FServices.Unwrap.AddSingleton(TServiceType.FromInterface(Pair.Key), nil, MockFactory(Pair.Value));
     FProvider := FServices.BuildServiceProvider;
     FBuilt := True;
   end;

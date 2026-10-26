@@ -85,6 +85,8 @@ type
       const ANext: TEventNextDelegate);
   end;
 
+  // Method RTTI lets tests mock the publisher and the bus with Mock<T>.
+  {$M+}
   /// <summary>
   ///   Facade for publishing a single type of event.
   ///   Follows the Interface Segregation Principle (ISP) - inject IEventPublisher&lt;T&gt; instead of IEventBus
@@ -118,6 +120,7 @@ type
     /// </summary>
     procedure DispatchBackground(AEventType: PTypeInfo; const AEvent: TValue);
   end;
+  {$M-}
 
   THandlerEntry = record
     Factory: TFunc<IServiceProvider, TObject>;

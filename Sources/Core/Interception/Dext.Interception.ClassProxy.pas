@@ -142,6 +142,13 @@ begin
   // Execute interception chain
   Invocation.Proceed;
   
+  // An interceptor may ask for the inherited implementation to run
+  if (Invocation as IInvocationCallBase).CallBaseRequested then
+  begin
+    DoInvoke := True;
+    Exit;
+  end;
+
   // Set result
   Result := Invocation.Result;
   

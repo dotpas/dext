@@ -95,8 +95,30 @@ type
     function BeSameDateAs(Expected: TDateTime): ShouldDateTime;
     /// <summary>Verifies if the value corresponds to the current system date.</summary>
     function BeToday: ShouldDateTime;
+    /// <summary>Verifies that the date/time is not the unexpected value, to the millisecond.</summary>
+    function NotBe(Unexpected: TDateTime): ShouldDateTime;
+    /// <summary>Verifies if the value is within Tolerance days of the expected value.</summary>
+    function BeApproximately(Expected: TDateTime; Tolerance: Double): ShouldDateTime;
+    /// <summary>Verifies that the value is strictly later than the expected date/time.</summary>
+    function BeGreaterThan(Expected: TDateTime): ShouldDateTime;
+    /// <summary>Verifies that the value is strictly earlier than the expected date/time.</summary>
+    function BeLessThan(Expected: TDateTime): ShouldDateTime;
+    /// <summary>Verifies that the value lies between Min and Max, inclusive.</summary>
+    function BeInRange(Min, Max: TDateTime): ShouldDateTime;
+    /// <summary>Verifies that the value is greater than zero.</summary>
+    function BePositive: ShouldDateTime;
+    /// <summary>Verifies that the value is less than zero.</summary>
+    function BeNegative: ShouldDateTime;
+    /// <summary>Verifies that the value is zero.</summary>
+    function BeZero: ShouldDateTime;
+    /// <summary>Verifies that the date/time satisfies the predicate.</summary>
+    function Satisfy(const Predicate: TPredicate<TDateTime>): ShouldDateTime; overload;
+    /// <summary>Verifies that the underlying day number satisfies the predicate.</summary>
+    function Satisfy(const Predicate: TPredicate<Double>): ShouldDateTime; overload;
     /// <summary>Adds a friendly explanation for the assertion (displayed on error).</summary>
     function Because(const Reason: string): ShouldDateTime;
+    function &And: ShouldDateTime;
+    function AndAlso: ShouldDateTime;
   end;
 
   /// <summary>Fluent assertions for strings.</summary>
@@ -381,6 +403,25 @@ type
     function AndAlso: ShouldObject;
   end;
 
+  /// <summary>
+  ///   Property assertions of ShouldObject. They live here because a record
+  ///   cannot reference ShouldProperty before it is declared, and a helper
+  ///   alias does not activate the helper: a facade unit has to declare its
+  ///   own helper and delegate to these methods.
+  /// </summary>
+  ShouldObjectMembers = record
+  public
+    class function HaveProperty(const Subject: ShouldObject; const PropertyName: string): ShouldProperty; static;
+    class function HavePropertyValue(const Subject: ShouldObject; const PropertyName: string;
+      const ExpectedValue: TValue): ShouldObject; static;
+    class function HaveValue(const Subject: ShouldObject; const PropertyMetadata: StringType;
+      const ExpectedValue: string): ShouldObject; overload; static;
+    class function HaveValue(const Subject: ShouldObject; const PropertyMetadata: IntType;
+      ExpectedValue: Integer): ShouldObject; overload; static;
+    class function HaveValue<T>(const Subject: ShouldObject; const PropertyMetadata: T;
+      ExpectedValue: T): ShouldObject; overload; static;
+  end;
+
   ShouldObjectHelper = record helper for ShouldObject
   public
     function HaveProperty(const PropertyName: string): ShouldProperty; overload;
@@ -459,6 +500,25 @@ function Should(Value: Integer): ShouldInteger; overload;
 function Should(Value: Int64): ShouldInt64; overload;
 function Should(Value: Boolean): ShouldBoolean; overload;
 function Should(Value: Double): ShouldDouble; overload;
+/// <summary>
+///   Exact overload for Single. Without it, a real literal becomes ambiguous
+///   once TDateTime has its own Should, and on Win64 it used to fall through
+///   to the Variant overload.
+/// </summary>
+function Should(Value: Single): ShouldDouble; overload;
+/// <summary>Exact overload for Extended and for real literals.</summary>
+function Should(Value: Extended): ShouldDouble; overload;
+/// <summary>Exact overload for Currency.</summary>
+function Should(Value: Currency): ShouldDouble; overload;
+/// <summary>
+///   Compares a date/time with ShouldDateTime. Be uses SameDateTime
+///   (millisecond precision).
+/// </summary>
+function Should(Value: TDateTime): ShouldDateTime; overload;
+/// <summary>Compares a date with ShouldDateTime.</summary>
+function Should(Value: TDate): ShouldDateTime; overload;
+/// <summary>Compares a time with ShouldDateTime.</summary>
+function Should(Value: TTime): ShouldDateTime; overload;
 function Should(const Action: TProc): ShouldAction; overload;
 function Should(const Value: TObject): ShouldObject; overload;
 function Should(const Value: IInterface): ShouldInterface; overload;
@@ -1197,7 +1257,12 @@ begin
   end;
 
   if not ThrewException then
-    Fail(Format('Expected exception %s but none was thrown', [AExceptionClass.ClassName]));
+  begin
+    if AExceptionClass = nil then
+      Fail('Expected an exception but none was thrown')
+    else
+      Fail(Format('Expected exception %s but none was thrown', [AExceptionClass.ClassName]));
+  end;
 
   Result := Self;
 end;
@@ -1438,21 +1503,54 @@ end;
 { ShouldObjectHelper }
 
 function ShouldObjectHelper.HaveProperty(const PropertyName: string): ShouldProperty;
+begin
+  Result := ShouldObjectMembers.HaveProperty(Self, PropertyName);
+end;
+
+function ShouldObjectHelper.HavePropertyValue(const PropertyName: string; const ExpectedValue: TValue): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HavePropertyValue(Self, PropertyName, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue(const PropertyMetadata: StringType; const ExpectedValue: string): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue(Self, PropertyMetadata, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue(const PropertyMetadata: IntType; ExpectedValue: Integer): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue(Self, PropertyMetadata, ExpectedValue);
+end;
+
+function ShouldObjectHelper.HaveValue<T>(const PropertyMetadata: T; ExpectedValue: T): ShouldObject;
+begin
+  Result := ShouldObjectMembers.HaveValue<T>(Self, PropertyMetadata, ExpectedValue);
+end;
+
+{ ShouldObjectMembers }
+
+class function ShouldObjectMembers.HaveProperty(const Subject: ShouldObject; const PropertyName: string): ShouldProperty;
 var
   RttiType: TRttiType;
   Prop: TRttiProperty;
   Val: TValue;
 begin
-  if Self.FValue = nil then
-    Self.Fail(Format('Cannot check property "%s" on nil object', [PropertyName]));
+  if Subject.FValue = nil then
+  begin
+    Subject.Fail(Format('Cannot check property "%s" on nil object', [PropertyName]));
+    Exit(ShouldProperty.Create(Subject, PropertyName, TValue.Empty));
+  end;
     
-  RttiType := TReflection.Context.GetType(Self.FValue.ClassType);
+  RttiType := TReflection.Context.GetType(Subject.FValue.ClassType);
   Prop := RttiType.GetProperty(PropertyName);
   if Prop = nil then
-    Self.Fail(Format('Object of type %s does not have property "%s"', [Self.FValue.ClassName, PropertyName]));
+  begin
+    Subject.Fail(Format('Object of type %s does not have property "%s"', [Subject.FValue.ClassName, PropertyName]));
+    Exit(ShouldProperty.Create(Subject, PropertyName, TValue.Empty));
+  end;
 
-  Val := Prop.GetValue(Self.FValue);
-  Result := ShouldProperty.Create(Self, PropertyName, Val);
+  Val := Prop.GetValue(Subject.FValue);
+  Result := ShouldProperty.Create(Subject, PropertyName, Val);
 end;
 
 (*
@@ -1465,7 +1563,8 @@ begin
 end;
 *)
 
-function ShouldObjectHelper.HavePropertyValue(const PropertyName: string; const ExpectedValue: TValue): ShouldObject;
+class function ShouldObjectMembers.HavePropertyValue(const Subject: ShouldObject; const PropertyName: string;
+  const ExpectedValue: TValue): ShouldObject;
 var
   RttiType: TRttiType;
   Prop: TRttiProperty;
@@ -1475,16 +1574,20 @@ var
   RecType: TRttiRecordType;
   ValueField: TRttiField;
 begin
-  if Self.FValue = nil then
-    Self.Fail(Format('Cannot check property "%s" on nil object', [PropertyName]));
+  Result := Subject;
+  if Subject.FValue = nil then
+  begin
+    Subject.Fail(Format('Cannot check property "%s" on nil object', [PropertyName]));
+    Exit;
+  end;
     
-  RttiType := TReflection.Context.GetType(Self.FValue.ClassType);
+  RttiType := TReflection.Context.GetType(Subject.FValue.ClassType);
   
   // Try property first
   Prop := RttiType.GetProperty(PropertyName);
   if Prop <> nil then
   begin
-    ActualValue := Prop.GetValue(Self.FValue);
+    ActualValue := Prop.GetValue(Subject.FValue);
   end
   else
   begin
@@ -1494,10 +1597,13 @@ begin
       Field := RttiType.GetField(PropertyName); // Try without prefix
       
     if Field = nil then
-      Self.Fail(Format('Object of type %s does not have property or field "%s"', 
-        [Self.FValue.ClassName, PropertyName]));
+    begin
+      Subject.Fail(Format('Object of type %s does not have property or field "%s"', 
+        [Subject.FValue.ClassName, PropertyName]));
+      Exit;
+    end;
         
-    ActualValue := Field.GetValue(Self.FValue);
+    ActualValue := Field.GetValue(Subject.FValue);
     
     // If it's a Prop<T> Smart Type, extract the inner FValue
     if (ActualValue.Kind = tkRecord) and string(ActualValue.TypeInfo.Name).StartsWith('Prop<') then
@@ -1514,29 +1620,29 @@ begin
   ExpectedStr := ExpectedValue.ToString;
   
   if ActualStr <> ExpectedStr then
-    Self.Fail(Format('Property "%s" expected value "%s" but was "%s"', 
+    Subject.Fail(Format('Property "%s" expected value "%s" but was "%s"', 
       [PropertyName, ExpectedStr, ActualStr]));
-
-  Result := Self;
 end;
 
-function ShouldObjectHelper.HaveValue(const PropertyMetadata: StringType; const ExpectedValue: string): ShouldObject;
+class function ShouldObjectMembers.HaveValue(const Subject: ShouldObject; const PropertyMetadata: StringType;
+  const ExpectedValue: string): ShouldObject;
 begin
   if not PropertyMetadata.IsQueryMode then
-    Self.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
 
-  Result := HavePropertyValue(PropertyMetadata.Name, TValue.From<string>(ExpectedValue));
+  Result := HavePropertyValue(Subject, PropertyMetadata.Name, TValue.From<string>(ExpectedValue));
 end;
 
-function ShouldObjectHelper.HaveValue(const PropertyMetadata: IntType; ExpectedValue: Integer): ShouldObject;
+class function ShouldObjectMembers.HaveValue(const Subject: ShouldObject; const PropertyMetadata: IntType;
+  ExpectedValue: Integer): ShouldObject;
 begin
   if not PropertyMetadata.IsQueryMode then
-    Self.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
 
-  Result := HavePropertyValue(PropertyMetadata.Name, TValue.From<Integer>(ExpectedValue));
+  Result := HavePropertyValue(Subject, PropertyMetadata.Name, TValue.From<Integer>(ExpectedValue));
 end;
 
-function ShouldObjectHelper.HaveValue<T>(const PropertyMetadata: T;
+class function ShouldObjectMembers.HaveValue<T>(const Subject: ShouldObject; const PropertyMetadata: T;
   ExpectedValue: T): ShouldObject;
 var
   RecType: TRttiRecordType;
@@ -1549,24 +1655,34 @@ begin
   MetaValue := TValue.From<T>(PropertyMetadata);
   
   // Verify it's a Prop<T> record
+  Result := Subject;
   if not string(MetaValue.TypeInfo.Name).StartsWith('Prop<') then
-    Self.Fail('HaveValue<T> requires a Smart Property type (Prop<T>).');
+  begin
+    Subject.Fail('HaveValue<T> requires a Smart Property type (Prop<T>).');
+    Exit;
+  end;
   
   RecType := TReflection.Context.GetType(MetaValue.TypeInfo).AsRecord;
   InfoField := RecType.GetField('FInfo');
   
   if InfoField = nil then
-    Self.Fail('HaveValue<T>: Could not find FInfo field in SmartType.');
+  begin
+    Subject.Fail('HaveValue<T>: Could not find FInfo field in SmartType.');
+    Exit;
+  end;
   
   InfoValue := InfoField.GetValue(MetaValue.GetReferenceToRawData);
   
   if InfoValue.IsEmpty or (InfoValue.AsInterface = nil) then
-    Self.Fail('HaveValue<T> requires a Smart Property prototype (use Prototype.Entity<T>).');
+  begin
+    Subject.Fail('HaveValue<T> requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Exit;
+  end;
   
   PropInfo := InfoValue.AsType<IPropInfo>;
   PropName := PropInfo.PropertyName;
   
-  Result := HavePropertyValue(PropName, TValue.From<T>(ExpectedValue));
+  Result := HavePropertyValue(Subject, PropName, TValue.From<T>(ExpectedValue));
 end;
 
 { ShouldProperty }
@@ -2074,9 +2190,91 @@ begin
   Result := Self;
 end;
 
+function ShouldDateTime.NotBe(Unexpected: TDateTime): ShouldDateTime;
+begin
+  if SameDateTime(FValue, Unexpected) then
+    Fail(Format('Expected date to differ from %s', [DateTimeToStr(Unexpected)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeApproximately(Expected: TDateTime; Tolerance: Double): ShouldDateTime;
+begin
+  if Abs(FValue - Expected) > Tolerance then
+    Fail(Format('Expected %s ± %g days but found %s',
+      [DateTimeToStr(Expected), Tolerance, DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeGreaterThan(Expected: TDateTime): ShouldDateTime;
+begin
+  if not (FValue > Expected) then
+    Fail(Format('Expected date to be after %s but found %s', [DateTimeToStr(Expected), DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeLessThan(Expected: TDateTime): ShouldDateTime;
+begin
+  if not (FValue < Expected) then
+    Fail(Format('Expected date to be before %s but found %s', [DateTimeToStr(Expected), DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeInRange(Min, Max: TDateTime): ShouldDateTime;
+begin
+  if (FValue < Min) or (FValue > Max) then
+    Fail(Format('Expected date between %s and %s but found %s',
+      [DateTimeToStr(Min), DateTimeToStr(Max), DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BePositive: ShouldDateTime;
+begin
+  if not (FValue > 0) then
+    Fail(Format('Expected a date after 30/12/1899 but found %s', [DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeNegative: ShouldDateTime;
+begin
+  if not (FValue < 0) then
+    Fail(Format('Expected a date before 30/12/1899 but found %s', [DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.BeZero: ShouldDateTime;
+begin
+  if FValue <> 0 then
+    Fail(Format('Expected an empty date (0) but found %s', [DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.Satisfy(const Predicate: TPredicate<TDateTime>): ShouldDateTime;
+begin
+  if not Predicate(FValue) then
+    Fail(Format('Expected %s to satisfy the predicate', [DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
+function ShouldDateTime.Satisfy(const Predicate: TPredicate<Double>): ShouldDateTime;
+begin
+  if not Predicate(FValue) then
+    Fail(Format('Expected %s to satisfy the predicate', [DateTimeToStr(FValue)]));
+  Result := Self;
+end;
+
 function ShouldDateTime.Because(const Reason: string): ShouldDateTime;
 begin
   FReason := Reason;
+  Result := Self;
+end;
+
+function ShouldDateTime.&And: ShouldDateTime;
+begin
+  Result := Self;
+end;
+
+function ShouldDateTime.AndAlso: ShouldDateTime;
+begin
   Result := Self;
 end;
 
@@ -2107,6 +2305,36 @@ end;
 function Should(Value: Double): ShouldDouble; overload;
 begin
   Result := ShouldDouble.Create(Value);
+end;
+
+function Should(Value: Single): ShouldDouble; overload;
+begin
+  Result := ShouldDouble.Create(Value);
+end;
+
+function Should(Value: Extended): ShouldDouble; overload;
+begin
+  Result := ShouldDouble.Create(Value);
+end;
+
+function Should(Value: Currency): ShouldDouble; overload;
+begin
+  Result := ShouldDouble.Create(Value);
+end;
+
+function Should(Value: TDateTime): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value);
+end;
+
+function Should(Value: TDate): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value);
+end;
+
+function Should(Value: TTime): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value);
 end;
 
 function Should(const Action: TProc): ShouldAction; overload;

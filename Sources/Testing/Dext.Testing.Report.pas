@@ -97,10 +97,17 @@ type
   private
     FTestCases: IList<TTestCaseReport>;
     FCurrentClassName: string;
+    FSourceRoot: string;
+    function ResolveSourcePath(const AUnitName: string): string;
   public
     constructor Create;
     destructor Destroy; override;
     procedure SetCurrentClassName(const Name: string);
+    /// <summary>
+    ///   Directory the file paths are made relative to (sonar.projectBaseDir).
+    ///   Defaults to the current directory.
+    /// </summary>
+    property SourceRoot: string read FSourceRoot write FSourceRoot;
     procedure AddTestCase(const Info: TTestInfo);
     function GenerateXml: string;
     procedure SaveToFile(const FileName: string);
@@ -170,6 +177,12 @@ uses
   System.NetEncoding,
   System.StrUtils;
 
+/// <summary>Formats with '.' as decimal separator whatever the machine locale.</summary>
+function InvariantFormat(const Fmt: string; const Args: array of const): string;
+begin
+  Result := Format(Fmt, Args, TFormatSettings.Invariant);
+end;
+
 { TTestSuiteReport }
 
 destructor TTestSuiteReport.Destroy;
@@ -225,7 +238,7 @@ begin
   Inc(FCurrentSuite.Tests);
   case Info.Result of
     trFailed: Inc(FCurrentSuite.Failures);
-    trError: Inc(FCurrentSuite.Errors);
+    trError, trTimeout: Inc(FCurrentSuite.Errors);
     trSkipped: Inc(FCurrentSuite.Skipped);
   end;
   FCurrentSuite.Duration := FCurrentSuite.Duration + TC.Duration;
@@ -352,7 +365,7 @@ begin
   Inc(FCurrentSuite.Tests);
   case Info.Result of
     trFailed: Inc(FCurrentSuite.Failures);
-    trError: Inc(FCurrentSuite.Errors);
+    trError, trTimeout: Inc(FCurrentSuite.Errors);
     trSkipped: Inc(FCurrentSuite.Skipped);
   end;
   FCurrentSuite.Duration := FCurrentSuite.Duration + TC.Duration;
@@ -380,15 +393,15 @@ begin
       Suite := FTestSuites[I];
       if I > 0 then SB.AppendLine(',');
       SB.AppendLine('  {');
-      SB.AppendFormat('    "name": "%s", "tests": %d, "failures": %d, "errors": %d, "skipped": %d, "duration": %.3f, "timestamp": "%s", "testCases": [',
+      SB.Append(InvariantFormat('    "name": "%s", "tests": %d, "failures": %d, "errors": %d, "skipped": %d, "duration": %.3f, "timestamp": "%s", "testCases": [',
         [TDextEscaping.Json(Suite.Name), Suite.Tests, Suite.Failures, Suite.Errors, Suite.Skipped, Suite.Duration, 
-         FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Suite.Timestamp)]).AppendLine;
+         FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Suite.Timestamp)])).AppendLine;
       for J := 0 to High(Suite.TestCases) do
       begin
         TC := Suite.TestCases[J];
         if J > 0 then SB.AppendLine(',');
-        SB.AppendFormat('      { "className": "%s", "testName": "%s", "duration": %.3f, "status": "%d", "errorMessage": "%s" }',
-          [TDextEscaping.Json(TC.ClassName), TDextEscaping.Json(TC.TestName), TC.Duration, Ord(TC.Status), TDextEscaping.Json(TC.ErrorMessage)]);
+        SB.Append(InvariantFormat('      { "className": "%s", "testName": "%s", "duration": %.3f, "status": "%d", "errorMessage": "%s" }',
+          [TDextEscaping.Json(TC.ClassName), TDextEscaping.Json(TC.TestName), TC.Duration, Ord(TC.Status), TDextEscaping.Json(TC.ErrorMessage)]));
       end;
       SB.AppendLine(' ] }');
     end;
@@ -415,7 +428,37 @@ end;
 constructor TSonarQubeReporter.Create;
 begin
   inherited Create;
-  FTestCases := TCollections.CreateList<TTestCaseReport>(False);
+  FTestCases := TCollections.CreateList<TTestCaseReport>(True);
+  FSourceRoot := GetCurrentDir;
+end;
+
+function TSonarQubeReporter.ResolveSourcePath(const AUnitName: string): string;
+var
+  FileName, Base, Candidate: string;
+  Level: Integer;
+
+  function TryBase(const ADir: string): Boolean;
+  begin
+    Candidate := TPath.Combine(ADir, FileName);
+    Result := FileExists(Candidate);
+  end;
+
+begin
+  // Sonar needs the test file path relative to the project base directory
+  FileName := AUnitName + '.pas';
+  if TryBase(FSourceRoot) then
+    Exit(ExtractRelativePath(IncludeTrailingPathDelimiter(FSourceRoot), Candidate).Replace('\', '/'));
+
+  // Test executables usually live a few levels below the project (Win32\Debug)
+  Base := ExtractFileDir(ParamStr(0));
+  for Level := 0 to 3 do
+  begin
+    if TryBase(Base) then
+      Exit(ExtractRelativePath(IncludeTrailingPathDelimiter(FSourceRoot), Candidate).Replace('\', '/'));
+    Base := ExtractFileDir(Base);
+  end;
+
+  Result := FileName;
 end;
 
 destructor TSonarQubeReporter.Destroy;
@@ -435,8 +478,10 @@ begin
   TC := TTestCaseReport.Create;
   TC.ClassName := FCurrentClassName;
   if TC.ClassName = '' then TC.ClassName := Info.FixtureName;
-  TC.FilePath := Info.UnitName;
-  if TC.FilePath = '' then TC.FilePath := TC.ClassName;
+  if Info.UnitName <> '' then
+    TC.FilePath := ResolveSourcePath(Info.UnitName)
+  else
+    TC.FilePath := ResolveSourcePath(TC.ClassName);
   TC.TestName := Info.DisplayName;
   TC.Duration := Info.Duration.TotalMilliseconds;
   TC.Status := Info.Result;
@@ -553,7 +598,7 @@ begin
   Inc(FCurrentSuite.Tests);
   case Info.Result of
     trFailed: Inc(FCurrentSuite.Failures);
-    trError: Inc(FCurrentSuite.Errors);
+    trError, trTimeout: Inc(FCurrentSuite.Errors);
     trSkipped: Inc(FCurrentSuite.Skipped);
   end;
   FCurrentSuite.Duration := FCurrentSuite.Duration + TC.Duration;
@@ -578,11 +623,16 @@ begin
     for Suite in FTestSuites do
     begin
       SB.AppendFormat('  <assembly name="%s" time="%s" total="%d" passed="%d" failed="%d" skipped="%d">',
-        [TDextEscaping.Xml(Suite.Name), FormatDuration(Suite.Duration), Suite.Tests, Suite.Tests - Suite.Failures, Suite.Failures, Suite.Skipped]);
+        [TDextEscaping.Xml(Suite.Name), FormatDuration(Suite.Duration), Suite.Tests,
+         Suite.Tests - Suite.Failures - Suite.Errors - Suite.Skipped, Suite.Failures + Suite.Errors, Suite.Skipped]);
       for TC in Suite.TestCases do
       begin
-        SB.AppendFormat('    <test name="%s" time="%s" result="%s"', [TDextEscaping.Xml(TC.TestName), FormatDuration(TC.Duration), IfThen(TC.Status=trPassed,'Pass','Fail')]);
-        if TC.Status = trPassed then SB.AppendLine('/>') else
+        SB.AppendFormat('    <test name="%s" time="%s" result="%s"', [TDextEscaping.Xml(TC.TestName), FormatDuration(TC.Duration),
+          IfThen(TC.Status = trPassed, 'Pass', IfThen(TC.Status = trSkipped, 'Skip', 'Fail'))]);
+        if TC.Status = trPassed then SB.AppendLine('/>')
+        else if TC.Status = trSkipped then
+          SB.AppendLine('><reason>' + TDextEscaping.Xml(TC.ErrorMessage) + '</reason></test>')
+        else
         begin
           SB.AppendLine('><failure><message>' + TDextEscaping.Xml(TC.ErrorMessage) + '</message></failure></test>');
         end;
@@ -642,14 +692,25 @@ var
   TC: TTestCaseReport;
 begin
   TC := TTestCaseReport.Create;
-  TC.ClassName := Info.FixtureName;
+  if Info.ClassName = '' then
+    TC.ClassName := Info.FixtureName
+  else if Info.UnitName <> '' then
+    TC.ClassName := Info.UnitName + '.' + Info.ClassName
+  else
+    TC.ClassName := Info.ClassName;
   TC.TestName := Info.DisplayName;
+  if TC.TestName = '' then TC.TestName := Info.TestName;
   TC.Duration := Info.Duration.TotalSeconds;
   TC.Status := Info.Result;
   TC.ErrorMessage := Info.ErrorMessage;
   TC.StackTrace := Info.StackTrace;
   FCurrentTestCases.Add(TC);
   Inc(FCurrentSuite.Tests);
+  case Info.Result of
+    trFailed: Inc(FCurrentSuite.Failures);
+    trError, trTimeout: Inc(FCurrentSuite.Errors);
+    trSkipped: Inc(FCurrentSuite.Skipped);
+  end;
   FCurrentSuite.Duration := FCurrentSuite.Duration + TC.Duration;
 end;
 
@@ -660,9 +721,164 @@ begin
   FTestSuites.Add(FCurrentSuite);
 end;
 
-function TTRXReporter.GenerateXml: string;
+function TrxGuid: string;
+var
+  G: TGUID;
 begin
-  Result := '<!-- TRX Implementation Simplified -->';
+  System.SysUtils.CreateGUID(G);
+  Result := G.ToString.Substring(1, 36).ToLower;
+end;
+
+function TrxDateTime(const Value: TDateTime): string;
+begin
+  Result := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss.zzz', Value, TFormatSettings.Invariant);
+end;
+
+function TrxDuration(Seconds: Double): string;
+var
+  Ticks: Int64;
+begin
+  if Seconds < 0 then Seconds := 0;
+  Ticks := Round(Seconds * 10000000);
+  Result := InvariantFormat('%.2d:%.2d:%.2d.%.7d',
+    [Ticks div 36000000000, (Ticks div 600000000) mod 60, (Ticks div 10000000) mod 60, Ticks mod 10000000]);
+end;
+
+function TrxOutcome(Status: TTestResult): string;
+begin
+  case Status of
+    trPassed: Result := 'Passed';
+    trSkipped: Result := 'NotExecuted';
+    trTimeout: Result := 'Timeout';
+    trNone: Result := 'NotExecuted';
+  else
+    Result := 'Failed';
+  end;
+end;
+
+function TTRXReporter.GenerateXml: string;
+const
+  UnitTestType = '13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b';
+  ResultsNotInAList = '8c84fa94-04c1-424b-9868-57a2d4851a1d';
+  AllLoadedResults = '19431567-8539-422a-85d7-44ee4e166bda';
+type
+  TTrxEntry = record
+    Test: TTestCaseReport;
+    TestId: string;
+    ExecutionId: string;
+    StartTime: TDateTime;
+  end;
+var
+  SB: TStringBuilder;
+  Entries: TArray<TTrxEntry>;
+  Entry: TTrxEntry;
+  Suite: TTestSuiteReport;
+  TC: TTestCaseReport;
+  Clock: TDateTime;
+  CodeBase, Computer, Storage: string;
+  Total, Passed, Failed, NotExecuted, Timeouts: Integer;
+begin
+  Clock := FStartTime;
+  Total := 0; Passed := 0; Failed := 0; NotExecuted := 0; Timeouts := 0;
+  for Suite in FTestSuites do
+    for TC in Suite.TestCases do
+    begin
+      Entry.Test := TC;
+      Entry.TestId := TrxGuid;
+      Entry.ExecutionId := TrxGuid;
+      Entry.StartTime := Clock;
+      Clock := Clock + TC.Duration / SecsPerDay;
+      Entries := Entries + [Entry];
+      Inc(Total);
+      case TC.Status of
+        trPassed: Inc(Passed);
+        trSkipped, trNone: Inc(NotExecuted);
+        trTimeout: Inc(Timeouts);
+      else
+        Inc(Failed);
+      end;
+    end;
+
+  CodeBase := TDextEscaping.Xml(ParamStr(0));
+  Storage := TDextEscaping.Xml(ExtractFileName(ParamStr(0)).ToLower);
+  Computer := TDextEscaping.Xml(GetEnvironmentVariable('COMPUTERNAME'));
+
+  SB := TStringBuilder.Create;
+  try
+    SB.AppendLine('<?xml version="1.0" encoding="UTF-8"?>');
+    SB.AppendFormat('<TestRun id="%s" name="%s" runUser="%s" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">',
+      [FRunId.ToString.Substring(1, 36).ToLower, TDextEscaping.Xml(FRunName),
+       TDextEscaping.Xml(GetEnvironmentVariable('USERNAME'))]).AppendLine;
+    SB.AppendFormat('  <Times creation="%0:s" queuing="%0:s" start="%0:s" finish="%1:s" />',
+      [TrxDateTime(FStartTime), TrxDateTime(Clock)]).AppendLine;
+
+    SB.AppendLine('  <Results>');
+    for Entry in Entries do
+    begin
+      TC := Entry.Test;
+      SB.AppendFormat('    <UnitTestResult executionId="%s" testId="%s" testName="%s" computerName="%s" ' +
+        'duration="%s" startTime="%s" endTime="%s" testType="%s" outcome="%s" testListId="%s"',
+        [Entry.ExecutionId, Entry.TestId, TDextEscaping.Xml(TC.TestName), Computer,
+         TrxDuration(TC.Duration), TrxDateTime(Entry.StartTime),
+         TrxDateTime(Entry.StartTime + TC.Duration / SecsPerDay), UnitTestType,
+         TrxOutcome(TC.Status), ResultsNotInAList]);
+      if (TC.ErrorMessage = '') and (TC.StackTrace = '') then
+        SB.AppendLine(' />')
+      else
+      begin
+        SB.AppendLine('>');
+        SB.AppendLine('      <Output>');
+        if TC.Status = trSkipped then
+          SB.AppendFormat('        <StdOut>%s</StdOut>', [TDextEscaping.Xml(TC.ErrorMessage)]).AppendLine
+        else
+        begin
+          SB.AppendLine('        <ErrorInfo>');
+          SB.AppendFormat('          <Message>%s</Message>', [TDextEscaping.Xml(TC.ErrorMessage)]).AppendLine;
+          if TC.StackTrace <> '' then
+            SB.AppendFormat('          <StackTrace>%s</StackTrace>', [TDextEscaping.Xml(TC.StackTrace)]).AppendLine;
+          SB.AppendLine('        </ErrorInfo>');
+        end;
+        SB.AppendLine('      </Output>');
+        SB.AppendLine('    </UnitTestResult>');
+      end;
+    end;
+    SB.AppendLine('  </Results>');
+
+    SB.AppendLine('  <TestDefinitions>');
+    for Entry in Entries do
+    begin
+      TC := Entry.Test;
+      SB.AppendFormat('    <UnitTest name="%s" storage="%s" id="%s">',
+        [TDextEscaping.Xml(TC.TestName), Storage, Entry.TestId]).AppendLine;
+      SB.AppendFormat('      <Execution id="%s" />', [Entry.ExecutionId]).AppendLine;
+      SB.AppendFormat('      <TestMethod codeBase="%s" adapterTypeName="executor://dext/testing" className="%s" name="%s" />',
+        [CodeBase, TDextEscaping.Xml(TC.ClassName), TDextEscaping.Xml(TC.TestName)]).AppendLine;
+      SB.AppendLine('    </UnitTest>');
+    end;
+    SB.AppendLine('  </TestDefinitions>');
+
+    SB.AppendLine('  <TestEntries>');
+    for Entry in Entries do
+      SB.AppendFormat('    <TestEntry testId="%s" executionId="%s" testListId="%s" />',
+        [Entry.TestId, Entry.ExecutionId, ResultsNotInAList]).AppendLine;
+    SB.AppendLine('  </TestEntries>');
+
+    SB.AppendLine('  <TestLists>');
+    SB.AppendFormat('    <TestList name="Results Not in a List" id="%s" />', [ResultsNotInAList]).AppendLine;
+    SB.AppendFormat('    <TestList name="All Loaded Results" id="%s" />', [AllLoadedResults]).AppendLine;
+    SB.AppendLine('  </TestLists>');
+
+    SB.AppendFormat('  <ResultSummary outcome="%s">', [IfThen((Failed + Timeouts) > 0, 'Failed', 'Completed')]).AppendLine;
+    SB.AppendFormat('    <Counters total="%d" executed="%d" passed="%d" failed="%d" error="0" timeout="%d" ' +
+      'aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="%d" ' +
+      'disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />',
+      [Total, Total - NotExecuted, Passed, Failed, Timeouts, NotExecuted]).AppendLine;
+    SB.AppendLine('  </ResultSummary>');
+    SB.AppendLine('</TestRun>');
+    Result := SB.ToString;
+  finally
+    SB.Free;
+  end;
 end;
 
 procedure TTRXReporter.SaveToFile(const FileName: string);

@@ -99,6 +99,7 @@ begin
     begin
       SafeWriteLn('Error: No Delphi project file (.dproj) found in current directory.');
       SafeWriteLn('Use --project=<path> to specify one.');
+      System.ExitCode := 1;
       Exit;
     end;
   
@@ -229,17 +230,26 @@ procedure TTestCommand.RunTests(const ProjectFile: string; const Args: TCommandL
 var
   ExePath, ProjectName: string;
 begin
-  if not BuildProject(ProjectFile, False, GlobalConfig, DesiredDelphi) then Exit;
+  if not BuildProject(ProjectFile, False, GlobalConfig, DesiredDelphi) then
+  begin
+    System.ExitCode := 1;
+    Exit;
+  end;
   ProjectName := TPath.GetFileNameWithoutExtension(ProjectFile);
   ExePath := GetExeFile(ProjectName);
   
   if not FileExists(ExePath) then
   begin
     SafeWriteLn('Error: Executable not found at ' + ExePath);
+    System.ExitCode := 1;
     Exit;
   end;
   SafeWriteLn('Running tests...');
-  RunProcess(ExePath, '');
+  if not RunProcess(ExePath, '') then
+  begin
+    SafeWriteLn('Error: One or more tests failed.');
+    System.ExitCode := 1;
+  end;
 end;
 
 {$IFDEF MSWINDOWS}
@@ -481,7 +491,11 @@ begin
   GenerateAutoInclude(GetCurrentDir, SourceDir);
   GenerateCoverageLists(GetCurrentDir, SourceDir, Config.Test.CoverageExclude, UnitLst, SourceLst);
   
-  if not BuildProject(ProjectFile, True, GlobalConfig, DesiredDelphi) then Exit;
+  if not BuildProject(ProjectFile, True, GlobalConfig, DesiredDelphi) then
+  begin
+    System.ExitCode := 1;
+    Exit;
+  end;
   
   ExePath := GetExeFile(TPath.GetFileNameWithoutExtension(ProjectFile));
   MapPath := GetMapFile(TPath.GetFileNameWithoutExtension(ProjectFile));
@@ -489,6 +503,7 @@ begin
   if not FileExists(MapPath) then
   begin
     SafeWriteLn('Error: MAP file not generated. Coverage analysis impossible.');
+    System.ExitCode := 1;
     Exit;
   end;
   
@@ -496,6 +511,7 @@ begin
   if (DCCExe = '') or (not FileExists(DCCExe) and (ExtractFilePath(DCCExe) <> '')) then
   begin
      SafeWriteLn('Error: CodeCoverage tool missing. Cannot proceed.');
+     System.ExitCode := 1;
      Exit;
   end;
 

@@ -176,6 +176,11 @@ begin
        end
        else
        begin
+         if Length(ParamType.GetMethods) = 0 then
+           raise EMockException.CreateFmt(
+             'Cannot auto-mock %s for %s: the interface has no method RTTI. ' +
+             'Declare it between {$M+} and {$M-} or inherit from IInvokable.',
+             [ParamType.Name, T.ClassName]);
          ProxyObj := TInterfaceProxy.Create(ParamInfo, [Interceptor], TValue.Empty);
          if ProxyObj.QueryInterface(ParamInfo.TypeData.Guid, ProxyIntf) <> S_OK then
            raise Exception.Create('Failed to query interface for mock: ' + ParamType.Name);
@@ -183,9 +188,7 @@ begin
        end;
     end
     else
-    begin
-       Args[I] := TValue.FromOrdinal(ParamType.Handle, 0); 
-    end;
+      TValue.Make(nil, ParamInfo, Args[I]);
   end;
 
   Result := ConstructorMethod.Invoke(RttiType.AsInstance.MetaclassType, Args).AsType<T>;

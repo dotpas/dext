@@ -44,6 +44,16 @@ Should(Order).BeOfType<TOrder>;
 Should(PaymentIntf).NotBeNil;
 ```
 
+### Dates
+
+`Should` for `TDateTime`, `TDate` and `TTime` returns `ShouldDateTime`. `Be` compares to the millisecond. When the tolerance must be wider, use `BeCloseTo` with milliseconds or `BeApproximately` with the tolerance in days. `ShouldDate` remains available when the call should say calendar by name.
+
+```pascal
+Should(Invoice.DueDate).Be(Agreed);
+Should(Invoice.IssuedAt).BeBefore(Invoice.DueDate);
+Should(Invoice.IssuedAt).BeCloseTo(Now, 1000);
+```
+
 ### GUIDs and UUIDs (Native Dext Types)
 
 ```pascal

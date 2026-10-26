@@ -105,8 +105,19 @@ type
     function CreateClient: IDextTestHttpClient;
   end;
 
-  /// <summary>Alias aligning with S66 naming.</summary>
-  TDextWebApplicationFactory<TApp: class> = class(TDextApplicationFactory<TApp>);
+  /// <summary>
+  ///   S66 naming. The fluent methods return this type, so the chain can be
+  ///   assigned to a TDextWebApplicationFactory&lt;TApp&gt; variable.
+  /// </summary>
+  TDextWebApplicationFactory<TApp: class> = class(TDextApplicationFactory<TApp>)
+  public
+    /// <summary>Injects test services and returns this factory, so the chain keeps the derived type.</summary>
+    function WithTestServices(AProc: TProc<IServiceCollection>): TDextWebApplicationFactory<TApp>; reintroduce; overload;
+    /// <summary>Injects test services and returns this factory, so the chain keeps the derived type.</summary>
+    function WithTestServices(AProc: TProc<TDextServices>): TDextWebApplicationFactory<TApp>; reintroduce; overload;
+    /// <summary>Configures the test application and returns this factory, so the chain keeps the derived type.</summary>
+    function WithConfigure(AProc: TProc<TWebApplication>): TDextWebApplicationFactory<TApp>; reintroduce;
+  end;
 
 /// <summary>
 ///   Creates an in-process test client. Exposed at unit scope so generic
@@ -817,6 +828,29 @@ function TDextApplicationFactory<TApp>.WithConfigure(
   AProc: TProc<TWebApplication>): TDextApplicationFactory<TApp>;
 begin
   FConfigureAppProc := AProc;
+  Result := Self;
+end;
+
+{ TDextWebApplicationFactory<TApp> }
+
+function TDextWebApplicationFactory<TApp>.WithTestServices(
+  AProc: TProc<IServiceCollection>): TDextWebApplicationFactory<TApp>;
+begin
+  inherited WithTestServices(AProc);
+  Result := Self;
+end;
+
+function TDextWebApplicationFactory<TApp>.WithTestServices(
+  AProc: TProc<TDextServices>): TDextWebApplicationFactory<TApp>;
+begin
+  inherited WithTestServices(AProc);
+  Result := Self;
+end;
+
+function TDextWebApplicationFactory<TApp>.WithConfigure(
+  AProc: TProc<TWebApplication>): TDextWebApplicationFactory<TApp>;
+begin
+  inherited WithConfigure(AProc);
   Result := Self;
 end;
 

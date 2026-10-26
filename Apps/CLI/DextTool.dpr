@@ -129,7 +129,10 @@ begin
     end;
   except
     on E: Exception do
+    begin
       Writeln(E.ClassName, ': ', E.Message);
+      ExitCode := 1;
+    end;
   end;
   ConsolePause;
 end.

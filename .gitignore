@@ -59,3 +59,5 @@ dext-symbols.*
 *.lst
 suite_history.json
 .cursor/
+junit.xml
+sonar-tests.xml

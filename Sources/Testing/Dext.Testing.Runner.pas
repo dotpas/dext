@@ -196,6 +196,7 @@ type
     class var FTestResults: IList<TTestInfo>;
     class var FDiscoveryMode: Boolean;
     class var FSelectedTests: TArray<string>;
+    class var FAllowEmptyRun: Boolean;
 
     // Assembly-level hooks (execute once for entire test suite)
     class var FAssemblyInitMethod: TRttiMethod;
@@ -228,7 +229,7 @@ type
       const Attrs: TArray<TCustomAttribute>): T; overload;
     class function GetAttributes<T: TCustomAttribute>(
       const Attrs: TArray<TCustomAttribute>): TArray<T>;
-    class function GetCategories(Method: TRttiMethod): TArray<string>;
+    class function GetCategories(Method: TRttiMethod; FixtureClass: TClass): TArray<string>;
     class function IsExplicit(Method: TRttiMethod): Boolean;
     class function GetIgnoreReason(Method: TRttiMethod): string;
     class function GetRepeatCount(Method: TRttiMethod): Integer;
@@ -246,8 +247,9 @@ type
     class procedure PrintSummary;
     class procedure PrintResultChar(Result: TTestResult);
   protected
-    // TODO: Implement timeout enforcement using TTask + TCancellationTokenSource
     class function GetTimeout(Method: TRttiMethod): Integer;
+    class function GetActiveTestCount(Fixture: TTestFixtureInfo): Integer; overload;
+    class procedure ReportFixtureFailure(Fixture: TTestFixtureInfo; const Stage: string; E: Exception);
   public
     /// <summary>
     ///   Discovers all test fixtures in the application.
@@ -295,6 +297,14 @@ type
     class function Summary: TTestSummary;
 
     /// <summary>
+    ///   True when no test failed and at least one test ran. A run that
+    ///   executes zero tests (non-public [Test] methods, a filter that matches
+    ///   nothing) is a failure unless SetAllowEmptyRun(True) was called.
+    /// </summary>
+    class function Succeeded: Boolean;
+    class procedure SetAllowEmptyRun(AValue: Boolean);
+
+    /// <summary>
     ///   Sets verbose output mode.
     /// </summary>
     class procedure SetVerbosity(AValue: TOutputVerbosity);
@@ -313,7 +323,7 @@ type
     ///   Returns the total discovered test count.
     /// </summary>
     class function TestCount: Integer;
-    class function GetActiveTestCount: Integer;
+    class function GetActiveTestCount: Integer; overload;
 
     /// <summary>
     ///   Clears discovered fixtures (for re-discovery).
@@ -425,6 +435,7 @@ implementation
 uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
+  Winapi.ActiveX,
   {$ENDIF}
   System.StrUtils,
   System.RegularExpressions,
@@ -458,6 +469,229 @@ const
   ICON_CRASH   = #$D83D#$DCA5; // 💥
   ICON_TEST    = #$D83E#$DDEA; // 🧪
   ICON_STOP    = #$26D4;       // ⛔
+
+/// <summary>
+///   Lifecycle methods may be declared as class procedures; RTTI then needs
+///   the class, not the instance, or it raises "Invalid class typecast".
+/// </summary>
+procedure InvokeLifecycle(Method: TRttiMethod; Instance: TObject; FixtureClass: TClass);
+begin
+  if Method.IsClassMethod or Method.IsStatic then
+    Method.Invoke(FixtureClass, [])
+  else
+    Method.Invoke(Instance, []);
+end;
+
+type
+  ETestTimeout = class(Exception);
+
+  /// <summary>Runs the body of a test that has [Timeout].</summary>
+  TTestBodyThread = class(TThread)
+  private
+    FBody: TProc;
+    FError: TObject;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const ABody: TProc);
+    destructor Destroy; override;
+  end;
+
+var
+  // Set when a timed-out test thread could not be stopped and still uses the fixture
+  GFixtureInstanceAbandoned: Boolean;
+
+constructor TTestBodyThread.Create(const ABody: TProc);
+begin
+  FBody := ABody;
+  inherited Create(False);
+  FreeOnTerminate := False;
+end;
+
+destructor TTestBodyThread.Destroy;
+begin
+  FError.Free;
+  inherited;
+end;
+
+procedure TTestBodyThread.Execute;
+begin
+  NameThreadForDebugging('Dext test body');
+  {$IFDEF MSWINDOWS}
+  CoInitialize(nil);
+  try
+  {$ENDIF}
+    try
+      FBody();
+    except
+      FError := AcquireExceptionObject;
+    end;
+  {$IFDEF MSWINDOWS}
+  finally
+    CoUninitialize;
+  end;
+  {$ENDIF}
+end;
+
+procedure RaiseInterruptedByTimeout;
+begin
+  raise ETestTimeout.Create('Test thread interrupted by [Timeout]');
+end;
+
+{$IFDEF MSWINDOWS}
+{$IFDEF CPUX64}
+type
+  TRuntimeFunction = record
+    BeginAddress: Cardinal;
+    EndAddress: Cardinal;
+    UnwindData: Cardinal;
+  end;
+  PRuntimeFunction = ^TRuntimeFunction;
+
+function RtlLookupFunctionEntry(ControlPc: UInt64; out ImageBase: UInt64;
+  HistoryTable: Pointer): PRuntimeFunction; stdcall; external kernel32;
+
+/// <summary>
+///   True when Rip is in a function that never moves Rsp (no unwind info, or
+///   unwind info without codes), so [Rsp] holds its return address.
+/// </summary>
+function IsFramelessCode(Rip: UInt64): Boolean;
+const
+  UNW_FLAG_CHAININFO = 4;
+var
+  ImageBase: UInt64;
+  Entry: PRuntimeFunction;
+  UnwindInfo: PByte;
+begin
+  Entry := RtlLookupFunctionEntry(Rip, ImageBase, nil);
+  if Entry = nil then
+    Exit(True);
+  UnwindInfo := PByte(ImageBase + Entry.UnwindData);
+  // UNWIND_INFO: Version:3 Flags:5 | SizeOfProlog | CountOfCodes | FrameRegister:4 FrameOffset:4
+  Result := ((UnwindInfo[0] shr 3) and UNW_FLAG_CHAININFO = 0) and (UnwindInfo[2] = 0) and
+    (UnwindInfo[3] and $0F = 0);
+end;
+{$ENDIF}
+
+/// <summary>
+///   Makes the thread raise ETestTimeout where it is, so its finally blocks run.
+///   A thread waiting inside the kernel only raises when the wait returns.
+/// </summary>
+procedure InterruptThread(Handle: THandle);
+var
+  Buffer: Pointer;
+  Ctx: PContext;
+  Attempt: Integer;
+  Redirected: Boolean;
+begin
+  // CONTEXT must be 16-byte aligned on Win64
+  GetMem(Buffer, SizeOf(TContext) + 16);
+  try
+    Ctx := PContext((NativeUInt(Buffer) + 15) and not NativeUInt(15));
+    for Attempt := 1 to 50 do
+    begin
+      if SuspendThread(Handle) = DWORD(-1) then
+        Exit;
+      Redirected := False;
+      try
+        FillChar(Ctx^, SizeOf(TContext), 0);
+        Ctx.ContextFlags := CONTEXT_CONTROL;
+        if not GetThreadContext(Handle, Ctx^) then
+          Exit;
+        {$IFDEF CPUX64}
+        if Ctx.Rsp mod 16 = 0 then
+        begin
+          // Inside a function body: push the interrupted address, as a call would
+          Dec(Ctx.Rsp, SizeOf(UInt64));
+          PUInt64(Ctx.Rsp)^ := Ctx.Rip;
+          Ctx.Rip := UInt64(@RaiseInterruptedByTimeout);
+          Redirected := True;
+        end
+        else if IsFramelessCode(Ctx.Rip) then
+        begin
+          // Leaf function (or syscall stub): [Rsp] is its return address, so
+          // raise as if it had already returned; the stack stays aligned
+          Ctx.Rip := UInt64(@RaiseInterruptedByTimeout);
+          Redirected := True;
+        end;
+        // Otherwise it is in the middle of a prologue or epilogue: try again
+        {$ELSE}
+        Dec(Ctx.Esp, SizeOf(Cardinal));
+        PCardinal(Ctx.Esp)^ := Ctx.Eip;
+        Ctx.Eip := Cardinal(@RaiseInterruptedByTimeout);
+        Redirected := True;
+        {$ENDIF}
+        if Redirected then
+          SetThreadContext(Handle, Ctx^);
+      finally
+        ResumeThread(Handle);
+      end;
+      if Redirected then
+        Exit;
+      Sleep(1);
+    end;
+  finally
+    FreeMem(Buffer);
+  end;
+end;
+{$ENDIF}
+
+/// <summary>
+///   Runs Body on a worker thread and raises ETestTimeout when it does not end
+///   within TimeoutMs. Abandoned is True when the thread could not be stopped.
+/// </summary>
+procedure RunWithTimeout(const Body: TProc; TimeoutMs: Integer; out Abandoned: Boolean);
+var
+  Worker: TTestBodyThread;
+  Error: TObject;
+
+  function WaitWorker(Milliseconds: Int64): Boolean;
+  var
+    Watch: TStopwatch;
+  begin
+    Watch := TStopwatch.StartNew;
+    while not Worker.Finished do
+    begin
+      if Watch.ElapsedMilliseconds >= Milliseconds then
+        Exit(False);
+      // Keep serving TThread.Synchronize/Queue calls made by the test body
+      if TThread.CurrentThread.ThreadID = MainThreadID then
+        CheckSynchronize(5)
+      else
+        Sleep(5);
+    end;
+    Result := True;
+  end;
+
+begin
+  Abandoned := False;
+  Worker := TTestBodyThread.Create(Body);
+  if WaitWorker(TimeoutMs) then
+  begin
+    Worker.WaitFor;
+    Error := Worker.FError;
+    Worker.FError := nil;
+    Worker.Free;
+    if Error <> nil then
+      raise Error;
+    Exit;
+  end;
+
+  {$IFDEF MSWINDOWS}
+  InterruptThread(Worker.Handle);
+  {$ENDIF}
+  if WaitWorker(1000) then
+  begin
+    Worker.WaitFor;
+    Worker.Free;
+  end
+  else
+  begin
+    Abandoned := True;
+    Worker.FreeOnTerminate := True;
+  end;
+  raise ETestTimeout.CreateFmt('Test exceeded [Timeout] of %d ms', [TimeoutMs]);
+end;
 
 { TTestSummary }
 
@@ -873,26 +1107,46 @@ begin
   end;
 end;
 
-class function TTestRunner.GetCategories(Method: TRttiMethod): TArray<string>;
+class function TTestRunner.GetCategories(Method: TRttiMethod; FixtureClass: TClass): TArray<string>;
 var
-  Attrs: TArray<TCustomAttribute>;
-  Attr: TCustomAttribute;
   Categories: IList<string>;
-begin
-  Attrs := Method.GetAttributes;
-  Categories := TCollections.CreateList<string>;
-  try
+
+  procedure AddFrom(const Attrs: TArray<TCustomAttribute>);
+  var
+    Attr: TCustomAttribute;
+    Name: string;
+  begin
     for Attr in Attrs do
     begin
       if Attr is CategoryAttribute then
-        Categories.Add(CategoryAttribute(Attr).Name)
+        Name := CategoryAttribute(Attr).Name
       else if Attr is TraitAttribute then
-        Categories.Add(TraitAttribute(Attr).Name + '=' + TraitAttribute(Attr).Value);
+        Name := TraitAttribute(Attr).Name + '=' + TraitAttribute(Attr).Value
+      else
+        Continue;
+      if not Categories.Contains(Name) then
+        Categories.Add(Name);
     end;
-    Result := Categories.ToArray;
-  finally
-    // Categories is ARC
   end;
+
+var
+  RttiType: TRttiType;
+begin
+  Categories := TCollections.CreateList<string>;
+  AddFrom(Method.GetAttributes);
+
+  // [Category] and [Trait] on the fixture class (and its ancestors) apply to every test in it
+  if FixtureClass <> nil then
+  begin
+    RttiType := TReflection.Context.GetType(FixtureClass);
+    while (RttiType <> nil) and (RttiType.Handle <> TypeInfo(TObject)) do
+    begin
+      AddFrom(RttiType.GetAttributes);
+      RttiType := RttiType.BaseType;
+    end;
+  end;
+
+  Result := Categories.ToArray;
 end;
 
 class function TTestRunner.IsExplicit(Method: TRttiMethod): Boolean;
@@ -915,7 +1169,6 @@ class function TTestRunner.GetTimeout(Method: TRttiMethod): Integer;
 var
   TimeoutAttr: TimeoutAttribute;
 begin
-  // TODO: Use this to enforce test timeout (requires TTask/TThread implementation)
   TimeoutAttr := GetAttribute<TimeoutAttribute>(Method.GetAttributes);
   if Assigned(TimeoutAttr) then
     Result := TimeoutAttr.Milliseconds
@@ -1301,19 +1554,26 @@ begin
       Exit;
     end;
 
+    // A fixture with no test left by the filter is not created: its
+    // [BeforeAll] must not run (nor fail the run)
+    if GetActiveTestCount(Fixture) = 0 then
+      Exit;
+
     // Create fixture instance
+    GFixtureInstanceAbandoned := False;
     Instance := Fixture.FixtureClass.Create;
     try
       // BeforeAll (class-level setup)
       if Assigned(Fixture.BeforeAllMethod) then
       begin
         try
-          Fixture.BeforeAllMethod.Invoke(Instance, []);
+          InvokeLifecycle(Fixture.BeforeAllMethod, Instance, Fixture.FixtureClass);
         except
           on E: Exception do
           begin
             Log.Error('BeforeAll failed for %s: %s', [Fixture.Name, E.Message]);
             TTestConsole.WriteFail('BeforeAll failed: ' + E.Message);
+            ReportFixtureFailure(Fixture, 'BeforeAll', E);
             Exit;
           end;
         end;
@@ -1332,17 +1592,21 @@ begin
       if Assigned(Fixture.AfterAllMethod) then
       begin
         try
-          Fixture.AfterAllMethod.Invoke(Instance, []);
+          InvokeLifecycle(Fixture.AfterAllMethod, Instance, Fixture.FixtureClass);
         except
           on E: Exception do
           begin
             Log.Error('AfterAll failed for %s: %s', [Fixture.Name, E.Message]);
             TTestConsole.WriteFail('AfterAll failed: ' + E.Message);
+            ReportFixtureFailure(Fixture, 'AfterAll', E);
           end;
         end;
       end;
     finally
-      Instance.Free;
+      if GFixtureInstanceAbandoned then
+        Log.Warn('Fixture %s is not freed: a timed-out test thread still uses it', [Fixture.Name])
+      else
+        Instance.Free;
     end;
 
     NotifyFixtureComplete(Fixture.Name);
@@ -1365,6 +1629,9 @@ var
   RepeatCount, I: Integer;
   Categories: TArray<string>;
   MaxTime: Integer;
+  TimeoutMs: Integer;
+  Abandoned: Boolean;
+  Body: TProc;
   TestContext: ITestContext;
   InvokeArgs: TArray<TValue>;
   Params: TArray<TRttiParameter>;
@@ -1379,7 +1646,7 @@ begin
   Info.DisplayName := Method.Name;
   if TestCaseDisplayName <> '' then
     Info.DisplayName := Info.DisplayName + TestCaseDisplayName;
-  Info.Categories := GetCategories(Method);
+  Info.Categories := GetCategories(Method, Fixture.FixtureClass);
   Info.CodeAddress := Method.CodeAddress;
   Categories := Info.Categories;
 
@@ -1447,14 +1714,24 @@ begin
 
     // Repeat count
     RepeatCount := GetRepeatCount(Method);
+    TimeoutMs := GetTimeout(Method);
 
     for I := 1 to RepeatCount do
     begin
+      // Each repetition is reported as a test of its own
+      if I > 1 then
+        FSummary.TotalTests := FSummary.TotalTests + 1;
+      Info.Result := trNone;
+      Info.ErrorMessage := '';
+      Info.ExceptionName := '';
+      Info.StackTrace := '';
+      Abandoned := False;
+
       Stopwatch := TStopwatch.StartNew;
       try
         // Setup
         if Assigned(Fixture.SetupMethod) then
-          Fixture.SetupMethod.Invoke(Instance, []);
+          InvokeLifecycle(Fixture.SetupMethod, Instance, Fixture.FixtureClass);
 
         try
           // Check if method needs ITestContext injection
@@ -1479,12 +1756,20 @@ begin
             InvokeArgs[0] := TValue.From<ITestContext>(TestContext);
             for P := 0 to High(TestCaseValues) do
               InvokeArgs[P + 1] := TestCaseValues[P];
-            Method.Invoke(Instance, InvokeArgs);
           end
-          else if Length(TestCaseValues) > 0 then
-            Method.Invoke(Instance, TestCaseValues)
           else
-            Method.Invoke(Instance, []);
+            InvokeArgs := TestCaseValues;
+
+          if TimeoutMs > 0 then
+          begin
+            Body := procedure
+              begin
+                Method.Invoke(Instance, InvokeArgs);
+              end;
+            RunWithTimeout(Body, TimeoutMs, Abandoned);
+          end
+          else
+            Method.Invoke(Instance, InvokeArgs);
 
           Info.Result := trPassed;
 
@@ -1497,14 +1782,26 @@ begin
             Log.Warn('Test exceeded MaxTime: %s', [Info.ErrorMessage]);
           end;
         finally
-          // TearDown
-          if Assigned(Fixture.TearDownMethod) then
-            Fixture.TearDownMethod.Invoke(Instance, []);
+          // TearDown must not run while an abandoned test thread still uses the fixture
+          if Abandoned then
+            GFixtureInstanceAbandoned := True
+          else if Assigned(Fixture.TearDownMethod) then
+            InvokeLifecycle(Fixture.TearDownMethod, Instance, Fixture.FixtureClass);
         end;
 
         if Info.Result = trPassed then
           FSummary.Passed := FSummary.Passed + 1;
       except
+        on E: ETestTimeout do
+        begin
+          Info.Result := trTimeout;
+          Info.ExceptionName := E.ClassName;
+          Info.ErrorMessage := E.Message;
+          if Abandoned then
+            Info.ErrorMessage := Info.ErrorMessage +
+              '. The test thread is blocked and keeps running; [TearDown] was skipped and the fixture instance is not freed.';
+          FSummary.Failed := FSummary.Failed + 1;
+        end;
         on E: Exception do
         begin
           Info.Result := trFailed;
@@ -1653,7 +1950,12 @@ begin
   SafeWriteLn;
   SafeWriteLn;
 
-  if FSummary.Failed = 0 then
+  if (FSummary.TotalTests = 0) and not FAllowEmptyRun then
+  begin
+    SafeWrite('  ' + ICON_CRASH + '  ');
+    TTestConsole.WriteFail('No tests were run. Check that [Test] methods are public and that the filters match.');
+  end
+  else if FSummary.Failed = 0 then
     TTestConsole.WritePass('  ' + ICON_CELEBRATE + '  All tests passed!')
   else
   begin
@@ -1666,25 +1968,60 @@ end;
 class function TTestRunner.GetActiveTestCount: Integer;
 var
   Fixture: TTestFixtureInfo;
-  Method: TRttiMethod;
 begin
   Result := 0;
   if FFixtures = nil then Exit;
 
   for Fixture in FFixtures do
+    Inc(Result, GetActiveTestCount(Fixture));
+end;
+
+class function TTestRunner.GetActiveTestCount(Fixture: TTestFixtureInfo): Integer;
+var
+  Method: TRttiMethod;
+begin
+  Result := 0;
+  for Method in Fixture.TestMethods do
   begin
-    for Method in Fixture.TestMethods do
-    begin
-      if FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName, 
-         Fixture.Name, Method.Name, GetCategories(Method), IsExplicit(Method), FSelectedTests) then
-        Inc(Result);
-    end;
+    if FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName, 
+       Fixture.Name, Method.Name, GetCategories(Method, Fixture.FixtureClass), IsExplicit(Method), FSelectedTests) then
+      Inc(Result);
   end;
+end;
+
+class procedure TTestRunner.ReportFixtureFailure(Fixture: TTestFixtureInfo; const Stage: string; E: Exception);
+var
+  Info: TTestInfo;
+begin
+  Info := Default(TTestInfo);
+  Info.FixtureName := Fixture.Name;
+  Info.UnitName := Fixture.FixtureClass.UnitName;
+  Info.ClassName := Fixture.FixtureClass.ClassName;
+  Info.TestName := Stage;
+  Info.DisplayName := Stage;
+  Info.Result := trError;
+  Info.ExceptionName := E.ClassName;
+  Info.ErrorMessage := Stage + ' failed: ' + E.Message;
+  FSummary.TotalTests := FSummary.TotalTests + 1;
+  FSummary.Failed := FSummary.Failed + 1;
+  if FTestResults = nil then
+    FTestResults := TCollections.CreateList<TTestInfo>;
+  FTestResults.Add(Info);
 end;
 
 class function TTestRunner.Summary: TTestSummary;
 begin
   Result := FSummary;
+end;
+
+class function TTestRunner.Succeeded: Boolean;
+begin
+  Result := (FSummary.Failed = 0) and ((FSummary.TotalTests > 0) or FAllowEmptyRun);
+end;
+
+class procedure TTestRunner.SetAllowEmptyRun(AValue: Boolean);
+begin
+  FAllowEmptyRun := AValue;
 end;
 
 class procedure TTestRunner.SetVerbosity(AValue: TOutputVerbosity);

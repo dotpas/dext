@@ -46,6 +46,8 @@ You can fail the build if code coverage is lower than expected:
 dext test --coverage --threshold 80
 ```
 
+Below the threshold, and also when the suite fails, the process exits with code 1.
+
 ---
 
 [← Scaffolding](scaffolding.md) | [Next: Dashboard →](dashboard.md)

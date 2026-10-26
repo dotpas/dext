@@ -130,6 +130,20 @@ uses
   System.TypInfo,
   Dext.Core.Activator;
 
+/// <summary>
+///   TVirtualInterface (mocks, interface proxies) answers the service GUID only
+///   through QueryInterface, never through the class interface table, so
+///   GetInterface alone would reject a registered mock.
+/// </summary>
+function GetServiceInterface(Obj: TObject; const ServiceGuid: TGUID; out Intf: IInterface): Boolean;
+var
+  Unknown: IInterface;
+begin
+  Result := Obj.GetInterface(ServiceGuid, Intf);
+  if not Result and (Obj is TVirtualInterface) and Obj.GetInterface(IInterface, Unknown) then
+    Result := Unknown.QueryInterface(ServiceGuid, Intf) = S_OK;
+end;
+
 { TDextServiceCollection }
 
 constructor TDextServiceCollection.Create;
@@ -487,7 +501,7 @@ begin
           begin
             Obj := CreateInstance(Descriptor);
             if not IsEqualGUID(ServiceGuid, TGUID.Empty) then
-              Resolved := Obj.GetInterface(ServiceGuid, Intf)
+              Resolved := GetServiceInterface(Obj, ServiceGuid, Intf)
             else
               Resolved := Supports(Obj, IInterface, Intf);
             if not Resolved then
@@ -510,7 +524,7 @@ begin
         begin
           Obj := CreateInstance(Descriptor);
           if not IsEqualGUID(ServiceGuid, TGUID.Empty) then
-            Resolved := Obj.GetInterface(ServiceGuid, Intf)
+            Resolved := GetServiceInterface(Obj, ServiceGuid, Intf)
           else
             Resolved := Supports(Obj, IInterface, Intf);
           if not Resolved then
@@ -527,7 +541,7 @@ begin
       begin
         Obj := CreateInstance(Descriptor);
         if not IsEqualGUID(ServiceGuid, TGUID.Empty) then
-          Resolved := Obj.GetInterface(ServiceGuid, Intf)
+          Resolved := GetServiceInterface(Obj, ServiceGuid, Intf)
         else
           Resolved := Supports(Obj, IInterface, Intf);
         if not Resolved then

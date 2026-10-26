@@ -40,7 +40,7 @@ type
   /// <summary>
   ///   Implementation of IInvocation that represents an intercepted method call.
   /// </summary>
-  TInvocation = class(TInterfacedObject, IInvocation)
+  TInvocation = class(TInterfacedObject, IInvocation, IInvocationCallBase)
   private
     FMethod: TRttiMethod;
     FArguments: TArray<TValue>;
@@ -48,12 +48,15 @@ type
     FTarget: TValue;
     FInterceptors: TArray<IInterceptor>;
     FCurrentIndex: Integer;
+    FCallBaseRequested: Boolean;
   protected
     function GetMethod: TRttiMethod;
     function GetArguments: TArray<TValue>;
     function GetResult: TValue;
     procedure SetResult(const Value: TValue);
     function GetTarget: TValue;
+    procedure RequestCallBase;
+    function GetCallBaseRequested: Boolean;
   public
     constructor Create(
       const AMethod: TRttiMethod;
@@ -135,6 +138,16 @@ begin
   Result := FTarget;
 end;
 
+procedure TInvocation.RequestCallBase;
+begin
+  FCallBaseRequested := True;
+end;
+
+function TInvocation.GetCallBaseRequested: Boolean;
+begin
+  Result := FCallBaseRequested;
+end;
+
 procedure TInvocation.Proceed;
 begin
   Inc(FCurrentIndex);
@@ -190,7 +203,10 @@ begin
   Invocation := TInvocation.Create(Method, Arguments, FInterceptors, FTarget);
   Invocation.Proceed;
 
-  Result := Invocation.Result;
+  if (Invocation as IInvocationCallBase).CallBaseRequested and not FTarget.IsEmpty then
+    Result := Method.Invoke(FTarget, Arguments)
+  else
+    Result := Invocation.Result;
 end;
 
 end.

@@ -29,6 +29,7 @@ type
     Types: IList<string>;
     GenericTypes: IList<string>; 
     Consts: IList<string>;
+    Helpers: IList<string>;
     constructor Create(const AName: string);
     destructor Destroy; override;
   end;
@@ -103,6 +104,7 @@ begin
   Types := TCollections.CreateList<string>;
   GenericTypes := TCollections.CreateList<string>;
   Consts := TCollections.CreateList<string>;
+  Helpers := TCollections.CreateList<string>;
 end;
 
 destructor TExtractedUnit.Destroy;
@@ -229,6 +231,14 @@ var
   C: TSyntaxNode;
   ConstName: string;
   
+  function IsHelper(Decl: TSyntaxNode): Boolean;
+  var
+    TypeNode: TSyntaxNode;
+  begin
+    TypeNode := Decl.FindNode(ntType);
+    Result := (TypeNode <> nil) and (TypeNode.FindNode(ntHelper) <> nil);
+  end;
+
   function IsValidType(Name: string): Boolean;
   begin
      Result := True;
@@ -328,6 +338,14 @@ begin
               if TypeName.IsEmpty then Continue;
               if not IsValidType(TypeName) then Continue;
 
+              // An alias of a helper does not activate the helper in Delphi
+              if IsHelper(DeclNode) then
+              begin
+                if not UnitDecl.Helpers.Contains(TypeName) then
+                  UnitDecl.Helpers.Add(TypeName);
+                Continue;
+              end;
+
               if IsGeneric(DeclNode) then 
               begin
                  GenericParams := '<T>'; 
@@ -415,7 +433,8 @@ begin
       end;
     end;
 
-    if (UnitDecl.Types.Count > 0) or (UnitDecl.Consts.Count > 0) or (UnitDecl.GenericTypes.Count > 0) then
+    if (UnitDecl.Types.Count > 0) or (UnitDecl.Consts.Count > 0) or (UnitDecl.GenericTypes.Count > 0) or
+      (UnitDecl.Helpers.Count > 0) then
       FParsedUnits.Add(UnitDecl)
     else
       UnitDecl.Free;
@@ -478,6 +497,17 @@ var
          end;
          for LGenericName in LUnitInfo.GenericTypes do
            NewLines.Add(Format('  // %s = %s.%s;', [LGenericName, LUnitInfo.UnitName, LGenericName]));
+      end;
+
+      if LUnitInfo.Helpers.Count > 0 then
+      begin
+         if (LUnitInfo.Types.Count = 0) and (LUnitInfo.GenericTypes.Count = 0) then
+         begin
+            NewLines.Add('');
+            NewLines.Add('  // ' + LUnitInfo.UnitName);
+         end;
+         for LTypeName in LUnitInfo.Helpers do
+           NewLines.Add(Format('  // %s is a helper: an alias would not activate it, declare a delegating helper in this unit', [LTypeName]));
       end;
     end;
     

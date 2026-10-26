@@ -46,6 +46,8 @@ Você pode falhar o build caso a cobertura de código seja menor que o esperado:
 dext test --coverage --threshold 80
 ```
 
+Abaixo do limiar, e também quando a suíte falha, o processo termina com código de saída 1.
+
 ---
 
 [← Scaffolding](scaffolding.md) | [Próximo: Dashboard →](dashboard.md)

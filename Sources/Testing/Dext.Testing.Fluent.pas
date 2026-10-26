@@ -67,6 +67,7 @@ type
     FIncludeExplicit: Boolean;
     FFixtureClasses: TArray<TClass>;
     FUseExternalUI: Boolean;
+    FAllowEmptyRun: Boolean;
   public
     /// <summary>
     ///   Enables verbose output with detailed test information.
@@ -154,6 +155,14 @@ type
     ///   Includes explicit tests in the run.
     /// </summary>
     function IncludeExplicitTests: TTestConfigurator;
+
+    /// <summary>
+    ///   Treats a run that executes zero tests as a success. By default an
+    ///   empty run fails, so a filter that matches nothing or [Test] methods
+    ///   left out of the public section do not leave the pipeline green.
+    ///   Command line: -allow-empty.
+    /// </summary>
+    function AllowEmptyRun: TTestConfigurator;
     
     /// <summary>
     ///  Filters tests by a manual selection (Unit.Class.Test).
@@ -368,6 +377,12 @@ begin
   Result := Self;
 end;
 
+function TTestConfigurator.AllowEmptyRun: TTestConfigurator;
+begin
+  FAllowEmptyRun := True;
+  Result := Self;
+end;
+
 function TTestConfigurator.FilterBySelection(const Tests: TArray<string>): TTestConfigurator;
 begin
   TTestRunner.SetSelectedTests(Tests);
@@ -436,8 +451,11 @@ begin
     else if (P = '-no-dashboard') or (P = '/no-dashboard') then
       FUseDashboard := False
     else if (P = '-externalui') or (P = '/externalui') then
-      FUseExternalUI := True;
+      FUseExternalUI := True
+    else if (P = '-allow-empty') or (P = '/allow-empty') then
+      FAllowEmptyRun := True;
   end;
+  TTestRunner.SetAllowEmptyRun(FAllowEmptyRun);
 
   // Start External UI
   if FUseExternalUI and not TTestRunner.IsExternalUIActive then
@@ -497,7 +515,7 @@ begin
     TTestRunner.SaveHTMLReport(FHTMLFile);
 
   // Return success status
-  Result := TTestRunner.Summary.Failed = 0;
+  Result := TTestRunner.Succeeded;
 
   // Let Sidecar Sinks (Logging) and External UI REST posts flush properly
   // This avoids premature process kill before all data is sent.
@@ -552,7 +570,7 @@ class function TTest.RunAll: Boolean;
 begin
   TTestRunner.Discover;
   TTestRunner.RunAll;
-  Result := TTestRunner.Summary.Failed = 0;
+  Result := TTestRunner.Succeeded;
 end;
 
 class function TTest.RunAllVerbose: Boolean;

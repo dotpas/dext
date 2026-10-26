@@ -139,7 +139,10 @@ begin
         Cmd.Execute(Args);
       except
         on E: Exception do
+        begin
           SafeWriteLn('Error executing command: ' + E.Message);
+          System.ExitCode := 1;
+        end;
       end;
       Result := True; // Command executed, app should terminate
     end
