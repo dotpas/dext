@@ -942,7 +942,7 @@ class function Results.BindingProblem(const ADetail, AInstance: string): IResult
 begin
   Result := ProblemDetails(
     'https://dext.dev/errors/model-binding',
-    'Falha de Model Binding',
+    'Model Binding Failure',
     ADetail,
     AInstance,
     HttpStatus.BadRequest);
