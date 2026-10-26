@@ -4,6 +4,7 @@ metadata:
   id: dotpas.dext
   version: 1.0.0
   description: Dext - Modern Full Stack Framework for Delphi
+  icon: Docs\Images\dotpas_logo_p.png
   authors:
     - Cesar Romero
   projectUrl: https://github.com/dotpas/dext
