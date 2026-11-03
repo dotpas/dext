@@ -261,7 +261,7 @@ class Mock~T~ {    +EnsureCreated()
 <div class="api-item">
 <div class="api-signature">procedure Reset</div><div class="description">Clears the Mock's expectations and call history.</div></div>
 <div class="api-item">
-<div class="api-signature">procedure Verify</div><div class="description">Formally validates if all Strict expectations were met.</div></div>
+<div class="api-signature">procedure Verify</div><div class="description">Raises EMockException listing every Setup that no received call has matched.</div></div>
 <div class="api-item">
 <div class="api-signature">function Verify(const const: Times): T</div></div>
 <div class="api-item">

@@ -71,7 +71,9 @@ class TDextApplicationFactory~TApp~ {    +Create()
     +CreateClient()
 }
 TObject <|-- TDextApplicationFactory~TApp~
-class TDextWebApplicationFactory~TApp~ {}
+class TDextWebApplicationFactory~TApp~ {    +WithTestServices()
+    +WithConfigure()
+}
 TDextApplicationFactory <|-- TDextWebApplicationFactory~TApp~
 </div>
 </div>
@@ -132,7 +134,14 @@ TDextApplicationFactory <|-- TDextWebApplicationFactory~TApp~
 </div>
 <hr>
 <div class="class-header">
-<h3>class TDextWebApplicationFactory&lt;TApp&gt;</h3><a name="TDextWebApplicationFactory_lt_TApp_gt_"></a><div class="ancestor">Inherits from: TDextApplicationFactory</div><div class="description">Alias aligning with S66 naming.</div></div>
+<h3>class TDextWebApplicationFactory&lt;TApp&gt;</h3><a name="TDextWebApplicationFactory_lt_TApp_gt_"></a><div class="ancestor">Inherits from: TDextApplicationFactory</div><div class="description">S66 naming. The fluent methods return this type, so the chain can be assigned to a TDextWebApplicationFactory&lt;TApp&gt; variable.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function WithTestServices(AProc: TProc): TDextWebApplicationFactory</div><div class="description">Injects test services and returns this factory, so the chain keeps the derived type.</div></div>
+<div class="api-item">
+<div class="api-signature">function WithTestServices(AProc: TProc): TDextWebApplicationFactory</div><div class="description">Injects test services and returns this factory, so the chain keeps the derived type.</div></div>
+<div class="api-item">
+<div class="api-signature">function WithConfigure(AProc: TProc): TDextWebApplicationFactory</div><div class="description">Configures the test application and returns this factory, so the chain keeps the derived type.</div></div>
+</div>
 <hr>
 <h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">

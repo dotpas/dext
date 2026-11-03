@@ -41,7 +41,36 @@
         
         <div id="contentArea">
             <!-- Main Documentation Content Injected Here -->
-            <h1>Unit Dext.Testing</h1><h2>Global Routines</h2>
+            <h1>Unit Dext.Testing</h1><h2>Classes</h2>
+<details class="mermaid-details" open>
+<summary>Class Diagram <span class="collapse-text">(Click to collapse)</span><span class="expand-text">(Click to expand)</span></summary>
+<div class="mermaid-container">
+<div class="mermaid">
+classDiagram
+class ShouldObjectHelper {    +HaveProperty()
+    +HavePropertyValue()
+    +HaveValue()
+    +HaveValue~T~()
+}
+</div>
+</div>
+</details>
+<h2>API Details</h2>
+<div class="class-header">
+<h3>record ShouldObjectHelper</h3><a name="ShouldObjectHelper"></a><div class="description">Property assertions for ShouldObject. A helper alias is not active in Delphi, so the facade declares its own helper and delegates to Dext.Assertions.ShouldObjectMembers.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function HaveProperty(const const: string): ShouldProperty</div></div>
+<div class="api-item">
+<div class="api-signature">function HavePropertyValue(const const: string; const const: TValue): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue(const const: StringType; const const: string): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue(const const: IntType; ExpectedValue: Integer): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue&lt;T&gt;(const const: T; ExpectedValue: T): ShouldObject</div></div>
+</div>
+<hr>
+<h2>Global Routines</h2>
 <div class="visibility-group"><h5>Routines</h5><div class="api-item">
 <div class="api-signature">function Should(const const: string): ShouldString</div><div class="description">Initiates a fluent assertion for strings.</div></div>
 <div class="api-item">
@@ -52,6 +81,18 @@
 <div class="api-signature">function Should(Value: Boolean): ShouldBoolean</div><div class="description">Initiates a fluent assertion for Boolean values.</div></div>
 <div class="api-item">
 <div class="api-signature">function Should(Value: Double): ShouldDouble</div><div class="description">Initiates a fluent assertion for floating-point numbers (Double).</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Single): ShouldDouble</div><div class="description">Initiates a fluent assertion for Single values.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Extended): ShouldDouble</div><div class="description">Initiates a fluent assertion for Extended values and real literals.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Currency): ShouldDouble</div><div class="description">Initiates a fluent assertion for Currency values.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TDateTime): ShouldDateTime</div><div class="description">Initiates a fluent assertion for dates and times.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TDate): ShouldDateTime</div><div class="description">Initiates a fluent assertion for dates.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TTime): ShouldDateTime</div><div class="description">Initiates a fluent assertion for times.</div></div>
 <div class="api-item">
 <div class="api-signature">function Should(const const: TProc): ShouldAction</div><div class="description">Initiates a fluent assertion to intercept exceptions in anonymous procedures.</div></div>
 <div class="api-item">
@@ -105,7 +146,7 @@
 <div class="api-item">
 <div class="api-signature">type ShouldProperty = Type</div></div>
 <div class="api-item">
-<div class="api-signature">type ShouldObjectHelper = Type</div></div>
+<div class="api-signature">type ShouldObjectMembers = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type ShouldInterface = Type</div></div>
 <div class="api-item">
@@ -188,6 +229,8 @@
 <div class="api-signature">type TimeoutAttribute = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type RepeatAttribute = Type</div></div>
+<div class="api-item">
+<div class="api-signature">type RepeatTestAttribute = Type</div></div>
 <div class="api-item">
 <div class="api-signature">type MaxTimeAttribute = Type</div></div>
 <div class="api-item">

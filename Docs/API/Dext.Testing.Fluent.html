@@ -63,6 +63,7 @@ class TTestConfigurator {    +Verbose()
     +FilterByName()
     +FilterByFixture()
     +IncludeExplicitTests()
+    +AllowEmptyRun()
     +FilterBySelection()
     +RegisterFixture()
     +RegisterFixtures()
@@ -120,6 +121,8 @@ class TTest {    +Configure()
 <div class="api-signature">function FilterByFixture(const const: string): TTestConfigurator</div><div class="description">Filters fixtures by name pattern.</div></div>
 <div class="api-item">
 <div class="api-signature">function IncludeExplicitTests: TTestConfigurator</div><div class="description">Includes explicit tests in the run.</div></div>
+<div class="api-item">
+<div class="api-signature">function AllowEmptyRun: TTestConfigurator</div><div class="description">Treats a run that executes zero tests as a success. By default an empty run fails, so a filter that matches nothing or [Test] methods left out of the public section do not leave the pipeline green. Command line: -allow-empty.</div></div>
 <div class="api-item">
 <div class="api-signature">function FilterBySelection(const const: TArray): TTestConfigurator</div><div class="description">Filters tests by a manual selection (Unit.Class.Test).</div></div>
 <div class="api-item">

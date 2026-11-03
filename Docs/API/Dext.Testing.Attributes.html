@@ -103,6 +103,8 @@ class RepeatAttribute {    +Create()
     +Count
 }
 TCustomAttribute <|-- RepeatAttribute
+class RepeatTestAttribute {}
+RepeatAttribute <|-- RepeatTestAttribute
 class MaxTimeAttribute {    +Create()
     +Milliseconds
 }
@@ -293,6 +295,9 @@ TCustomAttribute <|-- CombinatorialAttribute
 <div class="api-item">
 <div class="api-signature">property Count: </div></div>
 </div>
+<hr>
+<div class="class-header">
+<h3>class RepeatTestAttribute</h3><a name="RepeatTestAttribute"></a><div class="ancestor">Inherits from: RepeatAttribute</div><div class="description">Alias for Repeat. Repeat is a Pascal reserved word, so the .NET spelling needs an ampersand. RepeatTest is the name you write in Delphi, and it is the same attribute. DUnitX already calls it RepeatTest.</div></div>
 <hr>
 <div class="class-header">
 <h3>class MaxTimeAttribute</h3><a name="MaxTimeAttribute"></a><div class="ancestor">Inherits from: TCustomAttribute</div><div class="description">Sets a maximum expected execution time. Test passes but emits a warning if exceeded.</div></div>

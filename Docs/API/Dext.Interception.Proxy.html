@@ -52,6 +52,8 @@ class TInvocation {    +GetMethod()
     +GetResult()
     +SetResult()
     +GetTarget()
+    +RequestCallBase()
+    +GetCallBaseRequested()
     +Create()
     +Proceed()
     +Method
@@ -61,6 +63,7 @@ class TInvocation {    +GetMethod()
 }
 TInterfacedObject <|-- TInvocation
 IInvocation <|.. TInvocation
+IInvocationCallBase <|.. TInvocation
 class TInterfaceProxy {    +HandleInvoke()
     +Create()
     +Interceptors
@@ -97,6 +100,10 @@ TVirtualInterface <|-- TInterfaceProxy
 <div class="api-signature">procedure SetResult(const const: TValue)</div></div>
 <div class="api-item">
 <div class="api-signature">function GetTarget: TValue</div></div>
+<div class="api-item">
+<div class="api-signature">procedure RequestCallBase</div></div>
+<div class="api-item">
+<div class="api-signature">function GetCallBaseRequested: Boolean</div></div>
 </div>
 <hr>
 <div class="class-header">

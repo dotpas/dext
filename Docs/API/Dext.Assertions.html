@@ -62,7 +62,18 @@ class ShouldDateTime {    +Fail()
     +BeBefore()
     +BeSameDateAs()
     +BeToday()
+    +NotBe()
+    +BeApproximately()
+    +BeGreaterThan()
+    +BeLessThan()
+    +BeInRange()
+    +BePositive()
+    +BeNegative()
+    +BeZero()
+    +Satisfy()
     +Because()
+    +And()
+    +AndAlso()
 }
 class ShouldString {    +Fail()
     +Create()
@@ -218,6 +229,11 @@ class ShouldProperty {    +Fail()
     +And()
     +AndAlso()
 }
+class ShouldObjectMembers {    +HaveProperty()
+    +HavePropertyValue()
+    +HaveValue()
+    +HaveValue~T~()
+}
 class ShouldObjectHelper {    +HaveProperty()
     +HavePropertyValue()
     +HaveValue()
@@ -290,7 +306,31 @@ class ShouldHelper {    +List~T~()
 <div class="api-item">
 <div class="api-signature">function BeToday: ShouldDateTime</div><div class="description">Verifies if the value corresponds to the current system date.</div></div>
 <div class="api-item">
+<div class="api-signature">function NotBe(Unexpected: TDateTime): ShouldDateTime</div><div class="description">Verifies that the date/time is not the unexpected value, to the millisecond.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeApproximately(Expected: TDateTime; Tolerance: Double): ShouldDateTime</div><div class="description">Verifies if the value is within Tolerance days of the expected value.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeGreaterThan(Expected: TDateTime): ShouldDateTime</div><div class="description">Verifies that the value is strictly later than the expected date/time.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeLessThan(Expected: TDateTime): ShouldDateTime</div><div class="description">Verifies that the value is strictly earlier than the expected date/time.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeInRange(Min: TDateTime; Max: TDateTime): ShouldDateTime</div><div class="description">Verifies that the value lies between Min and Max, inclusive.</div></div>
+<div class="api-item">
+<div class="api-signature">function BePositive: ShouldDateTime</div><div class="description">Verifies that the value is greater than zero.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeNegative: ShouldDateTime</div><div class="description">Verifies that the value is less than zero.</div></div>
+<div class="api-item">
+<div class="api-signature">function BeZero: ShouldDateTime</div><div class="description">Verifies that the value is zero.</div></div>
+<div class="api-item">
+<div class="api-signature">function Satisfy(const const: TPredicate): ShouldDateTime</div><div class="description">Verifies that the date/time satisfies the predicate.</div></div>
+<div class="api-item">
+<div class="api-signature">function Satisfy(const const: TPredicate): ShouldDateTime</div><div class="description">Verifies that the underlying day number satisfies the predicate.</div></div>
+<div class="api-item">
 <div class="api-signature">function Because(const const: string): ShouldDateTime</div><div class="description">Adds a friendly explanation for the assertion (displayed on error).</div></div>
+<div class="api-item">
+<div class="api-signature">function And: ShouldDateTime</div></div>
+<div class="api-item">
+<div class="api-signature">function AndAlso: ShouldDateTime</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure Fail(const const: string)</div></div>
@@ -638,6 +678,20 @@ class ShouldHelper {    +List~T~()
 </div>
 <hr>
 <div class="class-header">
+<h3>record ShouldObjectMembers</h3><a name="ShouldObjectMembers"></a><div class="description">Property assertions of ShouldObject. They live here because a record cannot reference ShouldProperty before it is declared, and a helper alias does not activate the helper: a facade unit has to declare its own helper and delegate to these methods.</div></div>
+<div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
+<div class="api-signature">function HaveProperty(const const: ShouldObject; const const: string): ShouldProperty</div></div>
+<div class="api-item">
+<div class="api-signature">function HavePropertyValue(const const: ShouldObject; const const: string; const const: TValue): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue(const const: ShouldObject; const const: StringType; const const: string): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue(const const: ShouldObject; const const: IntType; ExpectedValue: Integer): ShouldObject</div></div>
+<div class="api-item">
+<div class="api-signature">function HaveValue&lt;T&gt;(const const: ShouldObject; const const: T; ExpectedValue: T): ShouldObject</div></div>
+</div>
+<hr>
+<div class="class-header">
 <h3>record ShouldObjectHelper</h3><a name="ShouldObjectHelper"></a></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">function HaveProperty(const const: string): ShouldProperty</div></div>
@@ -744,6 +798,18 @@ class ShouldHelper {    +List~T~()
 <div class="api-signature">function Should(Value: Boolean): ShouldBoolean</div></div>
 <div class="api-item">
 <div class="api-signature">function Should(Value: Double): ShouldDouble</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Single): ShouldDouble</div><div class="description">Exact overload for Single. Without it, a real literal becomes ambiguous once TDateTime has its own Should, and on Win64 it used to fall through to the Variant overload.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Extended): ShouldDouble</div><div class="description">Exact overload for Extended and for real literals.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: Currency): ShouldDouble</div><div class="description">Exact overload for Currency.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TDateTime): ShouldDateTime</div><div class="description">Compares a date/time with ShouldDateTime. Be uses SameDateTime (millisecond precision).</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TDate): ShouldDateTime</div><div class="description">Compares a date with ShouldDateTime.</div></div>
+<div class="api-item">
+<div class="api-signature">function Should(Value: TTime): ShouldDateTime</div><div class="description">Compares a time with ShouldDateTime.</div></div>
 <div class="api-item">
 <div class="api-signature">function Should(const const: TProc): ShouldAction</div></div>
 <div class="api-item">

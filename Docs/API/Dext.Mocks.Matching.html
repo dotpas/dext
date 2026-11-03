@@ -47,10 +47,12 @@
 <div class="mermaid-container">
 <div class="mermaid">
 classDiagram
+class TArgMatcher {}
 class TMatcherFactory {    +Create()
     +Destroy()
     +AddMatcher()
     +GetMatchers()
+    +GetMatcherEntries()
     +Clear()
 }
 TObject <|-- TMatcherFactory
@@ -73,15 +75,20 @@ class Arg {    +CreateDefaultValue~T~()
 </details>
 <h2>API Details</h2>
 <div class="class-header">
-<h3>class TMatcherFactory</h3><a name="TMatcherFactory"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Thread-local storage for argument matchers. Matchers registered via Arg methods are captured when a method is called during setup, allowing the mock to later match actual call arguments.</div></div>
+<h3>record TArgMatcher</h3><a name="TArgMatcher"></a><div class="description">An argument matcher captured by an Arg method, together with the type it was declared for. The type lets the mock place the matcher on the right parameter when matchers and literal values are mixed.</div></div>
+<hr>
+<div class="class-header">
+<h3>class TMatcherFactory</h3><a name="TMatcherFactory"></a><div class="ancestor">Inherits from: TObject</div><div class="description">Storage for argument matchers. Matchers registered via Arg methods are captured when a method is called during setup, allowing the mock to later match actual call arguments.</div></div>
 <div class="visibility-group"><h5>PUBLIC</h5><div class="api-item">
 <div class="api-signature">constructor Create</div></div>
 <div class="api-item">
 <div class="api-signature">destructor Destroy</div></div>
 <div class="api-item">
-<div class="api-signature">function AddMatcher(const const: TPredicate): Integer</div><div class="description">Adds a matcher to the stack and returns an index wrapper.</div></div>
+<div class="api-signature">function AddMatcher(const const: TPredicate; ATypeInfo: PTypeInfo): Integer</div><div class="description">Adds a matcher to the stack and returns its index.</div></div>
 <div class="api-item">
 <div class="api-signature">function GetMatchers: TArray</div><div class="description">Gets and clears all matchers from the stack.</div></div>
+<div class="api-item">
+<div class="api-signature">function GetMatcherEntries: TArray</div><div class="description">Gets and clears all matchers from the stack, with their declared types.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure Clear</div><div class="description">Clears the matcher stack.</div></div>
 </div>

@@ -118,6 +118,8 @@ class TTestRunner {    +NotifyRunStart()
     +PrintSummary()
     +PrintResultChar()
     +GetTimeout()
+    +GetActiveTestCount()
+    +ReportFixtureFailure()
     +Discover()
     +RunAll()
     +RegisterListener()
@@ -127,11 +129,12 @@ class TTestRunner {    +NotifyRunStart()
     +RunFixture()
     +RunTest()
     +Summary()
+    +Succeeded()
+    +SetAllowEmptyRun()
     +SetVerbosity()
     +SetOutputFormat()
     +FixtureCount()
     +TestCount()
-    +GetActiveTestCount()
     +Clear()
     +RegisterFixture()
     +SetDebugDiscovery()
@@ -283,6 +286,10 @@ TObject <|-- TTestConsole
 <div class="api-item">
 <div class="api-signature">function Summary: TTestSummary</div><div class="description">Returns the test summary after a run.</div></div>
 <div class="api-item">
+<div class="api-signature">function Succeeded: Boolean</div><div class="description">True when no test failed and at least one test ran. A run that executes zero tests (non-public [Test] methods, a filter that matches nothing) is a failure unless SetAllowEmptyRun(True) was called.</div></div>
+<div class="api-item">
+<div class="api-signature">procedure SetAllowEmptyRun(AValue: Boolean)</div></div>
+<div class="api-item">
 <div class="api-signature">procedure SetVerbosity(AValue: TOutputVerbosity)</div><div class="description">Sets verbose output mode.</div></div>
 <div class="api-item">
 <div class="api-signature">procedure SetOutputFormat(AFormat: TOutputFormat)</div><div class="description">Sets the output format.</div></div>
@@ -341,6 +348,10 @@ TObject <|-- TTestConsole
 </div>
 <div class="visibility-group"><h5>PROTECTED</h5><div class="api-item">
 <div class="api-signature">function GetTimeout(Method: TRttiMethod): Integer</div></div>
+<div class="api-item">
+<div class="api-signature">function GetActiveTestCount(Fixture: TTestFixtureInfo): Integer</div></div>
+<div class="api-item">
+<div class="api-signature">procedure ReportFixtureFailure(Fixture: TTestFixtureInfo; const const: string; E: Exception)</div></div>
 </div>
 <div class="visibility-group"><h5>PRIVATE</h5><div class="api-item">
 <div class="api-signature">procedure NotifyRunStart(TotalTests: Integer)</div></div>
@@ -371,7 +382,7 @@ TObject <|-- TTestConsole
 <div class="api-item">
 <div class="api-signature">function GetAttributes&lt;T&gt;(const const: TArray): TArray</div></div>
 <div class="api-item">
-<div class="api-signature">function GetCategories(Method: TRttiMethod): TArray</div></div>
+<div class="api-signature">function GetCategories(Method: TRttiMethod; FixtureClass: TClass): TArray</div></div>
 <div class="api-item">
 <div class="api-signature">function IsExplicit(Method: TRttiMethod): Boolean</div></div>
 <div class="api-item">
