@@ -420,6 +420,9 @@ type
     FBufferPool: TDextHttpSysBufferPool;
     FRequestPool: TDextHttpSysRequestPool;
     FResponsePool: TDextHttpSysResponsePool;
+    FSkipIocpOnSuccess: Boolean;
+    procedure RequeueIfCompletedInline(AResult, ABytes: ULONG;
+      AOverlapped: POverlapped);
     procedure RegisterSslBinding;
     procedure InitializeHttpSys;
     procedure ConfigureTimeouts;
@@ -494,6 +497,14 @@ uses
   Dext.WebSocket.Protocol,
   Dext.Core.Span,
   Dext.Utils;
+
+const
+  FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = $1;
+  FILE_SKIP_SET_EVENT_ON_HANDLE = $2;
+
+function SetFileCompletionNotificationModes(FileHandle: THandle;
+  Flags: UCHAR): BOOL; stdcall; external kernel32
+  name 'SetFileCompletionNotificationModes';
 
 const
   // Handlers wait on databases and remote calls: the extra workers take
@@ -686,6 +697,15 @@ begin
   end;
 end;
 
+procedure TDextHttpSysEngine.RequeueIfCompletedInline(AResult, ABytes: ULONG;
+  AOverlapped: POverlapped);
+begin
+  // With FILE_SKIP_COMPLETION_PORT_ON_SUCCESS an immediate success queues no
+  // packet: post it, so that the worker loop sees the operation as before.
+  if FSkipIocpOnSuccess and (AResult = ERROR_SUCCESS) then
+    PostQueuedCompletionStatus(FIocp, ABytes, 1, AOverlapped);
+end;
+
 procedure TDextHttpSysEngine.PostReceiveRequest(AContext: TDextHttpSysContext);
 var
   Ret: ULONG;
@@ -708,6 +728,7 @@ begin
     BytesReturned,
     @AContext.FReceiveOp.Overlapped
   );
+  RequeueIfCompletedInline(Ret, BytesReturned, @AContext.FReceiveOp.Overlapped);
 
   if (Ret <> ERROR_SUCCESS) and (Ret <> ERROR_IO_PENDING) then
   begin
@@ -1188,10 +1209,12 @@ var
   TotalLen: Int64;
   Ret: ULONG;
   BytesSent: ULONG;
+  Context: TDextHttpSysContext;
 begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FResponseComplete then Exit;
   FResponseComplete := True;
+  Ret := ERROR_IO_PENDING;
 
   // Retain context interface references to keep this response alive during async IOCP
   FContext.FResponseIntf := Self;
@@ -1317,6 +1340,18 @@ begin
       ResetBody;
       raise;
     end;
+  end;
+
+  // The send completed at once and no packet was queued (see
+  // FSkipIocpOnSuccess): finish here what the worker loop does for
+  // hokSendHeaders/hokSendBody. The caller still holds a reference to this
+  // response, so releasing the context references cannot free it here.
+  if FEngine.FSkipIocpOnSuccess and (Ret = ERROR_SUCCESS) then
+  begin
+    Context := FContext;
+    ResetBody;
+    Context.FResponseIntf := nil;
+    Context.FRequestIntf := nil;
   end;
 end;
 
@@ -1467,6 +1502,7 @@ begin
       @FSendOp.Overlapped,
       nil
     );
+    FEngine.RequeueIfCompletedInline(Ret, BytesSent, @FSendOp.Overlapped);
 
     if (Ret <> ERROR_SUCCESS) and (Ret <> ERROR_IO_PENDING) then
     begin
@@ -2108,6 +2144,7 @@ begin
     BytesReceived,
     @FReceiveOp.Overlapped
   );
+  FEngine.RequeueIfCompletedInline(Ret, BytesReceived, @FReceiveOp.Overlapped);
   if (Ret <> ERROR_SUCCESS) and (Ret <> ERROR_IO_PENDING) then
   begin
     FLock.Enter;
@@ -2207,6 +2244,7 @@ begin
     @FSendOp.Overlapped,
     nil
   );
+  FEngine.RequeueIfCompletedInline(Ret, BytesSent, @FSendOp.Overlapped);
   if (Ret <> ERROR_SUCCESS) and (Ret <> ERROR_IO_PENDING) then
   begin
     _Release;
@@ -2652,6 +2690,8 @@ begin
     SetLength(AContext.FBodyBuffer, 65536);
   ResultCode := HttpReceiveRequestEntityBody(FReqQueue, AContext.FRequestId,
     0, @AContext.FBodyBuffer[0], Length(AContext.FBodyBuffer), BytesReceived,
+    @AContext.FBodyOp.Overlapped);
+  FEngine.RequeueIfCompletedInline(ResultCode, BytesReceived,
     @AContext.FBodyOp.Overlapped);
   if (ResultCode <> ERROR_SUCCESS) and (ResultCode <> ERROR_IO_PENDING) then
   begin
@@ -3439,6 +3479,12 @@ begin
 
   if CreateIoCompletionPort(FReqQueue, FIocp, 1, 0) = 0 then
     raise EOSError.Create('Failed to associate request queue with IOCP');
+
+  // An operation that completes at once queues no completion packet: the
+  // response send finishes inline (one worker wake-up less per request), the
+  // other operations requeue the packet themselves (RequeueIfCompletedInline).
+  FSkipIocpOnSuccess := SetFileCompletionNotificationModes(FReqQueue,
+    FILE_SKIP_COMPLETION_PORT_ON_SUCCESS or FILE_SKIP_SET_EVENT_ON_HANDLE);
 
   FRunning := True;
 
