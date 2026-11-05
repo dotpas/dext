@@ -386,7 +386,7 @@ begin
     end;
     
     // Set exit code based on failure
-    if TTestRunner.Summary.Failed > 0 then
+    if not TTestRunner.Succeeded then
       ExitCode := 1
     else
       ExitCode := 0;
