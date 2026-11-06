@@ -566,7 +566,8 @@ begin
   FBodyOp.Kind := hokReceiveBody;
   FBodyOp.Context := Self;
   FBodyEvent := TEvent.Create(nil, False, False, '');
-  SetLength(FBodyBuffer, 65536);
+  // FBodyBuffer (64 KB) is allocated by PostBodyReceive, the first time a body
+  // has to be received apart: most requests never need it.
   FPrefetchedBody := TMemoryStream.Create;
   FBufferCapacity := 16384;
   SetLength(FBuffer, FBufferCapacity);
@@ -2642,6 +2643,8 @@ begin
   BytesReceived := 0;
   FillChar(AContext.FBodyOp.Overlapped, SizeOf(TOverlapped), 0);
   AContext.FBodyOp.Generation := AContext.FGeneration;
+  if Length(AContext.FBodyBuffer) = 0 then
+    SetLength(AContext.FBodyBuffer, 65536);
   ResultCode := HttpReceiveRequestEntityBody(FReqQueue, AContext.FRequestId,
     0, @AContext.FBodyBuffer[0], Length(AContext.FBodyBuffer), BytesReceived,
     @AContext.FBodyOp.Overlapped);
