@@ -359,6 +359,37 @@ const
   WSAID_GETACCEPTEXSOCKADDRS: TGUID = '{b5367df2-cbac-11cf-95ca-00805f48a192}';
   SIO_GET_EXTENSION_FUNCTION_POINTER = $C8000006;
 
+threadvar
+  GDateSecond: Int64;
+  GDateText: string;
+
+/// <summary>
+///   The HTTP Date header value (RFC 9110 IMF-fixdate, e.g.
+///   'Wed, 05 Nov 2026 08:00:00 GMT'), built once per second per thread.
+/// </summary>
+function HttpDateNow: string;
+const
+  Days: array[0..6] of string = ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
+  Months: array[1..12] of string = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
+var
+  FT: TFileTime;
+  ST: TSystemTime;
+  Second: Int64;
+begin
+  GetSystemTimeAsFileTime(FT);
+  Second := ((Int64(FT.dwHighDateTime) shl 32) or FT.dwLowDateTime) div 10000000;
+  if (Second <> GDateSecond) or (GDateText = '') then
+  begin
+    FileTimeToSystemTime(FT, ST);
+    GDateText := Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT',
+      [Days[ST.wDayOfWeek], ST.wDay, Months[ST.wMonth], ST.wYear,
+       ST.wHour, ST.wMinute, ST.wSecond]);
+    GDateSecond := Second;
+  end;
+  Result := GDateText;
+end;
+
 { TDextIocpConnection }
 
 constructor TDextIocpConnection.Create(ASocket: TSocket; const ARemoteAddress: string; ARemotePort, ALocalPort: Word);
@@ -745,6 +776,9 @@ begin
     FHeaders.Add('Content-Type', 'text/plain');
   if not FHeaders.ContainsKey('Content-Length') then
     FHeaders.AddOrSetValue('Content-Length', IntToStr(Length(FBuffer)));
+  // HTTP/1.1 requires an origin server with a clock to send Date (RFC 9110 6.6.1).
+  if not FHeaders.ContainsKey('Date') then
+    FHeaders.Add('Date', HttpDateNow);
 
   BufferOffset := 0;
   EnsureCapacity(512);
