@@ -661,12 +661,17 @@ begin
 end;
 
 procedure TDextHttpSysEngine.ReleaseContext(AContext: TDextHttpSysContext);
+var
+  LocalMax: Integer;
 begin
   AContext.Reset;
   if FLocalContextPool = nil then
     FLocalContextPool := TList.Create;
 
-  if FLocalContextPool.Count < 64 then
+  LocalMax := FOptions.HttpSysContextsPerThread;
+  if LocalMax <= 0 then
+    LocalMax := 32;
+  if FLocalContextPool.Count < LocalMax then
   begin
     FLocalContextPool.Add(AContext);
   end

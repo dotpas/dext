@@ -72,6 +72,11 @@ type
     /// </summary>
     OutstandingReceives: Integer;
     /// <summary>
+    ///   Http.Sys contexts each I/O worker keeps for reuse (default: 32; 0 means
+    ///   the default). The others go back to the shared pool, behind a lock.
+    /// </summary>
+    HttpSysContextsPerThread: Integer;
+    /// <summary>
     ///   Http.sys request-queue length (HttpServerQueueLengthProperty).
     ///   0 leaves the kernel default (typically 1000).
     /// </summary>
@@ -172,6 +177,8 @@ type
       ADepth: Integer): TServerEngineOptions;
     /// <summary>Configures the total outstanding Http.Sys receives (0 = one per logical processor, or workers x depth when IoThreadCount is set).</summary>
     function WithOutstandingReceives(ACount: Integer): TServerEngineOptions;
+    /// <summary>Configures the Http.Sys contexts each worker keeps for reuse (0 = default, 32).</summary>
+    function WithHttpSysContextsPerThread(ACount: Integer): TServerEngineOptions;
     /// <summary>Configures the http.sys request-queue length (0 = kernel default).</summary>
     function WithQueueLength(ALength: Integer): TServerEngineOptions;
     /// <summary>Configures the http.sys max bandwidth in bytes/sec (0 = unlimited).</summary>
@@ -220,6 +227,7 @@ begin
   Result.MaxQueueCapacity := 1024;
   Result.OutstandingReceiveDepth := 2;
   Result.OutstandingReceives := 0;
+  Result.HttpSysContextsPerThread := 32;
   Result.QueueLength := 0;
   Result.MaxBandwidth := 0;
   Result.EntityBodyTimeoutSec := 0;
@@ -318,6 +326,13 @@ function TServerEngineOptionsHelper.WithOutstandingReceives(
   ACount: Integer): TServerEngineOptions;
 begin
   Self.OutstandingReceives := ACount;
+  Result := Self;
+end;
+
+function TServerEngineOptionsHelper.WithHttpSysContextsPerThread(
+  ACount: Integer): TServerEngineOptions;
+begin
+  Self.HttpSysContextsPerThread := ACount;
   Result := Self;
 end;
 
