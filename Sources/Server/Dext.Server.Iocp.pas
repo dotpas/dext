@@ -256,6 +256,11 @@ type
     FRespIntf: IDextRawResponse;
     FConnIntf: IDextServerConnection;
     FClosed: Boolean;
+    FClosing: Boolean;       // FIN sent after the last response: the rest is discarded
+    FContinueSent: Boolean;  // 100 Continue already sent for the current request
+    procedure SendRaw(const AText: string);
+    procedure Reject(AResult: TDextHttpParseResult; AStatus: Integer = 0);
+    procedure BeginClose;
   public
     constructor Create(
       AEngine: TDextIocpEngine;
@@ -400,6 +405,10 @@ begin
 end;
 
 const
+  // mswsock.h: an AcceptEx socket inherits the listening socket's properties
+  // only with this option; without it shutdown, getpeername and getsockname
+  // fail with WSAENOTCONN.
+  SO_UPDATE_ACCEPT_CONTEXT = $700B;
   FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = $1;
   FILE_SKIP_SET_EVENT_ON_HANDLE = $2;
 
@@ -1057,6 +1066,60 @@ begin
     Result := True;
 end;
 
+procedure TDextIocpSession.SendRaw(const AText: string);
+var
+  Resp: TDextIocpResponse;
+begin
+  Resp := TDextIocpResponse.Create(FSocket);
+  try
+    Resp.FSkip := FSkip;
+    Resp.InternalSend(TEncoding.ASCII.GetBytes(AText));
+  finally
+    Resp.Free;
+  end;
+end;
+
+procedure TDextIocpSession.BeginClose;
+begin
+  // FIN after the data already queued; the socket is closed when the peer
+  // closes its side (the read completes with 0 bytes).
+  FClosing := True;
+  FAccumLen := 0;
+  if FSocket <> INVALID_SOCKET then
+    shutdown(FSocket, SD_SEND);
+end;
+
+procedure TDextIocpSession.Reject(AResult: TDextHttpParseResult; AStatus: Integer);
+var
+  Resp: TDextIocpResponse;
+begin
+  if AStatus = 0 then
+    case AResult of
+      hprHeadersTooLarge: AStatus := 431;
+      hprVersionNotSupported: AStatus := 505;
+      hprNotImplemented: AStatus := 501;
+    else
+      AStatus := 400;
+    end;
+  Resp := TDextIocpResponse.Create(FSocket);
+  try
+    Resp.FSkip := FSkip;
+    case AStatus of
+      413: Resp.SetStatus(413, 'Content Too Large');
+      431: Resp.SetStatus(431, 'Request Header Fields Too Large');
+      501: Resp.SetStatus(501, 'Not Implemented');
+      505: Resp.SetStatus(505, 'HTTP Version Not Supported');
+    else
+      Resp.SetStatus(400, 'Bad Request');
+    end;
+    Resp.SetHeader('Connection', 'close');
+    Resp.Close;
+  finally
+    Resp.Free;
+  end;
+  BeginClose;
+end;
+
 { TDextIocpWorker }
 
 constructor TDextIocpWorker.Create(AEngine: TDextIocpEngine; AIocp: THandle; const AAffinity: TDextProcessorGroupAffinity);
@@ -1091,8 +1154,17 @@ var
   DataLen: Integer;
   ReqObj: TDextIocpRequest;
   RespObj: TDextIocpResponse;
+  Parse: TDextHttpParseResult;
+  Info: TDextHttpRequestInfo;
+  CloseAfter: Boolean;
+  MaxHeader: Integer;
+  MaxBody: Int64;
 begin
   ApplyGroupAffinityToThread(GetCurrentThread, FAffinity);
+
+  // The limits of the engine options (0 = none).
+  MaxHeader := FEngine.FOptions.MaxRequestHeaderSize;
+  MaxBody := FEngine.FOptions.MaxRequestBodySize;
 
   IocpOverlapped := nil;
 
@@ -1164,6 +1236,9 @@ begin
         RemoteAddress := string(AnsiString(inet_ntoa(PSockAddrIn(RemoteAddr).sin_addr)));
         RemotePort := ntohs(PSockAddrIn(RemoteAddr).sin_port);
         LocalPort := ntohs(PSockAddrIn(LocalAddr).sin_port);
+
+        setsockopt(IocpOverlapped.Socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+          PAnsiChar(@FEngine.FListenSocket), SizeOf(FEngine.FListenSocket));
 
         // Associate accepted client socket with IOCP port
         if CreateIoCompletionPort(IocpOverlapped.Socket, FIocp, 0, 0) = 0 then
@@ -1256,20 +1331,54 @@ begin
           // HTTP handling loop for pipelining or partial requests
           while Session.FAccumLen > 0 do
           begin
-            if not TDextIocpHttpParser.TryParseRequest(
+            if Session.FClosing then
+            begin
+              // The connection is closing: what the peer still sends is dropped.
+              Session.FAccumLen := 0;
+              Break;
+            end;
+
+            Parse := TDextIocpHttpParser.TryParseRequestEx(
               Session.Accum,
               Session.FAccumLen,
+              MaxHeader,
               Method,
               Path,
               Query,
               HeaderSegments,
               BodyOffset,
-              ContentLength
-            ) then
+              ContentLength,
+              Info
+            );
+            if Parse = hprIncomplete then
               Break; // Need more data to complete HTTP headers
+            if Parse <> hprOk then
+            begin
+              Session.Reject(Parse);
+              Break;
+            end;
+            if (MaxBody > 0) and (ContentLength > MaxBody) then
+            begin
+              Session.Reject(hprOk, 413);
+              Break;
+            end;
 
             if (ContentLength > 0) and ((Session.FAccumLen - BodyOffset) < ContentLength) then
-              Break; // Need more data for request body
+            begin
+              // Need more data for the body; a client that asked for it waits
+              // for 100 Continue before sending it (RFC 9110 10.1.1).
+              if Info.ExpectContinue and not Session.FContinueSent then
+              begin
+                Session.SendRaw('HTTP/1.1 100 Continue'#13#10#13#10);
+                Session.FContinueSent := True;
+              end;
+              Break;
+            end;
+            Session.FContinueSent := False;
+            // Close after this response: asked by the client, HTTP/1.0 without
+            // keep-alive, or keep-alive turned off in the options.
+            CloseAfter := Info.ConnectionClose or (Info.Http10 and not Info.ConnectionKeepAlive) or
+              not FEngine.FOptions.KeepAlive;
 
             ReqBodyLen := Session.FAccumLen - BodyOffset;
             if (ContentLength >= 0) and (ReqBodyLen > ContentLength) then
@@ -1310,6 +1419,10 @@ begin
               Session.FRespIntf := RawResponse;
             end;
             RespObj.FSkip := Session.FSkip;
+            if CloseAfter then
+              RespObj.SetHeader('Connection', 'close')
+            else if Info.Http10 then
+              RespObj.SetHeader('Connection', 'keep-alive');
             try
               if Assigned(FEngine.FOnRequest) then
                 FEngine.FOnRequest(Session.ConnIntf, RawRequest, RawResponse);
@@ -1317,6 +1430,12 @@ begin
               RawResponse.Close;
               RawResponse := nil;
               RawRequest := nil;
+            end;
+
+            if CloseAfter then
+            begin
+              Session.BeginClose;
+              Break;
             end;
 
             ConsumeLen := BodyOffset;
