@@ -1571,7 +1571,7 @@ begin
   EnableDisableTestExplorerMenuItem.OnClick := ToggleEnabledClick;
   ClearMenuItem.OnClick := ClearLogsClick;
 
-  CustomParamsEdit.TextHint := 'e.g. --filter mytest* --verbose';
+  CustomParamsEdit.TextHint := 'e.g. -filter:Mora -category:unit';
   CustomParamsEdit.OnChange := ConfigChangeHandler;
 
   RunOnSaveCheckBox.OnClick := ConfigChangeHandler;
