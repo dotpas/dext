@@ -4386,6 +4386,7 @@ var
   ClassName: string;
   CleanMethod: string;
   FileLeaf: string;
+  AnyFrameResolved: Boolean;
   Frame: TDextStackFrame;
   Frames: TArray<TDextStackFrame>;
   FrameItem: TListItem;
@@ -4553,6 +4554,16 @@ begin
   end;
 
   ClearStackFrameNavs;
+  { The test Location is a fallback for an unresolved stack only (no MAP):
+    it fills the first row, never every row. With a MAP, frames without a
+    source file (RTL, framework, OS DLLs) keep their own text. }
+  AnyFrameResolved := False;
+  for i := 0 to High(Frames) do
+    if (Frames[i].FileName <> '') and (Frames[i].Line > 0) then
+    begin
+      AnyFrameResolved := True;
+      Break;
+    end;
   if Assigned(FStackFramesListView) then
   begin
     FStackFramesListView.Items.BeginUpdate;
@@ -4663,7 +4674,8 @@ begin
         end;
 
         { Fallback: test Location label (same failing test) — also fills Nav for click. }
-        if ((LocHint = '(unresolved)') or (LocHint = '') or (Frame.FileName = '')) and
+        if (i = 0) and not AnyFrameResolved and
+           ((LocHint = '(unresolved)') or (LocHint = '') or (Frame.FileName = '')) and
            (TestLocation.FileName <> '') then
         begin
           SplitSourceFileAndLine(TestLocation.FileName, FileLeaf, RealLine);
