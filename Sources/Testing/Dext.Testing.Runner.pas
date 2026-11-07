@@ -592,7 +592,6 @@ begin
     begin
       if SuspendThread(Handle) = DWORD(-1) then
         Exit;
-      Redirected := False;
       try
         FillChar(Ctx^, SizeOf(TContext), 0);
         Ctx.ContextFlags := CONTEXT_CONTROL;

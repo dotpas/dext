@@ -96,38 +96,83 @@ begin
   end;
 end;
 
-function GuessSourceRoot(const ProjectFile: string): string;
+/// <summary>Values of every &lt;Tag&gt;...&lt;/Tag&gt; in the .dproj text.</summary>
+function ProjectTagValues(const Text, Tag: string): TArray<string>;
 var
-  Current: string;
-  Candidate: string;
-  i: Integer;
+  OpenTag, CloseTag: string;
+  P, Q: Integer;
 begin
-  // Walk up from the .dproj (e.g. Tests\Core\UnitTests) until we find Sources/
-  // — same idea as CLI GetSourceDirectory (../../Sources from repo root).
-  Current := TPath.GetDirectoryName(ProjectFile);
-  for i := 1 to 10 do
+  Result := nil;
+  OpenTag := '<' + Tag + '>';
+  CloseTag := '</' + Tag + '>';
+  P := Pos(OpenTag, Text);
+  while P > 0 do
   begin
-    if SameText(TPath.GetFileName(Current), 'Sources') or
-       SameText(TPath.GetFileName(Current), 'Source') or
-       SameText(TPath.GetFileName(Current), 'src') then
-      Exit(Current);
-
-    Candidate := TPath.Combine(Current, 'Sources');
-    if TDirectory.Exists(Candidate) then
-      Exit(Candidate);
-    Candidate := TPath.Combine(Current, 'Source');
-    if TDirectory.Exists(Candidate) then
-      Exit(Candidate);
-    Candidate := TPath.Combine(Current, 'src');
-    if TDirectory.Exists(Candidate) then
-      Exit(Candidate);
-
-    Current := TPath.GetDirectoryName(Current);
-    if (Current = '') or (Current = TPath.GetPathRoot(Current)) then
+    Inc(P, Length(OpenTag));
+    Q := Pos(CloseTag, Text, P);
+    if Q = 0 then
       Break;
+    Result := Result + [Copy(Text, P, Q - P)];
+    P := Pos(OpenTag, Text, Q);
   end;
-  // Last resort: project folder (may be under Tests\ — GenerateLists still skips \tests\)
-  Result := TPath.GetDirectoryName(ProjectFile);
+end;
+
+/// <summary>Files added to the project: every &lt;DCCReference Include="..."/&gt;.</summary>
+function ProjectReferences(const Text: string): TArray<string>;
+const
+  Marker = '<DCCReference Include="';
+var
+  P, Q: Integer;
+begin
+  Result := nil;
+  P := Pos(Marker, Text);
+  while P > 0 do
+  begin
+    Inc(P, Length(Marker));
+    Q := Pos('"', Text, P);
+    if Q = 0 then
+      Break;
+    Result := Result + [Copy(Text, P, Q - P)];
+    P := Pos(Marker, Text, Q);
+  end;
+end;
+
+/// <summary>Expands $(NAME) with the IDE environment. Returns '' when a macro
+/// cannot be resolved, so the entry is skipped instead of guessed.</summary>
+function ExpandProjectMacros(const Value: string): string;
+var
+  P, Q: Integer;
+  Name, Env: string;
+begin
+  Result := Value;
+  P := Pos('$(', Result);
+  while P > 0 do
+  begin
+    Q := Pos(')', Result, P);
+    if Q = 0 then
+      Exit('');
+    Name := Copy(Result, P + 2, Q - P - 2);
+    Env := GetEnvironmentVariable(Name);
+    if Env = '' then
+      Exit('');
+    Result := Copy(Result, 1, P - 1) + Env + Copy(Result, Q + 1, MaxInt);
+    P := Pos('$(', Result);
+  end;
+end;
+
+/// <summary>True for test code: DUnitX/Dext fixtures and DUnit test cases are
+/// not production code and would only inflate the percentage.</summary>
+function IsTestUnit(const FileName: string): Boolean;
+var
+  Text: string;
+begin
+  try
+    Text := LowerCase(TFile.ReadAllText(FileName));
+  except
+    Exit(False);
+  end;
+  Result := (Pos('[testfixture', Text) > 0) or (Pos('[fixture', Text) > 0) or
+    (Pos('(ttestcase)', Text) > 0);
 end;
 
 { TDextCoverageRunner }
@@ -184,23 +229,41 @@ end;
 
 class function TDextCoverageRunner.GenerateLists(const ProjectFile, SourceRoot: string;
   out UnitsList, SourcesList: string; ALog: TProc<string>): Boolean;
+// Units to measure: the units added to the project (DCCReference), resolved from
+// the .dproj folder, without test units. Where to find sources: the .dproj folder,
+// the folders of those units and the project's own DCC_UnitSearchPath.
+// SourceRoot is kept for compatibility and is not used.
 var
   Units, Paths: TStringList;
-  Files: TArray<string>;
-  FileName, UnitName, Dir, WorkDir: string;
-  Root: string;
+  ProjectDir, Text, Ref, FileName, Entry, Dir, WorkDir: string;
+  SearchPath: string;
+  Skipped: Integer;
+
+  procedure AddPath(const APath: string);
+  var
+    Full: string;
+  begin
+    if APath = '' then
+      Exit;
+    Full := IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(ProjectDir, APath)));
+    if TDirectory.Exists(Full) and (Paths.IndexOf(Full) < 0) then
+      Paths.Add(Full);
+  end;
+
 begin
   Result := False;
   UnitsList := '';
   SourcesList := '';
-  Root := SourceRoot;
-  if (Root = '') or not TDirectory.Exists(Root) then
-    Root := GuessSourceRoot(ProjectFile);
-  if not TDirectory.Exists(Root) then
-  begin
-    if Assigned(ALog) then
-      ALog('Coverage: source root not found.');
-    Exit;
+  ProjectDir := TPath.GetDirectoryName(ProjectFile);
+  try
+    Text := TFile.ReadAllText(ProjectFile);
+  except
+    on E: Exception do
+    begin
+      if Assigned(ALog) then
+        ALog('Coverage: cannot read ' + ProjectFile + ': ' + E.Message);
+      Exit;
+    end;
   end;
 
   WorkDir := CoverageWorkDir(ProjectFile);
@@ -208,37 +271,44 @@ begin
   Units := TStringList.Create;
   Paths := TStringList.Create;
   try
-    if Assigned(ALog) then
-      ALog('Coverage: scanning source root ' + Root);
-    Files := TDirectory.GetFiles(Root, '*.pas', TSearchOption.soAllDirectories);
-    for FileName in Files do
+    Paths.CaseSensitive := False;
+    Units.CaseSensitive := False;
+    AddPath('.');
+    Skipped := 0;
+    for Ref in ProjectReferences(Text) do
     begin
-      // Skip test trees and IDE junk — only when they appear as path segments.
-      if FileName.ToLower.Contains('\tests\') then
+      if not SameText(ExtractFileExt(Ref), '.pas') then
         Continue;
-      if FileName.ToLower.Contains('\test\') then
+      FileName := TPath.GetFullPath(TPath.Combine(ProjectDir, Ref));
+      if not FileExists(FileName) then
         Continue;
-      if FileName.ToLower.Contains('\__history\') then
+      AddPath(ExtractFilePath(FileName));
+      if IsTestUnit(FileName) then
+      begin
+        Inc(Skipped);
         Continue;
-      if FileName.ToLower.Contains('\__recovery\') then
-        Continue;
-      UnitName := GetUnitNameFromFile(FileName);
-      Units.Add(UnitName + ExtractFileExt(FileName));
-      Dir := ExtractFilePath(FileName);
-      if Paths.IndexOf(Dir) < 0 then
-        Paths.Add(Dir);
+      end;
+      Entry := GetUnitNameFromFile(FileName) + ExtractFileExt(FileName);
+      if Units.IndexOf(Entry) < 0 then
+        Units.Add(Entry);
     end;
+
+    for SearchPath in ProjectTagValues(Text, 'DCC_UnitSearchPath') do
+      for Dir in SearchPath.Split([';']) do
+        if (Dir.Trim <> '') and (Pos('$(DCC_UnitSearchPath)', Dir) = 0) then
+          AddPath(ExpandProjectMacros(Dir.Trim));
+
     UnitsList := TPath.Combine(WorkDir, 'units.lst');
     SourcesList := TPath.Combine(WorkDir, 'sources.lst');
     Units.SaveToFile(UnitsList);
     Paths.SaveToFile(SourcesList);
     if Assigned(ALog) then
-      ALog(Format('Coverage: lists ready (%d units, %d paths) under %s',
-        [Units.Count, Paths.Count, WorkDir]));
+      ALog(Format('Coverage: %d project unit(s) to measure (%d test unit(s) skipped), %d source path(s); lists under %s',
+        [Units.Count, Skipped, Paths.Count, WorkDir]));
     Result := Units.Count > 0;
     if not Result and Assigned(ALog) then
-      ALog('Coverage: no production units found under ' + Root +
-        ' (check Sources folder).');
+      ALog('Coverage: the .dproj has no production unit added (DCCReference). ' +
+        'Add the units under test to the project.');
   finally
     Units.Free;
     Paths.Free;
@@ -287,13 +357,13 @@ begin
     Exit;
   end;
   Prep.MapFile := MapFile;
-  Prep.SourceRoot := GuessSourceRoot(ProjectFile);
+  Prep.SourceRoot := TPath.GetDirectoryName(ProjectFile);
   if Assigned(ALog) then
-    ALog('Coverage: source root = ' + Prep.SourceRoot);
+    ALog('Coverage: project folder = ' + Prep.SourceRoot);
   if not GenerateLists(ProjectFile, Prep.SourceRoot, Prep.UnitsList, Prep.SourcesList, ALog) then
   begin
     AFailureHint :=
-      'Coverage skipped: no instrumentable units under Sources. Check the project layout.';
+      'Coverage skipped: the project has no production unit added. Add the units under test to the .dproj.';
     Exit;
   end;
 
