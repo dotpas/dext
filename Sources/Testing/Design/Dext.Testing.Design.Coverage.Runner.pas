@@ -57,6 +57,9 @@ type
     /// <summary>Write the unit and source lists Delphi Code Coverage expects.</summary>
     class function GenerateLists(const ProjectFile, SourceRoot: string;
       out UnitsList, SourcesList: string; ALog: TProc<string>): Boolean;
+    /// <summary>Folders the project compiles from: the .dproj folder, the folders of the
+    /// units added to the project and its DCC_UnitSearchPath ($(VAR) expanded).</summary>
+    class function ProjectSearchFolders(const ProjectFile: string): TArray<string>;
     /// <summary>Resolve the map, the lists and the report folder before a Delphi coverage run.</summary>
     class function PrepareRun(const ProjectFile, TestExe, PlatformName: string;
       ALog: TProc<string>; out Prep: TCoverageRunPrep; out AFailureHint: string): Boolean;
@@ -69,6 +72,9 @@ type
   end;
 
 implementation
+
+uses
+  System.StrUtils;
 
 function GetUnitNameFromFile(const FileName: string): string;
 var
@@ -109,11 +115,12 @@ begin
   while P > 0 do
   begin
     Inc(P, Length(OpenTag));
-    Q := Pos(CloseTag, Text, P);
+    Q := PosEx(CloseTag, Text, P);
     if Q = 0 then
       Break;
-    Result := Result + [Copy(Text, P, Q - P)];
-    P := Pos(OpenTag, Text, Q);
+    SetLength(Result, Length(Result) + 1);
+    Result[High(Result)] := Copy(Text, P, Q - P);
+    P := PosEx(OpenTag, Text, Q);
   end;
 end;
 
@@ -129,11 +136,12 @@ begin
   while P > 0 do
   begin
     Inc(P, Length(Marker));
-    Q := Pos('"', Text, P);
+    Q := PosEx('"', Text, P);
     if Q = 0 then
       Break;
-    Result := Result + [Copy(Text, P, Q - P)];
-    P := Pos(Marker, Text, Q);
+    SetLength(Result, Length(Result) + 1);
+    Result[High(Result)] := Copy(Text, P, Q - P);
+    P := PosEx(Marker, Text, Q);
   end;
 end;
 
@@ -148,7 +156,7 @@ begin
   P := Pos('$(', Result);
   while P > 0 do
   begin
-    Q := Pos(')', Result, P);
+    Q := PosEx(')', Result, P);
     if Q = 0 then
       Exit('');
     Name := Copy(Result, P + 2, Q - P - 2);
@@ -312,6 +320,52 @@ begin
   finally
     Units.Free;
     Paths.Free;
+  end;
+end;
+
+class function TDextCoverageRunner.ProjectSearchFolders(const ProjectFile: string): TArray<string>;
+var
+  Folders: TStringList;
+  ProjectDir, Text, Ref, SearchPath, Dir: string;
+
+  procedure AddFolder(const APath: string);
+  var
+    Full: string;
+  begin
+    if APath = '' then
+      Exit;
+    try
+      Full := ExcludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(ProjectDir, APath)));
+    except
+      Exit;
+    end;
+    if TDirectory.Exists(Full) and (Folders.IndexOf(Full) < 0) then
+      Folders.Add(Full);
+  end;
+
+begin
+  Result := nil;
+  if (ProjectFile = '') or not FileExists(ProjectFile) then
+    Exit;
+  ProjectDir := TPath.GetDirectoryName(ProjectFile);
+  try
+    Text := TFile.ReadAllText(ProjectFile);
+  except
+    Exit;
+  end;
+  Folders := TStringList.Create;
+  try
+    Folders.CaseSensitive := False;
+    AddFolder('.');
+    for Ref in ProjectReferences(Text) do
+      AddFolder(ExtractFilePath(Ref));
+    for SearchPath in ProjectTagValues(Text, 'DCC_UnitSearchPath') do
+      for Dir in SearchPath.Split([';']) do
+        if (Dir.Trim <> '') and (Pos('$(DCC_UnitSearchPath)', Dir) = 0) then
+          AddFolder(ExpandProjectMacros(Dir.Trim));
+    Result := Folders.ToStringArray;
+  finally
+    Folders.Free;
   end;
 end;
 

@@ -333,6 +333,7 @@ type
     procedure LayoutInspectorDetails(AHasErrorMemo: Boolean; AFrameCount: Integer);
     function ResolveStackFrameFile(const AMethodName, AFileName: string): string;
     function FindUnitFileByName(const AUnitFileName: string): string;
+    function SourceSearchFolders: TArray<string>;
     function IsUnreliableMapLocation(const AFileName: string): Boolean;
     function UnitHintFromMethodName(const AMethodName: string): string;
     procedure ClearStackFrameNavs;
@@ -484,7 +485,7 @@ uses
   Dext.Testing.Design.Coverage.Runner, Dext.Testing.Design.ProjectKinds,
   Dext.Testing.Design.ExpertTrace, Dext.Testing.CodeCoverage.Tool, System.IniFiles,
   Winapi.CommCtrl, Dext.Testing.Report, Dext.Testing.Runner, Dext.Testing.Integration,
-  Dext.Testing.StackTrace;
+  Dext.Testing.StackTrace, System.Win.Registry;
 
 type
   /// <summary>Navigation payload stored in stack-frame ListItem.Data.</summary>
@@ -4656,6 +4657,8 @@ begin
             end;
             ResolvedLine := FindMethodImplementationLine(ResolvedPath, ClassName, MethodOnly, Frame.Line);
             SplitSourceFileAndLine(ResolvedPath, FileLeaf, RealLine);
+            { Double-click must open the file shown in Location, not the test unit. }
+            Frame.FileName := FileLeaf;
             if ResolvedLine > 0 then
               LocHint := Format('%s:%d', [FileLeaf, ResolvedLine])
             else
@@ -4698,7 +4701,9 @@ begin
 
         Nav := TStackFrameNav.Create;
         Nav.FileName := Frame.FileName;
-        if Nav.FileName = '' then
+        { Same rule as the Location column: the test unit is a fallback for the
+          first row of an unresolved stack only. }
+        if (Nav.FileName = '') and (i = 0) and not AnyFrameResolved then
         begin
           SplitSourceFileAndLine(TestLocation.FileName, FileLeaf, RealLine);
           Nav.FileName := FileLeaf;
@@ -4708,8 +4713,10 @@ begin
           Nav.Line := ResolvedLine
         else if Frame.Line > 0 then
           Nav.Line := Frame.Line
+        else if (i = 0) and not AnyFrameResolved then
+          Nav.Line := TestLocation.Line
         else
-          Nav.Line := TestLocation.Line;
+          Nav.Line := 0;
         FStackFrameNavs.Add(Nav);
         FrameItem.Data := Nav;
       end;
@@ -6233,6 +6240,15 @@ begin
       if SameText(ExtractFileName(FTestLocations[i].FileName), Target) then
         Exit(FTestLocations[i].FileName);
 
+  // The folders Delphi itself compiles from: the project's search path and the
+  // IDE Browsing/Library path. Framework units (Dext.Assertions.pas) live there.
+  for Dir in SourceSearchFolders do
+  begin
+    Candidate := TPath.Combine(Dir, Target);
+    if FileExists(Candidate) then
+      Exit(Candidate);
+  end;
+
   Roots := TList<string>.Create;
   try
     if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
@@ -6272,6 +6288,88 @@ begin
     end;
   finally
     Roots.Free;
+  end;
+end;
+
+function TFormDextTestRunner.SourceSearchFolders: TArray<string>;
+const
+  PathValues: array[0..1] of string = ('Browsing Path', 'Search Path');
+var
+  Configs: IOTAProjectOptionsConfigurations;
+  Dir, Entry, PlatformName: string;
+  Folders: TStringList;
+  i: Integer;
+  Proj: IOTAProject;
+  Reg: TRegistry;
+  Services: IOTAServices;
+
+  function ExpandIdeMacros(const AValue: string): string;
+  var
+    P, Q: Integer;
+    Name, Env: string;
+  begin
+    Result := StringReplace(AValue, '$(Platform)', PlatformName, [rfReplaceAll, rfIgnoreCase]);
+    P := Pos('$(', Result);
+    while P > 0 do
+    begin
+      Q := Pos(')', Copy(Result, P, MaxInt));
+      if Q = 0 then
+        Exit('');
+      Name := Copy(Result, P + 2, Q - 3);
+      Env := GetEnvironmentVariable(Name);
+      if Env = '' then
+        Exit('');
+      Result := Copy(Result, 1, P - 1) + Env + Copy(Result, P + Q, MaxInt);
+      P := Pos('$(', Result);
+    end;
+  end;
+
+  procedure AddFolder(const APath: string);
+  var
+    Full: string;
+  begin
+    if APath = '' then
+      Exit;
+    try
+      Full := ExcludeTrailingPathDelimiter(TPath.GetFullPath(APath));
+    except
+      Exit;
+    end;
+    if TDirectory.Exists(Full) and (Folders.IndexOf(Full) < 0) then
+      Folders.Add(Full);
+  end;
+
+begin
+  Folders := TStringList.Create;
+  try
+    Folders.CaseSensitive := False;
+    if FActiveProjectFile <> '' then
+      for Dir in TDextCoverageRunner.ProjectSearchFolders(FActiveProjectFile) do
+        AddFolder(Dir);
+
+    PlatformName := 'Win32';
+    Proj := GetProjectByFileName(FActiveProjectFile);
+    if Assigned(Proj) and Supports(Proj.ProjectOptions, IOTAProjectOptionsConfigurations, Configs) and
+       (Configs.ActivePlatformName <> '') then
+      PlatformName := Configs.ActivePlatformName;
+
+    if Supports(BorlandIDEServices, IOTAServices, Services) then
+    begin
+      Reg := TRegistry.Create(KEY_READ);
+      try
+        Reg.RootKey := HKEY_CURRENT_USER;
+        if Reg.OpenKeyReadOnly(Services.GetBaseRegistryKey + '\Library\' + PlatformName) then
+          for i := Low(PathValues) to High(PathValues) do
+            if Reg.ValueExists(PathValues[i]) then
+              for Entry in Reg.ReadString(PathValues[i]).Split([';']) do
+                AddFolder(ExpandIdeMacros(Entry.Trim));
+      finally
+        Reg.Free;
+      end;
+    end;
+    Result := Folders.ToStringArray;
+  finally
+    Folders.Free;
   end;
 end;
 
@@ -6326,13 +6424,8 @@ begin
     if Resolved <> '' then
       Exit(ExtractFileName(Resolved));
   end;
-  if Length(Parts) >= 2 then
-  begin
-    Acc := Parts[0];
-    for j := 1 to High(Parts) - 1 do
-      Acc := Acc + '.' + Parts[j];
-    Result := Acc + '.pas';
-  end;
+  // Not found on disk: return '' ("(unresolved)") instead of inventing a unit
+  // name such as Dext.Assertions.ShouldDouble.pas, which double-click cannot open.
 end;
 
 function TFormDextTestRunner.ResolveStackFrameFile(const AMethodName, AFileName: string): string;
@@ -8640,6 +8733,51 @@ begin
   OpenSourceFileAtLine(FilePath, Line);
 end;
 
+/// <summary>Gives keyboard focus to the code editor with the caret line centered.
+/// The edit window may be the IDE main form (docked editor); focusing the form would
+/// hand focus back to its last active control, the stack list. So the editor control
+/// itself ("Editor", the same lookup GExperts uses) gets the focus. It runs a moment
+/// after the double-click, once the mouse button is released; otherwise the list
+/// view takes the focus back.</summary>
+procedure FocusEditViewLater(const AView: IOTAEditView; ALine: Integer);
+var
+  View: IOTAEditView;
+  Line: Integer;
+begin
+  View := AView;
+  Line := ALine;
+  if View = nil then
+    Exit;
+  TThread.CreateAnonymousThread(procedure
+    begin
+      Sleep(150);
+      TThread.Queue(nil, procedure
+        var
+          Window: INTAEditWindow;
+          EditorControl: TComponent;
+        begin
+          if IsTestingDesignShuttingDown then
+            Exit;
+          try
+            View.Center(Line, 1);
+            Window := View.GetEditWindow;
+            if not Assigned(Window) or not Assigned(Window.Form) then
+              Exit;
+            if not Window.Form.Visible then
+              Window.Form.Show;
+            EditorControl := Window.Form.FindComponent('Editor');
+            if (EditorControl is TWinControl) and TWinControl(EditorControl).CanFocus then
+              TWinControl(EditorControl).SetFocus
+            else if Window.Form.CanFocus then
+              Window.Form.SetFocus;
+            View.Paint;
+          except
+            // focusing is best effort; the caret is already on the line
+          end;
+        end);
+    end).Start;
+end;
+
 procedure TFormDextTestRunner.OpenSourceFileAtLine(const AFileName: string; ALine: Integer);
 var
   ActionServices: IOTAActionServices;
@@ -8712,6 +8850,7 @@ begin
     except
     end;
     EditView.Paint;
+    FocusEditViewLater(EditView, TargetLine);
     LogMsg(Format('Opened %s:%d', [ExtractFileName(FullPath), TargetLine]));
     Exit;
   end;
@@ -8762,6 +8901,7 @@ begin
       except
       end;
       V.Paint;
+      FocusEditViewLater(V, CapturedLine);
       FormDextTestRunner.LogMsg(Format('Opened (deferred) %s:%d',
         [ExtractFileName(CapturedPath), CapturedLine]));
     end));
