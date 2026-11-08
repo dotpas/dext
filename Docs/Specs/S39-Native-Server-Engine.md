@@ -4,6 +4,7 @@
 **Owner:** Cesar Romero & Engineering Team
 **Reviewers:** Architecture Team
 **Created:** 2026-06-17
+**Updated:** 2026-11-08 (TLS on the socket engines now points to S43; IOCP status and open decisions added)
 **Dependencies:** None (foundational spec)
 **Enables:** S40 (WebSocket), S41 (HTTP/2), S02 (gRPC)
 
@@ -26,7 +27,7 @@ The engine must:
 - HTTP/3 (QUIC) — architectural hooks only, no implementation.
 - `io_uring` (Linux 5.1+) — future driver, `epoll` is sufficient for V1.
 - macOS/FreeBSD `kqueue` — use DCS adapter for macOS until demand justifies a native driver.
-- TLS implementation — Phase 1 uses OS-level TLS (SChannel/http.sys on Windows). OpenSSL integration planned for Phase 2.
+- TLS in the socket-level engines (IOCP, epoll): specified in **S43** (unified `IDextTLSEngine` abstraction and an OpenSSL Memory BIO engine). The epoll engine already uses it; the IOCP engine does not yet (see 3.1). `http.sys` uses the operating system's TLS (certificate binding).
 
 ---
 
@@ -270,6 +271,19 @@ function HttpReceiveHttpRequest(ReqQueueHandle: THandle;
 
 **Estimated effort:** 14 days
 
+#### 3.1 Implementation status (2026-11)
+
+| Area | State |
+|---|---|
+| Incremental HTTP/1.1 parser, keep-alive, pipelining | Implemented |
+| `Date` header, header/body limits (431/413), RFC 9112 request checks (400/501/505), `Connection: close`, HTTP/1.0, `Expect: 100-continue` | In review (#282) |
+| Inline completion (`FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`), two-buffer send, per-connection accumulator and object reuse | In review (#282) |
+| Chunked request bodies | **Pending.** Until then a request with `Transfer-Encoding` gets `501` (a safe interim: it must never be read as the next request) |
+| Idle/header/body timeouts | **Pending.** Same design as the epoll timing wheel (S50, section 3.6) |
+| TLS | **Pending.** See S43; the IOCP session must be plugged into `IDextTLSEngine` as `Dext.Server.Epoll` does |
+| IPv6, `SO_EXCLUSIVEADDRUSE` | **Pending** |
+| Selecting this engine on Windows | **Pending.** `UseNativeServer` always creates the `http.sys` engine on Windows (`TDextNativeWebServer` fixes the choice per platform). `CreateSocketEngine` exists but nothing selects it; the intent is a provider with its own `Factory`, chosen with `UseServerFactory`, like the other providers (Indy, DCS, WebBroker) |
+
 ---
 
 ### Phase 4: Linux epoll Engine
@@ -324,8 +338,10 @@ function HttpReceiveHttpRequest(ReqQueueHandle: THandle;
 - [ ] All existing middleware, controllers, and Hubs continue to work unchanged.
 - [ ] http.sys engine supports port sharing (coexist with IIS on port 80/443).
 - [ ] The IOCP engine supports WebSocket upgrade (connection hand-off to S40).
-- [ ] Zero external runtime dependencies — no DLLs beyond Windows system libraries.
+- [ ] Zero external runtime dependencies in the default configuration - no DLLs beyond Windows system libraries. **[DECISION D1]** An optional OpenSSL provider (S43) is opt-in and ships its own DLLs.
 - [ ] Graceful shutdown: drain active connections before stopping.
+- [ ] The IOCP engine holds 10,000 idle keep-alive connections under 500 MB RSS (measured, not estimated).
+- [ ] The HTTP/1.1 parser has a randomized/mutation (fuzz) test in the suite.
 
 ---
 
@@ -345,7 +361,17 @@ function HttpReceiveHttpRequest(ReqQueueHandle: THandle;
 - **io_uring** (Linux 5.1+): A future `TDextIoUringEngine` could replace epoll for even higher throughput. The `IDextServerEngine` abstraction supports this transparently.
 - **kqueue** (macOS/FreeBSD): A native kqueue engine could be added following the same pattern as epoll. Currently deferred — use DCS adapter.
 - **HTTP/3 (QUIC)**: Requires UDP sockets + QUIC protocol implementation. The engine layer's `Bind` method could accept a `TTransportProtocol` enum (TCP/UDP) in a future version.
-- **TLS on IOCP/epoll**: Phase 2 will add SChannel (Windows) and OpenSSL (Linux) TLS wrappers for the socket-level engines.
+- **TLS on IOCP/epoll**: see S43. The epoll engine is integrated with `IDextTLSEngine`. For IOCP the provider is an open decision (D1 in section 8).
+
+---
+
+## 8. Open decisions
+
+| # | Decision | Options | Notes |
+|---|---|---|---|
+| D1 | TLS provider for the IOCP engine on Windows | SChannel (no extra DLL, Windows certificate store, matches the "no DLL" criterion); OpenSSL Memory BIO (already written, same behaviour as Linux); both behind `IDextTLSEngine` | Leaning: both behind the interface. To confirm: SChannel ALPN for `h2` on the supported Windows versions |
+| D2 | The socket engine as a provider on Windows | One more provider with its own `Factory`, chosen by the developer, next to Indy, DCS, WebBroker and the native `http.sys`; documented as experimental until timeouts and TLS exist | `UseNativeServer` stays as it is (`http.sys` on Windows, `epoll` on Linux) |
+| D3 | Parser fuzzing | Where it lives and which corpus | Section 6 already asks for it |
 
 ---
 

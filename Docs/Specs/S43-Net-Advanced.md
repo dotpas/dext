@@ -7,6 +7,8 @@
 **Dependencies:** S39 (Native Server Engine), S40 (WebSocket & SignalR Hubs), S41 (HTTP/2 Framing)
 **Enables:** Enterprise Native Security (WSS/HTTPS/TLS) across Web Servers (http.sys, epoll, IOCP, Indy), Redis Client (`TDextRedisClient`), REST Client (`TRestClient`), and Raw Sockets without requiring Reverse Proxies.
 
+> **Note (2026-11):** The IOCP engine (S39, Phase 3) is the next consumer of `IDextTLSEngine`; it does not use it yet. The provider choice for Windows (SChannel, OpenSSL or both) is open decision D1 in S39, section 8. Companion documents: [Status](S43-Net-Advanced.Status.md) and [Validation Plan](S43-Net-Advanced.Validation-Plan.md).
+
 ---
 
 ## 1. Goal & Vision

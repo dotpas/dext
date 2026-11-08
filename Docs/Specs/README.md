@@ -48,7 +48,7 @@ ID | Title | Status | Goal
 **S40** | [WebSocket Transport & SignalR Hub Integration](S40-WebSocket-SignalR.md) | ✅ Finalized | RFC 6455 WebSocket protocol and full-duplex transport for `Dext.Web.Hubs`.
 **S41** | [HTTP/2 Framing & gRPC Transport](S41-Http2-Framing.md) | ✅ Finalized | HPACK compression, HTTP/2 stream multiplexing — foundation for gRPC (S02).
 **S42** | [Delphi Hub Client (SignalR-compatible)](S42-Delphi-Hub-Client.md) | ✅ Finalized | Native Delphi client connection library for Dext Hubs.
-**S43** | [Net-Advanced (MessagePack, Permessage-Deflate & Native TLS)](S43-Net-Advanced.md) | ✅ Finalized | Advanced networking optimizations: Native TLS, http.sys HTTPS, OpenSSL 3.x, dev-certs CLI, and TRestClient SSL.
+**S43** | [Net-Advanced (MessagePack, Permessage-Deflate & Native TLS)](S43-Net-Advanced.md) | ✅ Finalized | Advanced networking optimizations: Native TLS, http.sys HTTPS, OpenSSL 3.x, dev-certs CLI, and TRestClient SSL. Companion docs: [Status](S43-Net-Advanced.Status.md), [Validation Plan](S43-Net-Advanced.Validation-Plan.md).
 **S44** | [HTTP/3 & QUIC Transport Engine](S44-Http3-Quic.md) | 📝 Draft | Native UDP-based QUIC transport and HTTP/3 protocol mapping.
 **S45** | [Advanced Kernel I/O (io_uring & kqueue)](S45-Kernel-Io.md) | 📝 Draft | High-performance OS I/O drivers: io_uring for Linux and kqueue for macOS/BSD.
 **S46** | [Database Sequence Generators & HiLo](S46-Sequence-Generators.md) | ✅ Finalized | Database sequence mapping and HiLo pre-allocation.
@@ -65,6 +65,7 @@ ID | Title | Status | Goal
 **S58** | [High-Performance Generic Object Pooling & Context Recycling](S58-Generic-Object-Pooling.md) | ✅ Finalized | High-performance generic object pool with TSpinLock, manual-reset event broadcast, automatic TDbContext recycling, TRestClient pooling, and FastPath integration.
 **S59** | [DbSet Dialect-Aware Batch UPDATE & DELETE Strategy](../../Docs/Specs/S59-DbSet-Batch-Update-Delete.md) | ✅ Finalized | Single-statement dialect-aware batching for PostgreSQL (`unnest`/`VALUES`), MySQL (`CASE-WHEN`), and Tuple-IN deletes.
 **S60** | [TBcd & ftFMTBcd High-Precision Decimal Support](S55-TBcd-FmtBcd-Support.md) | ✅ Finalized | First-class end-to-end TBcd / ftFMTBcd support across FireDAC driver, ORM hydration, type converters, and Smart Properties.
+**S61** | [Real-Time Sockets, WebSocket Engine & TLS Hot-Reload](S61-Dext_Linux_Sockets_and_WebSocket_Enhancements.md) | 📝 Draft | Maps the existing WebSocket/Hubs units and plans zero-downtime TLS certificate reload and dynamic SNI (document in Portuguese).
 **S63** | [Feature Flags & Feature Management](S63-Feature-Flags.md) | 🟡 In Progress | Dynamic toggle keys, rollout filters, time windows and [FeatureGate] attributes.
 **S64** | [Forwarded Headers Middleware](S64-Forwarded-Headers.md) | 🟡 In Progress | Reverse proxy header validation (X-Forwarded-For/Proto/Host) and KnownProxies security.
 **S65** | [Antiforgery / CSRF Protection](S65-Antiforgery-CSRF.md) | 🟡 In Progress | Double Submit Cookie anti-CSRF protection for SSR HTML forms and HTMX.
@@ -88,4 +89,4 @@ For a high-level view of all roadmap items and their current waves, see the [Mas
 5. **Finalized**: Feature delivered and documented in the Book.
 
 ---
-*Last update: June 2026*
+*Last update: November 2026*
