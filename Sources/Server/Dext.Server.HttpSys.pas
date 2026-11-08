@@ -86,6 +86,10 @@ type
     // Set by Destroy: a request or response released while its context is
     // being destroyed must not hand the context back to a pool.
     FDestroying: Boolean;
+    // The engine that owns the context. Read from here, not from FRequest or
+    // FResponse: those are recycled (and freed when their pool is full) before
+    // the context is told that their reference is gone.
+    FEngine: TDextHttpSysEngine;
     FRequestIntf: IDextRawRequest;
     FConnection: TDextHttpSysConnection;
     FRefCount: Integer;
@@ -562,7 +566,8 @@ begin
   FBodyOp.Kind := hokReceiveBody;
   FBodyOp.Context := Self;
   FBodyEvent := TEvent.Create(nil, False, False, '');
-  SetLength(FBodyBuffer, 65536);
+  // FBodyBuffer (64 KB) is allocated by PostBodyReceive, the first time a body
+  // has to be received apart: most requests never need it.
   FPrefetchedBody := TMemoryStream.Create;
   FBufferCapacity := 16384;
   SetLength(FBuffer, FBufferCapacity);
@@ -613,13 +618,13 @@ end;
 procedure TDextHttpSysContext.ReleaseRequestReference;
 begin
   if (TInterlocked.Decrement(FRefCount) = 0) and not FDestroying then
-    TDextHttpSysEngine(FRequest.FEngine).ReleaseContext(Self);
+    FEngine.ReleaseContext(Self);
 end;
 
 procedure TDextHttpSysContext.ReleaseResponseReference;
 begin
   if (TInterlocked.Decrement(FRefCount) = 0) and not FDestroying then
-    TDextHttpSysEngine(FResponse.FEngine).ReleaseContext(Self);
+    FEngine.ReleaseContext(Self);
 end;
 
 { TDextHttpSysEngine Context helpers }
@@ -646,6 +651,7 @@ begin
       else
       begin
         Result := TDextHttpSysContext.Create;
+        Result.FEngine := Self;
         FAllContexts.Add(Result);
       end;
     finally
@@ -655,12 +661,17 @@ begin
 end;
 
 procedure TDextHttpSysEngine.ReleaseContext(AContext: TDextHttpSysContext);
+var
+  LocalMax: Integer;
 begin
   AContext.Reset;
   if FLocalContextPool = nil then
     FLocalContextPool := TList.Create;
 
-  if FLocalContextPool.Count < 64 then
+  LocalMax := FOptions.HttpSysContextsPerThread;
+  if LocalMax <= 0 then
+    LocalMax := 32;
+  if FLocalContextPool.Count < LocalMax then
   begin
     FLocalContextPool.Add(AContext);
   end
@@ -2637,6 +2648,8 @@ begin
   BytesReceived := 0;
   FillChar(AContext.FBodyOp.Overlapped, SizeOf(TOverlapped), 0);
   AContext.FBodyOp.Generation := AContext.FGeneration;
+  if Length(AContext.FBodyBuffer) = 0 then
+    SetLength(AContext.FBodyBuffer, 65536);
   ResultCode := HttpReceiveRequestEntityBody(FReqQueue, AContext.FRequestId,
     0, @AContext.FBodyBuffer[0], Length(AContext.FBodyBuffer), BytesReceived,
     @AContext.FBodyOp.Overlapped);
