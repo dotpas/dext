@@ -86,6 +86,10 @@ type
     // Set by Destroy: a request or response released while its context is
     // being destroyed must not hand the context back to a pool.
     FDestroying: Boolean;
+    // The engine that owns the context. Read from here, not from FRequest or
+    // FResponse: those are recycled (and freed when their pool is full) before
+    // the context is told that their reference is gone.
+    FEngine: TDextHttpSysEngine;
     FRequestIntf: IDextRawRequest;
     FConnection: TDextHttpSysConnection;
     FRefCount: Integer;
@@ -613,13 +617,13 @@ end;
 procedure TDextHttpSysContext.ReleaseRequestReference;
 begin
   if (TInterlocked.Decrement(FRefCount) = 0) and not FDestroying then
-    TDextHttpSysEngine(FRequest.FEngine).ReleaseContext(Self);
+    FEngine.ReleaseContext(Self);
 end;
 
 procedure TDextHttpSysContext.ReleaseResponseReference;
 begin
   if (TInterlocked.Decrement(FRefCount) = 0) and not FDestroying then
-    TDextHttpSysEngine(FResponse.FEngine).ReleaseContext(Self);
+    FEngine.ReleaseContext(Self);
 end;
 
 { TDextHttpSysEngine Context helpers }
@@ -646,6 +650,7 @@ begin
       else
       begin
         Result := TDextHttpSysContext.Create;
+        Result.FEngine := Self;
         FAllContexts.Add(Result);
       end;
     finally
