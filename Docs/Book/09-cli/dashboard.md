@@ -16,6 +16,25 @@ set DEXT_SIDECAR_INDY=1
 DextSidecar.exe
 ```
 
+## Sending an application's logs to the Sidecar
+
+The Sidecar is **off by default** in every Dext application: the global logger
+does not look for it. Turn it on explicitly, with the environment variable
+
+```bash
+set DEXT_SIDECAR_ENABLED=true
+rem optional: 3030 is the default
+set DEXT_SIDECAR_PORT=3030
+```
+
+or with `TSidecarOptions` (`Enabled := True`, `Port`) registered in the
+application's services. The environment variable wins over the options.
+
+> Earlier versions probed `http://localhost:3030` on the first log call. On
+> Windows a closed loopback port takes about 2 s to refuse per address
+> (`::1`, then `127.0.0.1`), so every process without a Sidecar paid ~4 s,
+> including each test run. The probe was removed.
+
 ## Relationship to the IDE Test Explorer
 
 | Surface | Role |

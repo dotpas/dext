@@ -67,6 +67,7 @@ type
     
     procedure AddSink(const ASink: ILogSink);
     procedure RemoveSink(const ASink: ILogSink);
+    function HasSinks: Boolean;
     procedure Stop;
   end;
 
@@ -86,6 +87,8 @@ type
     function CreateLogger(const ACategoryName: string): ILogger;
     procedure AddProvider(const AProvider: ILoggerProvider); // Adapts provider to Sink?
     procedure AddSink(const ASink: ILogSink); // Native method
+    /// <summary>True when at least one sink receives the entries.</summary>
+    function HasSinks: Boolean;
     procedure Dispose;
     
     procedure SetMinimumLevel(ALevel: TLogLevel);
@@ -216,6 +219,16 @@ begin
   end;
 end;
 
+function TLogConsumerThread.HasSinks: Boolean;
+begin
+  TMonitor.Enter(FLock);
+  try
+    Result := FSinks.Count > 0;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
 procedure TLogConsumerThread.Stop;
 begin
   FShutdownEvent.SetEvent;
@@ -309,6 +322,11 @@ end;
 procedure TAsyncLoggerFactory.AddSink(const ASink: ILogSink);
 begin
   FConsumer.AddSink(ASink);
+end;
+
+function TAsyncLoggerFactory.HasSinks: Boolean;
+begin
+  Result := (FConsumer <> nil) and FConsumer.HasSinks;
 end;
 
 procedure TAsyncLoggerFactory.AddProvider(const AProvider: ILoggerProvider);

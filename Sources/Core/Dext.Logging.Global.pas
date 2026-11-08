@@ -44,6 +44,13 @@ type
     ///   Adds a custom sink to the global logging pipeline.
     /// </summary>
     class procedure AddSink(const ASink: ILogSink);
+
+    /// <summary>
+    ///   True when the global logger has at least one sink. Callers on hot
+    ///   paths (the test runner) skip scopes and formatting when nothing
+    ///   would receive them. Does not initialize the logger.
+    /// </summary>
+    class function HasSinks: Boolean;
     
     /// <summary>
     ///   Access the global logger instance.
@@ -80,7 +87,6 @@ type
 implementation
 
 uses
-  System.Net.HttpClient,
   Dext.Utils,
   Dext;
 
@@ -127,8 +133,6 @@ var
   SidecarUrl: string;
   Options: IOptions<TSidecarOptions>;
   Enabled: Boolean;
-  Client: THTTPClient;
-  Res: IHTTPResponse;
 begin
   if FFactory <> nil then Exit; // Already initialized
 
@@ -142,36 +146,21 @@ begin
   if not IsTestMode then
     FFactory.AddSink(TConsoleSink.Create);
 
-  // Sidecar Discovery
+  // Sidecar: off unless configured explicitly (DEXT_SIDECAR_ENABLED=true or
+  // TSidecarOptions.Enabled). There is no auto-detection: probing a closed
+  // port on Windows loopback takes ~2 s per address (::1, then 127.0.0.1), so
+  // every process without a Sidecar paid ~4 s on its first log call.
   Port := 3030;
-  Enabled := False; // Disabled by default
-  
+  Enabled := False;
+
   // 1. Environment Variable
   PortStr := GetEnvironmentVariable('DEXT_SIDECAR_PORT');
-  if PortStr <> '' then 
+  if PortStr <> '' then
     Port := StrToIntDef(PortStr, 3030);
 
   EnabledStr := GetEnvironmentVariable('DEXT_SIDECAR_ENABLED');
   if EnabledStr <> '' then
-    Enabled := SameText(EnabledStr, 'true')
-  else
-  begin
-    // Auto-detect if sidecar is running
-    try
-      Client := THTTPClient.Create;
-      try
-        Client.ConnectionTimeout := 150;
-        Client.ResponseTimeout := 150;
-        Res := Client.Get('http://localhost:' + Port.ToString + '/');
-        if Res.StatusCode = 200 then
-          Enabled := True;
-      finally
-        Client.Free;
-      end;
-    except
-      // Failed to connect, keep Enabled := False
-    end;
-  end;
+    Enabled := SameText(EnabledStr, 'true');
 
   // 2. IOptions (if available via Default Provider)
   try
@@ -216,6 +205,11 @@ begin
   if FFactory = nil then
     Initialize;
   FFactory.AddSink(ASink);
+end;
+
+class function Log.HasSinks: Boolean;
+begin
+  Result := (FFactory <> nil) and FFactory.HasSinks;
 end;
 
 class function Log.GetLogger: ILogger;

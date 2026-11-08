@@ -41,6 +41,7 @@ uses
   System.TimeSpan,
   System.TypInfo,
   Dext.Collections,
+  Dext.Collections.Dict,
   Dext.Core.Debug,
   Dext.Testing.Attributes,
   Dext.Testing.Integration;
@@ -116,6 +117,26 @@ type
   TOutputFormat = (ofConsole, ofXUnit, ofJUnit);
 
   /// <summary>
+  ///   What the attributes of one test method say, read once at discovery.
+  ///   The run reads these fields instead of walking RTTI attributes again
+  ///   for every test (categories, [Ignore], [Repeat], [Timeout], [MaxTime],
+  ///   [Platform], ITestContext parameter, [TestCase]/[TestCaseSource]).
+  /// </summary>
+  TTestMethodMeta = class
+  public
+    Categories: TArray<string>;
+    IsExplicit: Boolean;
+    IgnoreReason: string;
+    RepeatCount: Integer;
+    TimeoutMs: Integer;
+    MaxTime: Integer;
+    Priority: Integer;
+    RunsOnPlatform: Boolean;
+    NeedsContext: Boolean;
+    HasTestCases: Boolean;
+  end;
+
+  /// <summary>
   ///   Discovered test fixture information.
   /// </summary>
   TTestFixtureInfo = class
@@ -129,9 +150,12 @@ type
     FBeforeAllMethod: TRttiMethod;
     FAfterAllMethod: TRttiMethod;
     FTestMethods: IList<TRttiMethod>;
+    FMeta: IDictionary<TRttiMethod, TTestMethodMeta>;
   public
     constructor Create(ARttiType: TRttiType);
     destructor Destroy; override;
+    /// <summary>Attribute metadata of a test method (built on first use).</summary>
+    function Meta(Method: TRttiMethod): TTestMethodMeta;
     property RttiType: TRttiType read FRttiType;
     property FixtureClass: TClass read FFixtureClass;
     property Name: string read FName;
@@ -223,26 +247,21 @@ type
     class procedure DiscoverAssemblyHooks;
     class procedure ExecuteAssemblyInit;
     class procedure ExecuteAssemblyCleanup;
-    class function HasAttribute<T: TCustomAttribute>(
-      const Attrs: TArray<TCustomAttribute>): Boolean; overload;
     class function GetAttribute<T: TCustomAttribute>(
       const Attrs: TArray<TCustomAttribute>): T; overload;
-    class function GetAttributes<T: TCustomAttribute>(
-      const Attrs: TArray<TCustomAttribute>): TArray<T>;
     class function GetCategories(Method: TRttiMethod; FixtureClass: TClass): TArray<string>;
-    class function IsExplicit(Method: TRttiMethod): Boolean;
-    class function GetIgnoreReason(Method: TRttiMethod): string;
-    class function GetRepeatCount(Method: TRttiMethod): Integer;
-    class function GetMaxTime(Method: TRttiMethod): Integer;
-    class function GetPriority(Method: TRttiMethod): Integer;
-    class function ShouldRunOnPlatform(Method: TRttiMethod): Boolean;
+    class function GetFixtureCategories(FixtureClass: TClass): TArray<string>;
+    class function BuildMethodMeta(Method: TRttiMethod;
+      const FixtureCategories: TArray<string>): TTestMethodMeta;
+    class procedure GetTestCasesAndNames(Method: TRttiMethod;
+      out Cases: TArray<TArray<TValue>>; out Names: TArray<string>);
+    class procedure GetRunCases(Method: TRttiMethod; Meta: TTestMethodMeta;
+      out Cases: TArray<TArray<TValue>>; out Names: TArray<string>);
     class procedure ExecuteFixture(Fixture: TTestFixtureInfo);
     class procedure ExecuteTest(Fixture: TTestFixtureInfo;
-      Method: TRttiMethod; Instance: TObject;
+      Method: TRttiMethod; Meta: TTestMethodMeta; Instance: TObject;
       const TestCaseValues: TArray<TValue>;
       const TestCaseDisplayName: string);
-    class function GetTestCases(Method: TRttiMethod): TArray<TArray<TValue>>;
-    class function GetTestCaseDisplayNames(Method: TRttiMethod): TArray<string>;
     class procedure PrintTestResult(const Info: TTestInfo);
     class procedure PrintSummary;
     class procedure PrintResultChar(Result: TTestResult);
@@ -843,6 +862,7 @@ begin
   FFixtureClass := ARttiType.AsInstance.MetaclassType;
   FName := ARttiType.Name;
   FTestMethods := TCollections.CreateList<TRttiMethod>;
+  FMeta := TCollections.CreateDictionary<TRttiMethod, TTestMethodMeta>(True);
 
   // Get description from attribute
   for Attr in ARttiType.GetAttributes do
@@ -857,7 +877,18 @@ end;
 
 destructor TTestFixtureInfo.Destroy;
 begin
+  FMeta := nil; // owns the TTestMethodMeta values
   inherited;
+end;
+
+function TTestFixtureInfo.Meta(Method: TRttiMethod): TTestMethodMeta;
+begin
+  if not FMeta.TryGetValue(Method, Result) then
+  begin
+    Result := TTestRunner.BuildMethodMeta(Method,
+      TTestRunner.GetFixtureCategories(FFixtureClass));
+    FMeta.Add(Method, Result);
+  end;
 end;
 
 { TTestRunner }
@@ -908,6 +939,7 @@ var
   TempMethod: TRttiMethod;
   Methods: TArray<TRttiMethod>;
   AttrName: string;
+  FixtureCategories: TArray<string>;
 begin
   Methods := Fixture.RttiType.GetMethods;
 
@@ -938,12 +970,18 @@ begin
     end;
   end;
 
+  // Read every test method's attributes once; the run uses the cache
+  FixtureCategories := GetFixtureCategories(Fixture.FixtureClass);
+  for Method in Fixture.TestMethods do
+    if not Fixture.FMeta.ContainsKey(Method) then
+      Fixture.FMeta.Add(Method, BuildMethodMeta(Method, FixtureCategories));
+
   // Sort tests by priority (simple bubble sort)
   for I := 0 to Fixture.TestMethods.Count - 2 do
   begin
     for J := I + 1 to Fixture.TestMethods.Count - 1 do
     begin
-      if GetPriority(Fixture.TestMethods[J]) < GetPriority(Fixture.TestMethods[I]) then
+      if Fixture.Meta(Fixture.TestMethods[J]).Priority < Fixture.Meta(Fixture.TestMethods[I]).Priority then
       begin
         TempMethod := Fixture.TestMethods[I];
         Fixture.TestMethods[I] := Fixture.TestMethods[J];
@@ -1067,17 +1105,6 @@ begin
   end;
 end;
 
-class function TTestRunner.HasAttribute<T>(
-  const Attrs: TArray<TCustomAttribute>): Boolean;
-var
-  Attr: TCustomAttribute;
-begin
-  for Attr in Attrs do
-    if Attr is T then
-      Exit(True);
-  Result := False;
-end;
-
 class function TTestRunner.GetAttribute<T>(
   const Attrs: TArray<TCustomAttribute>): T;
 var
@@ -1087,23 +1114,6 @@ begin
     if Attr is T then
       Exit(T(Attr));
   Result := nil;
-end;
-
-class function TTestRunner.GetAttributes<T>(
-  const Attrs: TArray<TCustomAttribute>): TArray<T>;
-var
-  Attr: TCustomAttribute;
-  List: IList<T>;
-begin
-  List := TCollections.CreateList<T>;
-  try
-    for Attr in Attrs do
-      if Attr is T then
-        List.Add(T(Attr));
-    Result := List.ToArray;
-  finally
-    // List is ARC
-  end;
 end;
 
 class function TTestRunner.GetCategories(Method: TRttiMethod; FixtureClass: TClass): TArray<string>;
@@ -1132,7 +1142,8 @@ var
   RttiType: TRttiType;
 begin
   Categories := TCollections.CreateList<string>;
-  AddFrom(Method.GetAttributes);
+  if Method <> nil then
+    AddFrom(Method.GetAttributes);
 
   // [Category] and [Trait] on the fixture class (and its ancestors) apply to every test in it
   if FixtureClass <> nil then
@@ -1148,20 +1159,158 @@ begin
   Result := Categories.ToArray;
 end;
 
-class function TTestRunner.IsExplicit(Method: TRttiMethod): Boolean;
+class function TTestRunner.GetFixtureCategories(FixtureClass: TClass): TArray<string>;
 begin
-  Result := HasAttribute<ExplicitAttribute>(Method.GetAttributes);
+  // Same rules as GetCategories, for the fixture class and its ancestors only
+  Result := GetCategories(nil, FixtureClass);
 end;
 
-class function TTestRunner.GetIgnoreReason(Method: TRttiMethod): string;
+class function TTestRunner.BuildMethodMeta(Method: TRttiMethod;
+  const FixtureCategories: TArray<string>): TTestMethodMeta;
 var
-  IgnoreAttr: IgnoreAttribute;
+  Attrs: TArray<TCustomAttribute>;
+  Attr: TCustomAttribute;
+  Cats: IList<string>;
+  Name: string;
+  Param: TRttiParameter;
 begin
-  IgnoreAttr := GetAttribute<IgnoreAttribute>(Method.GetAttributes);
-  if Assigned(IgnoreAttr) then
-    Result := IgnoreAttr.Reason
+  Result := TTestMethodMeta.Create;
+  Result.RepeatCount := 1;
+  Result.Priority := 999; // Default low priority
+  Result.RunsOnPlatform := True;
+
+  Cats := TCollections.CreateList<string>;
+  Attrs := Method.GetAttributes;
+  for Attr in Attrs do
+  begin
+    if Attr is CategoryAttribute then
+    begin
+      Name := CategoryAttribute(Attr).Name;
+      if not Cats.Contains(Name) then
+        Cats.Add(Name);
+    end
+    else if Attr is TraitAttribute then
+    begin
+      Name := TraitAttribute(Attr).Name + '=' + TraitAttribute(Attr).Value;
+      if not Cats.Contains(Name) then
+        Cats.Add(Name);
+    end
+    else if Attr is ExplicitAttribute then
+      Result.IsExplicit := True
+    else if (Attr is IgnoreAttribute) and (Result.IgnoreReason = '') then
+      Result.IgnoreReason := IgnoreAttribute(Attr).Reason
+    else if Attr is RepeatAttribute then
+      Result.RepeatCount := RepeatAttribute(Attr).Count
+    else if Attr is TimeoutAttribute then
+      Result.TimeoutMs := TimeoutAttribute(Attr).Milliseconds
+    else if Attr is MaxTimeAttribute then
+      Result.MaxTime := MaxTimeAttribute(Attr).Milliseconds
+    else if Attr is PriorityAttribute then
+      Result.Priority := PriorityAttribute(Attr).Priority
+    else if Attr is PlatformAttribute then
+      Result.RunsOnPlatform := PlatformAttribute(Attr).ShouldRun
+    else if (Attr is TestCaseAttribute) or (Attr is TestCaseSourceAttribute) then
+      Result.HasTestCases := True;
+  end;
+  for Name in FixtureCategories do
+    if not Cats.Contains(Name) then
+      Cats.Add(Name);
+  Result.Categories := Cats.ToArray;
+
+  // A test that declares an ITestContext parameter gets one injected
+  for Param in Method.GetParameters do
+    if (Param.ParamType <> nil) and (Param.ParamType.TypeKind = tkInterface) and
+       (Param.ParamType.Name = 'ITestContext') then
+    begin
+      Result.NeedsContext := True;
+      Break;
+    end;
+end;
+
+class procedure TTestRunner.GetTestCasesAndNames(Method: TRttiMethod;
+  out Cases: TArray<TArray<TValue>>; out Names: TArray<string>);
+var
+  Attrs: TArray<TCustomAttribute>;
+  Attr: TCustomAttribute;
+  CaseList: IList<TArray<TValue>>;
+  NameList: IList<string>;
+  SourceType: TRttiType;
+  SourceMethod: TRttiMethod;
+  SourceResult: TValue;
+  SourceValues: TArray<TArray<TValue>>;
+  CaseVals: TArray<TValue>;
+
+  function NameFromValues(const AValues: TArray<TValue>): string;
+  var
+    V: TValue;
+    S: string;
+  begin
+    S := '';
+    for V in AValues do
+    begin
+      if S <> '' then
+        S := S + ', ';
+      S := S + V.ToString;
+    end;
+    Result := '(' + S + ')';
+  end;
+
+begin
+  CaseList := TCollections.CreateList<TArray<TValue>>;
+  NameList := TCollections.CreateList<string>;
+  Attrs := Method.GetAttributes;
+
+  // 1. [TestCase], in declaration order
+  for Attr in Attrs do
+    if Attr is TestCaseAttribute then
+    begin
+      CaseList.Add(TestCaseAttribute(Attr).Values);
+      if TestCaseAttribute(Attr).DisplayName <> '' then
+        NameList.Add(TestCaseAttribute(Attr).DisplayName)
+      else
+        NameList.Add(NameFromValues(TestCaseAttribute(Attr).Values));
+    end;
+
+  // 2. [TestCaseSource]: the source method runs once per run (it used to
+  //    run twice, once for the values and once for the names)
+  for Attr in Attrs do
+    if Attr is TestCaseSourceAttribute then
+    begin
+      if TestCaseSourceAttribute(Attr).SourceType <> nil then
+        SourceType := TReflection.Context.GetType(TestCaseSourceAttribute(Attr).SourceType)
+      else
+        SourceType := Method.Parent;
+      if not (SourceType is TRttiInstanceType) then
+        Continue;
+
+      SourceMethod := SourceType.GetMethod(TestCaseSourceAttribute(Attr).SourceMethodName);
+      if Assigned(SourceMethod) and SourceMethod.IsClassMethod then
+      begin
+        SourceResult := SourceMethod.Invoke(TRttiInstanceType(SourceType).MetaclassType, []);
+        if SourceResult.TryAsType<TArray<TArray<TValue>>>(SourceValues) then
+          for CaseVals in SourceValues do
+          begin
+            CaseList.Add(CaseVals);
+            NameList.Add(NameFromValues(CaseVals));
+          end;
+      end;
+    end;
+
+  Cases := CaseList.ToArray;
+  Names := NameList.ToArray;
+end;
+
+class procedure TTestRunner.GetRunCases(Method: TRttiMethod; Meta: TTestMethodMeta;
+  out Cases: TArray<TArray<TValue>>; out Names: TArray<string>);
+begin
+  if Meta.HasTestCases then
+    GetTestCasesAndNames(Method, Cases, Names)
   else
-    Result := '';
+  begin
+    // Parameterless test: one run with no arguments and no suffix
+    SetLength(Cases, 1);
+    SetLength(Names, 1);
+  end;
 end;
 
 class function TTestRunner.GetTimeout(Method: TRttiMethod): Integer;
@@ -1173,202 +1322,6 @@ begin
     Result := TimeoutAttr.Milliseconds
   else
     Result := 0; // No timeout
-end;
-
-class function TTestRunner.GetRepeatCount(Method: TRttiMethod): Integer;
-var
-  RepeatAttr: RepeatAttribute;
-begin
-  RepeatAttr := GetAttribute<RepeatAttribute>(Method.GetAttributes);
-  if Assigned(RepeatAttr) then
-    Result := RepeatAttr.Count
-  else
-    Result := 1;
-end;
-
-class function TTestRunner.GetMaxTime(Method: TRttiMethod): Integer;
-var
-  MaxTimeAttr: MaxTimeAttribute;
-begin
-  MaxTimeAttr := GetAttribute<MaxTimeAttribute>(Method.GetAttributes);
-  if Assigned(MaxTimeAttr) then
-    Result := MaxTimeAttr.Milliseconds
-  else
-    Result := 0;
-end;
-
-class function TTestRunner.GetPriority(Method: TRttiMethod): Integer;
-var
-  PriorityAttr: PriorityAttribute;
-begin
-  PriorityAttr := GetAttribute<PriorityAttribute>(Method.GetAttributes);
-  if Assigned(PriorityAttr) then
-    Result := PriorityAttr.Priority
-  else
-    Result := 999; // Default low priority
-end;
-
-class function TTestRunner.ShouldRunOnPlatform(Method: TRttiMethod): Boolean;
-var
-  PlatformAttr: PlatformAttribute;
-begin
-  PlatformAttr := GetAttribute<PlatformAttribute>(Method.GetAttributes);
-  if Assigned(PlatformAttr) then
-    Result := PlatformAttr.ShouldRun
-  else
-    Result := True; // No platform restriction
-end;
-
-class function TTestRunner.GetTestCases(Method: TRttiMethod): TArray<TArray<TValue>>;
-var
-  TestCaseAttrs: TArray<TestCaseAttribute>;
-  SourceAttrs: TArray<TestCaseSourceAttribute>;
-  Attr: TestCaseAttribute;
-  SourceAttr: TestCaseSourceAttribute;
-  List: IList<TArray<TValue>>;
-  SourceType: TRttiType;
-  SourceMethod: TRttiMethod;
-  SourceResult: TValue;
-  SourceValues: TArray<TArray<TValue>>;
-  V: TArray<TValue>;
-begin
-  TestCaseAttrs := GetAttributes<TestCaseAttribute>(Method.GetAttributes);
-  SourceAttrs := GetAttributes<TestCaseSourceAttribute>(Method.GetAttributes);
-
-  if (Length(TestCaseAttrs) = 0) and (Length(SourceAttrs) = 0) then
-  begin
-    // No test cases, return single empty array for parameterless execution
-    SetLength(Result, 1);
-    SetLength(Result[0], 0);
-    Exit;
-  end;
-
-  List := TCollections.CreateList<TArray<TValue>>;
-  try
-    // 1. [TestCase]
-    for Attr in TestCaseAttrs do
-      List.Add(Attr.Values);
-
-    // 2. [TestCaseSource]
-    for SourceAttr in SourceAttrs do
-    begin
-      if SourceAttr.SourceType <> nil then
-        SourceType := TReflection.Context.GetType(SourceAttr.SourceType)
-      else
-        SourceType := Method.Parent;
-
-      if SourceType = nil then Continue;
-
-      SourceMethod := SourceType.GetMethod(SourceAttr.SourceMethodName);
-      if Assigned(SourceMethod) and SourceMethod.IsClassMethod then
-      begin
-        // Invoke static method
-        if SourceType is TRttiInstanceType then
-          SourceResult := SourceMethod.Invoke(TRttiInstanceType(SourceType).MetaclassType, [])
-        else
-          Continue;
-
-        if SourceResult.TryAsType<TArray<TArray<TValue>>>(SourceValues) then
-        begin
-          for V in SourceValues do
-            List.Add(V);
-        end;
-      end;
-    end;
-
-    Result := List.ToArray;
-  finally
-    // List is ARC
-  end;
-end;
-
-class function TTestRunner.GetTestCaseDisplayNames(Method: TRttiMethod): TArray<string>;
-var
-  TestCaseAttrs: TArray<TestCaseAttribute>;
-  SourceAttrs: TArray<TestCaseSourceAttribute>;
-  Attr: TestCaseAttribute;
-  SourceAttr: TestCaseSourceAttribute;
-  List: IList<string>;
-  I: Integer;
-  Values: string;
-  V: TValue;
-  SourceType: TRttiType;
-  SourceMethod: TRttiMethod;
-  SourceResult: TValue;
-  SourceValues: TArray<TArray<TValue>>;
-  CaseVals: TArray<TValue>;
-begin
-  TestCaseAttrs := GetAttributes<TestCaseAttribute>(Method.GetAttributes);
-  SourceAttrs := GetAttributes<TestCaseSourceAttribute>(Method.GetAttributes);
-
-  if (Length(TestCaseAttrs) = 0) and (Length(SourceAttrs) = 0) then
-  begin
-    SetLength(Result, 1);
-    Result[0] := '';
-    Exit;
-  end;
-
-  List := TCollections.CreateList<string>;
-  try
-    // 1. [TestCase] - Legacy handling
-    for I := 0 to High(TestCaseAttrs) do
-    begin
-      Attr := TestCaseAttrs[I];
-      if Attr.DisplayName <> '' then
-        List.Add(Attr.DisplayName)
-      else
-      begin
-        // Generate display name from values
-        Values := '';
-        for V in Attr.Values do
-        begin
-          if Values <> '' then
-            Values := Values + ', ';
-          Values := Values + V.ToString;
-        end;
-        List.Add('(' + Values + ')');
-      end;
-    end;
-
-    // 2. [TestCaseSource] - Generate names from values
-    for SourceAttr in SourceAttrs do
-    begin
-      if SourceAttr.SourceType <> nil then
-        SourceType := TReflection.Context.GetType(SourceAttr.SourceType)
-      else
-        SourceType := Method.Parent;
-
-      if SourceType = nil then Continue;
-
-      SourceMethod := SourceType.GetMethod(SourceAttr.SourceMethodName);
-      if Assigned(SourceMethod) and SourceMethod.IsClassMethod then
-      begin
-        if SourceType is TRttiInstanceType then
-          SourceResult := SourceMethod.Invoke(TRttiInstanceType(SourceType).MetaclassType, [])
-        else
-          Continue;
-
-        if SourceResult.TryAsType<TArray<TArray<TValue>>>(SourceValues) then
-        begin
-          for CaseVals in SourceValues do
-          begin
-            Values := '';
-            for V in CaseVals do
-            begin
-              if Values <> '' then
-                Values := Values + ', ';
-              Values := Values + V.ToString;
-            end;
-            List.Add('(' + Values + ')');
-          end;
-        end;
-      end;
-    end;
-
-    Result := List.ToArray;
-  finally
-    // List is ARC
-  end;
 end;
 
 class procedure TTestRunner.RunAll;
@@ -1401,6 +1354,8 @@ begin
   // Execute global setup (if defined)
   ExecuteAssemblyInit;
 
+  // The global logger starts outside the clock: Duration measures the tests
+  Log.Initialize;
   Stopwatch := TStopwatch.StartNew;
   try
     for Fixture in FFixtures do
@@ -1454,6 +1409,8 @@ begin
   // Execute global setup (if defined)
   ExecuteAssemblyInit;
 
+  // The global logger starts outside the clock: Duration measures the tests
+  Log.Initialize;
   Stopwatch := TStopwatch.StartNew;
   try
     for Fixture in FFixtures do
@@ -1489,6 +1446,8 @@ begin
     Discover;
 
   FSummary.Reset;
+  // The global logger starts outside the clock: Duration measures the tests
+  Log.Initialize;
   Stopwatch := TStopwatch.StartNew;
 
   for Fixture in FFixtures do
@@ -1519,13 +1478,15 @@ class procedure TTestRunner.ExecuteFixture(Fixture: TTestFixtureInfo);
 var
   Instance: TObject;
   Method: TRttiMethod;
+  Meta: TTestMethodMeta;
   TestCases: TArray<TArray<TValue>>;
   DisplayNames: TArray<string>;
   I: Integer;
   Scope: IDisposable;
 begin
-  // Start Scope for Fixture
-  Scope := Log.Logger.BeginScope('Fixture {Fixture}', [Fixture.Name]);
+  // A log scope only when a sink would receive it (formatting + allocation)
+  if Log.HasSinks then
+    Scope := Log.Logger.BeginScope('Fixture {Fixture}', [Fixture.Name]);
   try
     NotifyFixtureStart(Fixture.Name, Fixture.TestMethods.Count);
     if Assigned(FOnFixtureStart) then
@@ -1545,10 +1506,10 @@ begin
     begin
       for Method in Fixture.TestMethods do
       begin
-        TestCases := GetTestCases(Method);
-        DisplayNames := GetTestCaseDisplayNames(Method);
+        Meta := Fixture.Meta(Method);
+        GetRunCases(Method, Meta, TestCases, DisplayNames);
         for I := 0 to High(TestCases) do
-          ExecuteTest(Fixture, Method, nil, TestCases[I], DisplayNames[I]);
+          ExecuteTest(Fixture, Method, Meta, nil, TestCases[I], DisplayNames[I]);
       end;
       Exit;
     end;
@@ -1581,10 +1542,10 @@ begin
       // Execute each test method
       for Method in Fixture.TestMethods do
       begin
-        TestCases := GetTestCases(Method);
-        DisplayNames := GetTestCaseDisplayNames(Method);
+        Meta := Fixture.Meta(Method);
+        GetRunCases(Method, Meta, TestCases, DisplayNames);
         for I := 0 to High(TestCases) do
-          ExecuteTest(Fixture, Method, Instance, TestCases[I], DisplayNames[I]);
+          ExecuteTest(Fixture, Method, Meta, Instance, TestCases[I], DisplayNames[I]);
       end;
 
       // AfterAll (class-level cleanup)
@@ -1613,29 +1574,24 @@ begin
       FOnFixtureComplete(Fixture.Name);
 
   finally
-    Scope.Dispose;
+    if Scope <> nil then
+      Scope.Dispose;
   end;
 end;
 
 class procedure TTestRunner.ExecuteTest(Fixture: TTestFixtureInfo;
-  Method: TRttiMethod; Instance: TObject;
+  Method: TRttiMethod; Meta: TTestMethodMeta; Instance: TObject;
   const TestCaseValues: TArray<TValue>;
   const TestCaseDisplayName: string);
 var
   Info: TTestInfo;
   Stopwatch: TStopwatch;
-  IgnoreReason: string;
-  RepeatCount, I: Integer;
-  Categories: TArray<string>;
-  MaxTime: Integer;
-  TimeoutMs: Integer;
+  I: Integer;
   Abandoned: Boolean;
   Body: TProc;
   TestContext: ITestContext;
   InvokeArgs: TArray<TValue>;
-  Params: TArray<TRttiParameter>;
   P: Integer;
-  NeedsContext: Boolean;
   Scope: IDisposable;
 begin
   Info.FixtureName := Fixture.Name;
@@ -1645,15 +1601,15 @@ begin
   Info.DisplayName := Method.Name;
   if TestCaseDisplayName <> '' then
     Info.DisplayName := Info.DisplayName + TestCaseDisplayName;
-  Info.Categories := GetCategories(Method, Fixture.FixtureClass);
+  Info.Categories := Meta.Categories;
   Info.CodeAddress := Method.CodeAddress;
-  Categories := Info.Categories;
 
-  // Logging Instrumentation
-  Scope := Log.Logger.BeginScope('Test {Test}', [Info.DisplayName]);
+  // Logging Instrumentation (only when a sink would receive it)
+  if Log.HasSinks then
+    Scope := Log.Logger.BeginScope('Test {Test}', [Info.DisplayName]);
   try
     // Check if test matches filter
-    if not FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName, Fixture.Name, Method.Name, Categories, IsExplicit(Method), FSelectedTests) then
+    if not FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName, Fixture.Name, Method.Name, Meta.Categories, Meta.IsExplicit, FSelectedTests) then
     begin
       // Skip reporting for speed. The IDE will count these as 'not run' or 'skipped' based on NotifyRunStart(ActiveCount).
       Exit;
@@ -1662,11 +1618,10 @@ begin
     FSummary.TotalTests := FSummary.TotalTests + 1;
 
     // Check ignore
-    IgnoreReason := GetIgnoreReason(Method);
-    if IgnoreReason <> '' then
+    if Meta.IgnoreReason <> '' then
     begin
       Info.Result := trSkipped;
-      Info.ErrorMessage := IgnoreReason;
+      Info.ErrorMessage := Meta.IgnoreReason;
       FSummary.Skipped := FSummary.Skipped + 1;
       PrintResultChar(trSkipped);
       PrintTestResult(Info);
@@ -1698,7 +1653,7 @@ begin
       FOnTestStart(Info.UnitName, Info.ClassName, Info.DisplayName);
 
     // Check platform
-    if not ShouldRunOnPlatform(Method) then
+    if not Meta.RunsOnPlatform then
     begin
       Info.Result := trSkipped;
       Info.ErrorMessage := 'Platform not supported';
@@ -1711,11 +1666,7 @@ begin
       Exit;
     end;
 
-    // Repeat count
-    RepeatCount := GetRepeatCount(Method);
-    TimeoutMs := GetTimeout(Method);
-
-    for I := 1 to RepeatCount do
+    for I := 1 to Meta.RepeatCount do
     begin
       // Each repetition is reported as a test of its own
       if I > 1 then
@@ -1733,22 +1684,8 @@ begin
           InvokeLifecycle(Fixture.SetupMethod, Instance, Fixture.FixtureClass);
 
         try
-          // Check if method needs ITestContext injection
-          Params := Method.GetParameters;
-          NeedsContext := False;
-          for P := 0 to High(Params) do
-          begin
-            if (Params[P].ParamType <> nil) and
-               (Params[P].ParamType.TypeKind = tkInterface) and
-               (Params[P].ParamType.Name = 'ITestContext') then
-            begin
-              NeedsContext := True;
-              Break;
-            end;
-          end;
-
-          // Build invoke arguments
-          if NeedsContext then
+          // Build invoke arguments (ITestContext injected when declared)
+          if Meta.NeedsContext then
           begin
             TestContext := TTestContext.Create(Fixture.Name, Info.DisplayName);
             SetLength(InvokeArgs, Length(TestCaseValues) + 1);
@@ -1759,13 +1696,13 @@ begin
           else
             InvokeArgs := TestCaseValues;
 
-          if TimeoutMs > 0 then
+          if Meta.TimeoutMs > 0 then
           begin
             Body := procedure
               begin
                 Method.Invoke(Instance, InvokeArgs);
               end;
-            RunWithTimeout(Body, TimeoutMs, Abandoned);
+            RunWithTimeout(Body, Meta.TimeoutMs, Abandoned);
           end
           else
             Method.Invoke(Instance, InvokeArgs);
@@ -1773,11 +1710,10 @@ begin
           Info.Result := trPassed;
 
           // Check MaxTime warning
-          MaxTime := GetMaxTime(Method);
-          if (MaxTime > 0) and (Stopwatch.ElapsedMilliseconds > MaxTime) then
+          if (Meta.MaxTime > 0) and (Stopwatch.ElapsedMilliseconds > Meta.MaxTime) then
           begin
             Info.ErrorMessage := Format('Test passed but exceeded MaxTime (%dms > %dms)',
-              [Stopwatch.ElapsedMilliseconds, MaxTime]);
+              [Stopwatch.ElapsedMilliseconds, Meta.MaxTime]);
             Log.Warn('Test exceeded MaxTime: %s', [Info.ErrorMessage]);
           end;
         finally
@@ -1827,7 +1763,8 @@ begin
         FOnTestComplete(Info);
     end;
   finally
-    Scope.Dispose;
+    if Scope <> nil then
+      Scope.Dispose;
   end;
 end;
 
@@ -1978,12 +1915,14 @@ end;
 class function TTestRunner.GetActiveTestCount(Fixture: TTestFixtureInfo): Integer;
 var
   Method: TRttiMethod;
+  Meta: TTestMethodMeta;
 begin
   Result := 0;
   for Method in Fixture.TestMethods do
   begin
-    if FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName, 
-       Fixture.Name, Method.Name, GetCategories(Method, Fixture.FixtureClass), IsExplicit(Method), FSelectedTests) then
+    Meta := Fixture.Meta(Method);
+    if FFilter.Matches(Fixture.FixtureClass.UnitName, Fixture.FixtureClass.ClassName,
+       Fixture.Name, Method.Name, Meta.Categories, Meta.IsExplicit, FSelectedTests) then
       Inc(Result);
   end;
 end;
