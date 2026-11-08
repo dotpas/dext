@@ -1,6 +1,33 @@
 {***************************************************************************}
+{                                                                           }
 {           Dext Framework                                                  }
+{                                                                           }
 {           Copyright (C) 2025 Cesar Romero & Dext Contributors             }
+{                                                                           }
+{           Licensed under the Apache License, Version 2.0 (the "License"); }
+{           you may not use this file except in compliance with the License.}
+{           You may obtain a copy of the License at                         }
+{                                                                           }
+{               http://www.apache.org/licenses/LICENSE-2.0                  }
+{                                                                           }
+{           Unless required by applicable law or agreed to in writing,      }
+{           software distributed under the License is distributed on an     }
+{           "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,    }
+{           either express or implied. See the License for the specific     }
+{           language governing permissions and limitations under the        }
+{           License.                                                        }
+{                                                                           }
+{***************************************************************************}
+{                                                                           }
+{  Author:  Cesar Romero                                                    }
+{  Created: 2026-01-28                                                      }
+{                                                                           }
+{  Dext.Logging.Global - Application-wide logger (Log.Info, Log.Error...)   }
+{                                                                           }
+{  Lazily creates a TAsyncLoggerFactory on first use. Console sink outside  }
+{  test runs; the Sidecar sink only when configured explicitly              }
+{  (DEXT_SIDECAR_ENABLED=true or TSidecarOptions.Enabled).                  }
+{                                                                           }
 {***************************************************************************}
 unit Dext.Logging.Global;
 
@@ -29,6 +56,7 @@ type
     class var FFactory: TAsyncLoggerFactory;
     class var FMetricsExporter: TThread;
     class var FMetricsObserver: ITelemetryObserver;
+    class var FFinalized: Boolean;
     class function GetLogger: ILogger; static;
   public
     class constructor Create;
@@ -51,6 +79,12 @@ type
     ///   would receive them. Does not initialize the logger.
     /// </summary>
     class function HasSinks: Boolean;
+
+    /// <summary>
+    ///   Entries below ALevel are discarded before being formatted. The
+    ///   default is Information. Initializes the logger if needed.
+    /// </summary>
+    class procedure SetMinimumLevel(ALevel: TLogLevel);
     
     /// <summary>
     ///   Access the global logger instance.
@@ -90,16 +124,88 @@ uses
   Dext.Utils,
   Dext;
 
+type
+  /// <summary>Scope returned by the null logger: does nothing.</summary>
+  TNullScope = class(TInterfacedObject, IDisposable)
+  public
+    procedure Dispose;
+  end;
+
+  /// <summary>
+  ///   Logger handed out after the unit finalized: a late Log.Info (from the
+  ///   finalization of another unit, or a thread still running) is ignored
+  ///   instead of touching the freed pipeline.
+  /// </summary>
+  TNullLogger = class(TAbstractLogger)
+  protected
+    procedure Log(ALevel: TLogLevel; const AMessage: string; const AArgs: array of const); override;
+    procedure Log(ALevel: TLogLevel; const AException: Exception; const AMessage: string; const AArgs: array of const); override;
+    function IsEnabled(ALevel: TLogLevel): Boolean; override;
+    function BeginScope(const AMessage: string; const AArgs: array of const): IDisposable; override;
+    function BeginScope(const AState: TObject): IDisposable; override;
+  end;
+
+{ TNullScope }
+
+procedure TNullScope.Dispose;
+begin
+end;
+
+{ TNullLogger }
+
+procedure TNullLogger.Log(ALevel: TLogLevel; const AMessage: string; const AArgs: array of const);
+begin
+end;
+
+procedure TNullLogger.Log(ALevel: TLogLevel; const AException: Exception; const AMessage: string; const AArgs: array of const);
+begin
+end;
+
+function TNullLogger.IsEnabled(ALevel: TLogLevel): Boolean;
+begin
+  Result := False;
+end;
+
+function TNullLogger.BeginScope(const AMessage: string; const AArgs: array of const): IDisposable;
+begin
+  Result := TNullScope.Create;
+end;
+
+function TNullLogger.BeginScope(const AState: TObject): IDisposable;
+begin
+  Result := TNullScope.Create;
+end;
+
+var
+  // Not an interface variable on purpose: it must outlive the finalization
+  // of this unit. One extra reference keeps it alive; it is registered as an
+  // expected leak so FastMM does not report it.
+  GNullLogger: TNullLogger;
+
 { Log }
 
 class constructor Log.Create;
 begin
   FLogger := nil;
   FFactory := nil;
+  FFinalized := False;
+  if GNullLogger = nil then
+  begin
+    GNullLogger := TNullLogger.Create;
+    GNullLogger._AddRef;
+    {$IFDEF MSWINDOWS}
+    {$WARN SYMBOL_PLATFORM OFF} // the leak report this silences is Windows-only
+    RegisterExpectedMemoryLeak(GNullLogger);
+    {$WARN SYMBOL_PLATFORM ON}
+    {$ENDIF}
+  end;
 end;
 
 class destructor Log.Destroy;
 begin
+  // From here on Log answers with a null logger and never rebuilds the
+  // pipeline (units finalized after this one may still call Log.*)
+  FFinalized := True;
   FLogger := nil;
   
   if FMetricsExporter <> nil then
@@ -121,6 +227,7 @@ begin
   begin
     FFactory.Dispose;
     FFactory.Free;
+    FFactory := nil;
   end;
 end;
 
@@ -134,7 +241,8 @@ var
   Options: IOptions<TSidecarOptions>;
   Enabled: Boolean;
 begin
-  if FFactory <> nil then Exit; // Already initialized
+  if FFinalized or (FFactory <> nil) then
+    Exit; // already initialized, or the unit is finalizing
 
   FFactory := TAsyncLoggerFactory.Create;
   
@@ -204,7 +312,8 @@ class procedure Log.AddSink(const ASink: ILogSink);
 begin
   if FFactory = nil then
     Initialize;
-  FFactory.AddSink(ASink);
+  if FFactory <> nil then
+    FFactory.AddSink(ASink);
 end;
 
 class function Log.HasSinks: Boolean;
@@ -212,11 +321,21 @@ begin
   Result := (FFactory <> nil) and FFactory.HasSinks;
 end;
 
+class procedure Log.SetMinimumLevel(ALevel: TLogLevel);
+begin
+  if FFactory = nil then
+    Initialize;
+  if FFactory <> nil then
+    FFactory.SetMinimumLevel(ALevel);
+end;
+
 class function Log.GetLogger: ILogger;
 begin
   if FLogger = nil then
     Initialize;
   Result := FLogger;
+  if Result = nil then
+    Result := GNullLogger; // only after finalization: ignores everything
 end;
 
 class procedure Log.Trace(const AMessage: string);

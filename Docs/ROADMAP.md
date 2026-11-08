@@ -22,6 +22,7 @@ Status | Task | Spec | Description
 Status | Task | Spec | Description
 :---: | :--- | :---: | :---
 ✅ | **High-Perf Reflection** | [S07](Specs/S07-High-Perf-Reflection.md) | Thread-safe RTTI cache with lock-free fast paths, zero-boxing type handlers, and ISO 8601 date binding.
+✅ | **Async Logging Pipeline** | [S77](Specs/S77-Async-Logging-Pipeline.md) | Sidecar off by default (no 4 s probe), Vyukov MPSC queue, event-based consumer (no polling), honoured minimum level, drop reporting; test runner reads attributes once.
 ✅ | **Advanced Scaffolding** | [S01](Specs/S01-Advanced-Scaffolding.md) | New CLI template engine (`dext new`, `dext add`).
 ✅ | **Template Engine** | [S09](Specs/S09-Template-Engine.md) | Zero-dependency AST-based template engine (Razor-like).
 ✅ | **Advanced Template Engine** | [S12](Specs/S12-Template-Engine-Advanced.md) | Phases 1-6 complete: layouts, partials, inheritance, AST cache, smart positions, @encoded, and high-performance TDataSet/Streaming iterators.
@@ -101,6 +102,7 @@ Status | Tarefa | Spec | Descrição
 Status | Tarefa | Spec | Descrição
 :---: | :--- | :---: | :---
 ✅ | **High-Perf Reflection** | [S07](Specs/S07-High-Perf-Reflection.md) | Cache de RTTI thread-safe com fast paths lock-free, handlers sem boxing e binding ISO 8601.
+✅ | **Pipeline de Log Assíncrono** | [S77](Specs/S77-Async-Logging-Pipeline.md) | Sidecar desligado por padrão (sem a espera de 4 s), fila MPSC de Vyukov, consumidor acordado por evento (sem polling), nível mínimo respeitado, aviso de descartes; o runner de testes lê os atributos uma vez.
 ✅ | **Scaffolding Avançado** | [S01](Specs/S01-Advanced-Scaffolding.md) | Novo motor de templates CLI (`dext new`, `dext add`).
 ✅ | **Motor de Templates** | [S09](Specs/S09-Template-Engine.md) | Motor de templates baseado em AST, zero dependência (estilo Razor).
 ✅ | **Motor de Templates Avançado** | [S12](Specs/S12-Template-Engine-Advanced.md) | Fases 1-6 completas: layouts, partials, herança, cache de AST, posições inteligentes, @encoded e iteradores TDataSet/Streaming de alta performance.

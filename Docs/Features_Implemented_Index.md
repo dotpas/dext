@@ -163,6 +163,7 @@ See the **[Delphi Compatibility Matrix](Delphi_Compatibility_Matrix.md)** for fe
 - **TOTLPTelemetrySink** — OpenTelemetry (OTLP/HTTP JSON) telemetry sink for exporting Logs to OTel collectors (SigNoz, Datadog).
 - **TTelemetrySinkRegistry** — Pluggable sink creator registry decoupling circular dependencies between package layers.
 - **Fluent Logging Builders** — Startup extensions supporting `AddSeq()` and `AddOpenTelemetry()` with custom batching and service settings.
+- **Async Pipeline (S77)** (`Dext.Logging.Async`, `Dext.Logging.RingBuffer`) — Bounded MPSC queue with per-slot sequence (Vyukov), event-based consumer (no polling, wake-up in tens of µs), minimum level and no-sink fast path before formatting, `TLogEntry.Category`, drop counter reported to the sinks (`TAsyncLoggerFactory.Dropped`). Global `Log.SetMinimumLevel` / `Log.HasSinks`. Sidecar sink off by default (`DEXT_SIDECAR_ENABLED=true`).
 
 ### 1.13 I/O Writers (`Dext.Core.Writers`)
 - **IDextWriter** — Thread-safe abstraction for framework output. Implementations: `TConsoleWriter` (stdout), `TWindowsDebugWriter` (OutputDebugString with buffering), `TStringsWriter` (TStringList/TMemo), `TNullWriter` (silent).

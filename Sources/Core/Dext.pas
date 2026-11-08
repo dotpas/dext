@@ -55,8 +55,10 @@ uses
   Dext.Hosting.BackgroundService,
   Dext.Json,
   Dext.Json.Types,
+  Dext.Logging.Async,
   Dext.Logging.Console,
   Dext.Logging.Extensions,
+  Dext.Logging.RingBuffer,
   Dext.Logging,
   Dext.Mapper,
   Dext.MultiTenancy,
@@ -332,6 +334,17 @@ type
   TAbstractLogger = Dext.Logging.TAbstractLogger;
   TAggregateLogger = Dext.Logging.TAggregateLogger;
   TLoggerFactory = Dext.Logging.TLoggerFactory;
+
+  // Dext.Logging.Async
+  ILogSink = Dext.Logging.Async.ILogSink;
+  TAsyncLogState = Dext.Logging.Async.TAsyncLogState;
+  TAsyncLogger = Dext.Logging.Async.TAsyncLogger;
+  TAsyncLoggerFactory = Dext.Logging.Async.TAsyncLoggerFactory;
+
+  // Dext.Logging.RingBuffer
+  TLogEntry = Dext.Logging.RingBuffer.TLogEntry;
+  PLogEntry = Dext.Logging.RingBuffer.PLogEntry;
+  TRingBuffer = Dext.Logging.RingBuffer.TRingBuffer;
 
   // Dext.Logging.Console
   TConsoleLogger = Dext.Logging.Console.TConsoleLogger;

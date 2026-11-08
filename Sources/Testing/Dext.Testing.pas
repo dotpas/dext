@@ -207,6 +207,7 @@ type
   ITestListener = Dext.Testing.Runner.ITestListener;
   TOutputFormat = Dext.Testing.Runner.TOutputFormat;
   TTestFixtureInfo = Dext.Testing.Runner.TTestFixtureInfo;
+  TTestMethodMeta = Dext.Testing.Runner.TTestMethodMeta;
   ITestContext = Dext.Testing.Runner.ITestContext;
   TTestContext = Dext.Testing.Runner.TTestContext;
   TTestConsole = Dext.Testing.Runner.TTestConsole;

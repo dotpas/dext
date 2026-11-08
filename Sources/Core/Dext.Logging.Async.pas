@@ -1,10 +1,38 @@
-{***************************************************************************}
+﻿{***************************************************************************}
 {                                                                           }
 {           Dext Framework                                                  }
 {                                                                           }
 {           Copyright (C) 2025 Cesar Romero & Dext Contributors             }
 {                                                                           }
+{           Licensed under the Apache License, Version 2.0 (the "License"); }
+{           you may not use this file except in compliance with the License.}
+{           You may obtain a copy of the License at                         }
+{                                                                           }
+{               http://www.apache.org/licenses/LICENSE-2.0                  }
+{                                                                           }
+{           Unless required by applicable law or agreed to in writing,      }
+{           software distributed under the License is distributed on an     }
+{           "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,    }
+{           either express or implied. See the License for the specific     }
+{           language governing permissions and limitations under the        }
+{           License.                                                        }
+{                                                                           }
 {***************************************************************************}
+{                                                                           }
+{  Author:  Cesar Romero                                                    }
+{  Created: 2026-01-28                                                      }
+{                                                                           }
+{  Dext.Logging.Async - Asynchronous logging pipeline                       }
+{                                                                           }
+{  TAsyncLogger formats the message on the caller's thread and publishes    }
+{  it to a TRingBuffer; one TLogConsumerThread hands the entries to the     }
+{  sinks. The consumer sleeps on an event while the queue is empty (no      }
+{  polling), honours the factory's minimum level and reports the entries    }
+{  dropped when the queue was full. With no sink registered, a log call     }
+{  returns before formatting anything.                                      }
+{                                                                           }
+{***************************************************************************}
+
 unit Dext.Logging.Async;
 
 interface
@@ -19,141 +47,241 @@ uses
   Dext.Logging.RingBuffer,
   Dext.Telemetry.Context;
 
+const
+  /// <summary>Queue size of TAsyncLoggerFactory: 2^16 = 65,536 entries.</summary>
+  ASYNC_LOG_QUEUE_POWER = 16;
+  /// <summary>
+  ///   Longest sleep of the idle consumer. A safety net only: producers wake
+  ///   it through an event, so an idle process wakes once per second.
+  /// </summary>
+  ASYNC_LOG_IDLE_TIMEOUT_MS = 1000;
+  /// <summary>
+  ///   Rounds of a short busy-wait (CPU "pause") the consumer does before it
+  ///   sleeps: about 50 us. In a steady stream the next entry usually comes
+  ///   within it, and the producer is spared a SetEvent and a thread wake-up.
+  /// </summary>
+  ASYNC_LOG_SPIN_ROUNDS = 200;
+
 type
   /// <summary>
   ///   Consumer interface for log entries.
   /// </summary>
   ILogSink = interface
     ['{D1E2F3A4-B5C6-7890-1234-567890ABCDEF}']
+    /// <summary>Receives one entry, on the consumer thread.</summary>
     procedure Emit(const Entry: TLogEntry);
+    /// <summary>Writes what the sink buffered (called when the pipeline stops).</summary>
     procedure Flush;
   end;
 
   /// <summary>
-  ///   Logger implementation that pushes to a RingBuffer.
+  ///   State shared by a factory and its loggers, read on every log call
+  ///   without locks: the minimum level and how many sinks are registered.
+  /// </summary>
+  TAsyncLogState = class
+  private
+    FMinimumLevel: Integer;
+    FSinkCount: Integer;
+    function GetMinimumLevel: TLogLevel;
+    function GetSinkCount: Integer;
+  public
+    constructor Create;
+    /// <summary>Changes the minimum level seen by every logger of the factory.</summary>
+    procedure SetMinimumLevel(ALevel: TLogLevel);
+    /// <summary>True when ALevel passes the minimum level and a sink would receive it.</summary>
+    function Accepts(ALevel: TLogLevel): Boolean; inline;
+    property MinimumLevel: TLogLevel read GetMinimumLevel;
+    property SinkCount: Integer read GetSinkCount;
+  end;
+
+  /// <summary>
+  ///   Logger that formats on the caller's thread and publishes to a
+  ///   TRingBuffer. Never blocks: a full queue drops (and counts) the entry.
   /// </summary>
   TAsyncLogger = class(TAbstractLogger)
   private
     FCategory: string;
     FBuffer: TRingBuffer;
+    FState: TAsyncLogState;
   protected
     procedure Log(ALevel: TLogLevel; const AMessage: string; const AArgs: array of const); override;
     procedure Log(ALevel: TLogLevel; const AException: Exception; const AMessage: string; const AArgs: array of const); override;
-    
+
     function IsEnabled(ALevel: TLogLevel): Boolean; override;
-    
+
     function BeginScope(const AMessage: string; const AArgs: array of const): IDisposable; override;
     function BeginScope(const AState: TObject): IDisposable; override;
   public
-    constructor Create(const ACategory: string; ABuffer: TRingBuffer);
+    /// <summary>
+    ///   Creates a logger for ACategory. AState (owned by the factory) gives
+    ///   the minimum level and the sink count; without it every level is
+    ///   accepted.
+    /// </summary>
+    constructor Create(const ACategory: string; ABuffer: TRingBuffer;
+      AState: TAsyncLogState = nil);
   end;
 
   /// <summary>
-  ///   Background thread that consumes logs from RingBuffer and dispatches to Sinks.
+  ///   Background thread that takes entries from the TRingBuffer and hands
+  ///   them to the sinks. Sleeps on the buffer's event while it is empty.
   /// </summary>
   TLogConsumerThread = class(TThread)
   private
     FBuffer: TRingBuffer;
+    FState: TAsyncLogState;
+    FOwnsState: Boolean;
     FSinks: IList<ILogSink>;
     FLock: TObject;
-    FShutdownEvent: TEvent;
-    
+    FReportedDropped: Integer;
+
+    function DrainBatch: Integer;
     procedure DispatchEntry(const Entry: TLogEntry);
+    procedure ReportDropped;
+    function SpinForData: Boolean;
   protected
     procedure Execute; override;
   public
-    constructor Create(ABuffer: TRingBuffer);
+    /// <summary>Creates the (suspended) consumer of ABuffer.</summary>
+    constructor Create(ABuffer: TRingBuffer; AState: TAsyncLogState = nil);
     destructor Destroy; override;
-    
+
+    /// <summary>Registers a sink. Thread-safe.</summary>
     procedure AddSink(const ASink: ILogSink);
+    /// <summary>Unregisters a sink. Thread-safe.</summary>
     procedure RemoveSink(const ASink: ILogSink);
+    /// <summary>True when at least one sink is registered.</summary>
     function HasSinks: Boolean;
+    /// <summary>
+    ///   Dispatches what is already queued, reports drops, flushes the sinks
+    ///   and ends the thread. Safe to call more than once.
+    /// </summary>
     procedure Stop;
   end;
 
   /// <summary>
-  ///   Factory that coordinates the Async Logging Pipeline.
-  ///   Replaces the standard TLoggerFactory.
+  ///   Factory that coordinates the async logging pipeline: one queue, one
+  ///   consumer thread and the loggers created from it.
   /// </summary>
   TAsyncLoggerFactory = class(TInterfacedObject, ILoggerFactory)
   private
     FBuffer: TRingBuffer;
     FConsumer: TLogConsumerThread;
-    FMinimumLevel: TLogLevel;
+    FState: TAsyncLogState;
+    function GetDropped: Integer;
+    function GetMinimumLevel: TLogLevel;
   public
     constructor Create;
     destructor Destroy; override;
 
+    /// <summary>Creates a logger whose entries carry ACategoryName.</summary>
     function CreateLogger(const ACategoryName: string): ILogger;
-    procedure AddProvider(const AProvider: ILoggerProvider); // Adapts provider to Sink?
-    procedure AddSink(const ASink: ILogSink); // Native method
+    /// <summary>Not supported in async mode (sinks replace providers); ignored.</summary>
+    procedure AddProvider(const AProvider: ILoggerProvider);
+    /// <summary>Registers a sink on the consumer thread.</summary>
+    procedure AddSink(const ASink: ILogSink);
     /// <summary>True when at least one sink receives the entries.</summary>
     function HasSinks: Boolean;
+    /// <summary>Stops the consumer after it dispatches what is queued.</summary>
     procedure Dispose;
-    
+    /// <summary>Entries below ALevel are discarded before formatting.</summary>
     procedure SetMinimumLevel(ALevel: TLogLevel);
+
+    property MinimumLevel: TLogLevel read GetMinimumLevel;
+    /// <summary>Entries dropped because the queue was full.</summary>
+    property Dropped: Integer read GetDropped;
   end;
 
 implementation
 
+{ TAsyncLogState }
+
+constructor TAsyncLogState.Create;
+begin
+  inherited Create;
+  FMinimumLevel := Ord(TLogLevel.Information);
+  FSinkCount := 0;
+end;
+
+function TAsyncLogState.GetMinimumLevel: TLogLevel;
+begin
+  Result := TLogLevel(FMinimumLevel);
+end;
+
+function TAsyncLogState.GetSinkCount: Integer;
+begin
+  Result := FSinkCount;
+end;
+
+procedure TAsyncLogState.SetMinimumLevel(ALevel: TLogLevel);
+begin
+  TInterlocked.Exchange(FMinimumLevel, Ord(ALevel));
+end;
+
+function TAsyncLogState.Accepts(ALevel: TLogLevel): Boolean;
+begin
+  // Aligned Integer reads are atomic; a stale value only delays a change by
+  // one call
+  Result := (Ord(ALevel) >= FMinimumLevel) and (FSinkCount > 0);
+end;
+
 { TAsyncLogger }
 
-constructor TAsyncLogger.Create(const ACategory: string; ABuffer: TRingBuffer);
+constructor TAsyncLogger.Create(const ACategory: string; ABuffer: TRingBuffer;
+  AState: TAsyncLogState);
 begin
   inherited Create;
   FCategory := ACategory;
   FBuffer := ABuffer;
+  FState := AState;
 end;
 
 function TAsyncLogger.IsEnabled(ALevel: TLogLevel): Boolean;
 begin
-  // Optimization: Could check global atomic level
-  Result := ALevel <> TLogLevel.None;
+  Result := (ALevel <> TLogLevel.None) and ((FState = nil) or FState.Accepts(ALevel));
 end;
 
 procedure TAsyncLogger.Log(ALevel: TLogLevel; const AMessage: string; const AArgs: array of const);
 var
   Entry: PLogEntry;
+  Position: Integer;
   Node: PScopeNode;
 begin
-  if not IsEnabled(ALevel) then Exit;
-  
-  if FBuffer.TryWrite(Entry) then
+  // Below the minimum level, or nobody listening: no formatting, no slot
+  if not IsEnabled(ALevel) then
+    Exit;
+
+  if not FBuffer.TryReserve(Position, Entry) then
+    Exit; // queue full: dropped and counted by the buffer
+
+  Entry.TimeStamp := Now;
+  Entry.Level := ALevel;
+  Entry.ThreadID := TThread.CurrentThread.ThreadID;
+  Entry.Category := FCategory;
+
+  Node := TraceContext.Current;
+  if Node <> nil then
   begin
-    Entry.SequenceId := 0; 
-    Entry.TimeStamp := Now;
-    Entry.Level := ALevel;
-    Entry.ThreadID := TThread.CurrentThread.ThreadID;
-    
-    // Capture Context
-    Node := TraceContext.Current;
-    if Node <> nil then
-    begin
-      Entry.TraceId := Node.TraceId;
-      Entry.SpanId := Node.SpanId;
-    end
-    else
-    begin
-      Entry.TraceId := TUUID.Empty;
-      Entry.SpanId := TUUID.Empty;
-    end;
-    
-    // Simplification for V1: Format immediately
-    Entry.FormattedMessage := TLogFormatter.FormatMessage(AMessage, AArgs);
-      
-    Entry.ScopeSnapshot := nil; // We don't need to keep node alive if we copied IDs? 
-                                // Actually, if we want full properies we might need to clone.
-                                // But for TraceId/SpanId we are good.
-    Entry.MessageTemplate := AMessage;
-    
-    Entry.IsReady := True; // Commit
+    Entry.TraceId := Node.TraceId;
+    Entry.SpanId := Node.SpanId;
+  end
+  else
+  begin
+    Entry.TraceId := TUUID.Empty;
+    Entry.SpanId := TUUID.Empty;
   end;
+
+  // The arguments point to the caller's stack: format here, not on the consumer
+  Entry.FormattedMessage := TLogFormatter.FormatMessage(AMessage, AArgs);
+  Entry.ScopeSnapshot := nil;
+  Entry.MessageTemplate := AMessage;
+
+  FBuffer.Publish(Position);
 end;
 
 procedure TAsyncLogger.Log(ALevel: TLogLevel; const AException: Exception; const AMessage: string; const AArgs: array of const);
 begin
-  if not IsEnabled(ALevel) then Exit;
-  // Similar to above, but formatting exception
+  if not IsEnabled(ALevel) then
+    Exit;
   if AException <> nil then
     Log(ALevel, AMessage + ' [Ex: ' + AException.Message + ']', AArgs)
   else
@@ -173,7 +301,6 @@ function TAsyncLogger.BeginScope(const AState: TObject): IDisposable;
 var
   Node: PScopeNode;
 begin
-  // Simpler scope
   Node := TraceContext.Push('ObjectScope', TUUID.Empty, TUUID.Empty);
   Node.State := AState;
   Result := TScopeGuard.Create(Node);
@@ -181,21 +308,26 @@ end;
 
 { TLogConsumerThread }
 
-constructor TLogConsumerThread.Create(ABuffer: TRingBuffer);
+constructor TLogConsumerThread.Create(ABuffer: TRingBuffer; AState: TAsyncLogState);
 begin
   inherited Create(True);
   FBuffer := ABuffer;
+  FState := AState;
+  FOwnsState := AState = nil;
+  if FOwnsState then
+    FState := TAsyncLogState.Create;
   FSinks := TCollections.CreateList<ILogSink>;
   FLock := TObject.Create;
-  FShutdownEvent := TEvent.Create;
   FreeOnTerminate := False;
 end;
 
 destructor TLogConsumerThread.Destroy;
 begin
+  Stop;
   FSinks := nil;
   FLock.Free;
-  FShutdownEvent.Free;
+  if FOwnsState then
+    FState.Free;
   inherited;
 end;
 
@@ -204,6 +336,7 @@ begin
   TMonitor.Enter(FLock);
   try
     FSinks.Add(ASink);
+    TInterlocked.Increment(FState.FSinkCount);
   finally
     TMonitor.Exit(FLock);
   end;
@@ -213,7 +346,8 @@ procedure TLogConsumerThread.RemoveSink(const ASink: ILogSink);
 begin
   TMonitor.Enter(FLock);
   try
-    FSinks.Remove(ASink);
+    if FSinks.Remove(ASink) then
+      TInterlocked.Decrement(FState.FSinkCount);
   finally
     TMonitor.Exit(FLock);
   end;
@@ -221,47 +355,112 @@ end;
 
 function TLogConsumerThread.HasSinks: Boolean;
 begin
+  Result := FState.SinkCount > 0;
+end;
+
+procedure TLogConsumerThread.Stop;
+begin
+  if Finished or not Started then
+    Exit;
+  Terminate;
+  FBuffer.Wake;
+  WaitFor;
+end;
+
+procedure TLogConsumerThread.DispatchEntry(const Entry: TLogEntry);
+var
+  i: Integer;
+begin
+  // Caller holds FLock
+  for i := 0 to FSinks.Count - 1 do
+  begin
+    try
+      FSinks[i].Emit(Entry);
+    except
+      // A failing sink must not stop the pipeline
+    end;
+  end;
+end;
+
+function TLogConsumerThread.DrainBatch: Integer;
+var
+  Entry: PLogEntry;
+begin
+  Result := 0;
+  if not FBuffer.TryPeek(Entry) then
+    Exit;
+  // One lock per batch, not per entry
   TMonitor.Enter(FLock);
   try
-    Result := FSinks.Count > 0;
+    repeat
+      DispatchEntry(Entry^);
+      FBuffer.Release;
+      Inc(Result);
+    until not FBuffer.TryPeek(Entry);
   finally
     TMonitor.Exit(FLock);
   end;
 end;
 
-procedure TLogConsumerThread.Stop;
+procedure TLogConsumerThread.ReportDropped;
+var
+  Dropped: Integer;
+  Entry: TLogEntry;
 begin
-  FShutdownEvent.SetEvent;
-  WaitFor;
+  Dropped := FBuffer.Dropped;
+  if Dropped = FReportedDropped then
+    Exit;
+  Entry := Default(TLogEntry);
+  Entry.TimeStamp := Now;
+  Entry.Level := TLogLevel.Warning;
+  Entry.ThreadID := TThread.CurrentThread.ThreadID;
+  Entry.Category := 'Dext.Logging';
+  Entry.MessageTemplate := '{Count} log entries dropped: the async queue was full';
+  Entry.FormattedMessage := Format('%d log entries dropped: the async queue was full',
+    [Dropped - FReportedDropped]);
+  FReportedDropped := Dropped;
+  TMonitor.Enter(FLock);
+  try
+    DispatchEntry(Entry);
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
+function TLogConsumerThread.SpinForData: Boolean;
+var
+  i: Integer;
+  Entry: PLogEntry;
+begin
+  for i := 1 to ASYNC_LOG_SPIN_ROUNDS do
+  begin
+    if FBuffer.TryPeek(Entry) or Terminated then
+      Exit(True);
+    TThread.SpinWait(20);
+  end;
+  Result := False;
 end;
 
 procedure TLogConsumerThread.Execute;
 var
-  Entry: TLogEntry;
-  WaitRes: TWaitResult;
+  Count: Integer;
 begin
-  while not Terminated do
+  while True do
   begin
-    if FBuffer.TryRead(Entry) then
-    begin
-      DispatchEntry(Entry);
-    end
-    else
-    begin
-      // If buffer empty, wait or sleep
-      // Check for shutdown
-      WaitRes := FShutdownEvent.WaitFor(1); // Sleep 1ms or wake on shutdown
-      if WaitRes = wrSignaled then
-      begin
-        // Drain buffer
-        while FBuffer.TryRead(Entry) do
-          DispatchEntry(Entry);
-        Terminate;
-      end;
-    end;
+    Count := DrainBatch;
+    // After a drain, so the warning lands next to the gap it explains
+    ReportDropped;
+    if Terminated then
+      Break;
+    // Sleep only when the stream really stopped
+    if (Count = 0) and not SpinForData then
+      FBuffer.WaitForData(ASYNC_LOG_IDLE_TIMEOUT_MS);
   end;
-  
-  // Final flush
+
+  // Entries published while we were stopping
+  DrainBatch;
+  ReportDropped;
+
   TMonitor.Enter(FLock);
   try
     FSinks.ForEach(
@@ -274,35 +473,15 @@ begin
   end;
 end;
 
-procedure TLogConsumerThread.DispatchEntry(const Entry: TLogEntry);
-var
-  I: Integer;
-begin
-  TMonitor.Enter(FLock);
-  try
-    for I := 0 to FSinks.Count - 1 do
-    begin
-      try
-        FSinks[I].Emit(Entry);
-      except
-        // Swallow sink errors to protect pipeline
-      end;
-    end;
-  finally
-    TMonitor.Exit(FLock);
-  end;
-end;
-
 { TAsyncLoggerFactory }
 
 constructor TAsyncLoggerFactory.Create;
 begin
   inherited Create;
-  // 65536 entries
-  FBuffer := TRingBuffer.Create(16); 
-  FConsumer := TLogConsumerThread.Create(FBuffer);
+  FState := TAsyncLogState.Create;
+  FBuffer := TRingBuffer.Create(ASYNC_LOG_QUEUE_POWER);
+  FConsumer := TLogConsumerThread.Create(FBuffer, FState);
   FConsumer.Start;
-  FMinimumLevel := TLogLevel.Information;
 end;
 
 destructor TAsyncLoggerFactory.Destroy;
@@ -310,6 +489,7 @@ begin
   Dispose;
   FConsumer.Free;
   FBuffer.Free;
+  FState.Free;
   inherited;
 end;
 
@@ -319,6 +499,11 @@ begin
     FConsumer.Stop;
 end;
 
+procedure TAsyncLoggerFactory.AddProvider(const AProvider: ILoggerProvider);
+begin
+  // Async mode routes to sinks (AddSink); providers are not wrapped
+end;
+
 procedure TAsyncLoggerFactory.AddSink(const ASink: ILogSink);
 begin
   FConsumer.AddSink(ASink);
@@ -326,25 +511,27 @@ end;
 
 function TAsyncLoggerFactory.HasSinks: Boolean;
 begin
-  Result := (FConsumer <> nil) and FConsumer.HasSinks;
-end;
-
-procedure TAsyncLoggerFactory.AddProvider(const AProvider: ILoggerProvider);
-begin
-  // Adaptation layer: If we must support ILoggerProvider, we need to wrap it?
-  // Or simply ignore it if we move to Sinks.
-  // For Dext compatibility, we might need to wrap.
-  // Ignoring for phase 1.
+  Result := FState.SinkCount > 0;
 end;
 
 function TAsyncLoggerFactory.CreateLogger(const ACategoryName: string): ILogger;
 begin
-  Result := TAsyncLogger.Create(ACategoryName, FBuffer);
+  Result := TAsyncLogger.Create(ACategoryName, FBuffer, FState);
+end;
+
+function TAsyncLoggerFactory.GetDropped: Integer;
+begin
+  Result := FBuffer.Dropped;
+end;
+
+function TAsyncLoggerFactory.GetMinimumLevel: TLogLevel;
+begin
+  Result := FState.MinimumLevel;
 end;
 
 procedure TAsyncLoggerFactory.SetMinimumLevel(ALevel: TLogLevel);
 begin
-  FMinimumLevel := ALevel;
+  FState.SetMinimumLevel(ALevel);
 end;
 
 end.

@@ -78,6 +78,43 @@ Services.AddLogging(
 > [!TIP]
 > O modo síncrono padrão já é extremamente eficiente devido ao buffering interno de 4KB. O modo Async é recomendado para cenários de throughput massivo ou onde latências de microsegundos são importantes.
 
+## O Pipeline Assíncrono e o `Log` Global
+
+O `.AddAsync` e o `Log` global (`Log.Info`, `Log.Error`...) usam o mesmo pipeline, cada um com sua fila e sua thread: quem chama formata a mensagem e a publica numa fila limitada (65.536 entradas); uma thread em segundo plano entrega as entradas aos sinks.
+
+- **Nível mínimo.** Entradas abaixo do nível mínimo são descartadas antes de a mensagem ser formatada. O padrão é `Information`. Com `AddLogging`, o nível vem de `Builder.SetMinimumLevel`; no logger global, use `Log.SetMinimumLevel(TLogLevel.Debug)`.
+- **Sem sink, sem trabalho.** Enquanto nenhum sink está registrado, `ILogger.IsEnabled` devolve `False` e a chamada de log retorna na hora. Execuções de teste não têm sink de console, então o log do framework não custa nada nelas.
+- **Sem polling.** O consumidor dorme num evento enquanto a fila está vazia, e o produtor só o acorda quando o encontra dormindo: um processo ocioso não gasta CPU com log, e uma entrada chega aos sinks em dezenas de microssegundos.
+- **Nunca bloqueia.** Com a fila cheia (um sink lento numa rajada), a entrada é descartada e contada. Os sinks recebem então um `Warning` da categoria `Dext.Logging`: "N log entries dropped: the async queue was full". `TAsyncLoggerFactory.Dropped` guarda o total.
+- **Categoria.** `TLogEntry.Category` traz o nome passado ao `CreateLogger`, para sinks que roteiam ou filtram por ela.
+- **Sidecar.** O sink do Sidecar vem desligado por padrão e só liga quando configurado (`DEXT_SIDECAR_ENABLED=true` ou `TSidecarOptions.Enabled`). Veja [Dext Dashboard (Sidecar)](../09-cli/dashboard.md).
+
+Um sink próprio implementa `ILogSink`. O `Emit` roda na thread consumidora, então seja breve ou repasse o trabalho:
+
+```pascal
+type
+  TCountingSink = class(TInterfacedObject, ILogSink)
+  private
+    FErrors: Integer;
+  public
+    procedure Emit(const Entry: TLogEntry);
+    procedure Flush;
+  end;
+
+procedure TCountingSink.Emit(const Entry: TLogEntry);
+begin
+  if Entry.Level >= TLogLevel.Error then
+    TInterlocked.Increment(FErrors);
+end;
+
+procedure TCountingSink.Flush;
+begin
+end;
+
+// Logger global
+Log.AddSink(TCountingSink.Create);
+```
+
 ## Utilizando o ILogger
 
 Para registrar mensagens, você deve solicitar a interface `ILogger` via Injeção de Dependência em seus controladores ou serviços:

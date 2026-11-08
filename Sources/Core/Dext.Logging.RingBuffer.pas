@@ -1,4 +1,4 @@
-{***************************************************************************}
+﻿{***************************************************************************}
 {                                                                           }
 {           Dext Framework                                                  }
 {                                                                           }
@@ -22,8 +22,27 @@
 {  Author:  Cesar Romero                                                    }
 {  Created: 2026-01-25                                                      }
 {                                                                           }
+{  Dext.Logging.RingBuffer - Bounded MPSC queue for async logging           }
+{                                                                           }
+{  Many producer threads, one consumer thread. Each slot carries its own    }
+{  sequence number (Dmitry Vyukov's bounded queue, the same idea as the     }
+{  LMAX Disruptor): a producer may write a slot only when the sequence      }
+{  equals its position, and publishes it by storing position + 1; the       }
+{  consumer reads it only when the sequence is position + 1 and frees it    }
+{  by storing position + Capacity. A slot from the previous lap can never   }
+{  be mistaken for a new one.                                               }
+{                                                                           }
+{  The consumer sleeps on an event when the queue is empty; a producer      }
+{  signals it only when it finds the consumer asleep, so a burst costs one  }
+{  SetEvent, not one per entry. When the queue is full the entry is         }
+{  dropped and counted: logging never blocks the caller.                    }
+{                                                                           }
 {***************************************************************************}
+
 unit Dext.Logging.RingBuffer;
+
+{$OVERFLOWCHECKS OFF} // positions and sequences wrap around on purpose
+{$RANGECHECKS OFF}
 
 interface
 
@@ -41,162 +60,263 @@ type
   PLogEntry = ^TLogEntry;
 
   /// <summary>
-  ///   Represents a single log event entry within the ring buffer.
+  ///   A single log event as the sinks receive it.
   /// </summary>
   TLogEntry = record
+    /// <summary>Position of the entry in the queue (monotonic, wraps at 2^32).</summary>
     SequenceId: Int64;
     TimeStamp: TDateTime;
     Level: TLogLevel;
     ThreadID: TThreadID;
-    
+    /// <summary>Category of the logger that wrote the entry (e.g. 'App').</summary>
+    Category: string;
+
     // Context
     TraceId: TUUID;
     SpanId: TUUID;
-    
-    ScopeSnapshot: IInterface; // Keep scope alive
-    MessageTemplate: string;   // Reference counted string
-    // Simplified args storage for now. To be zero-alloc, we'd need a byte buffer and manual serialization
-    // For Phase 1, we store the array as a dynamic structure or pointer?
-    // Delphi's "array of const" is tricky to store without copying.
-    // For V1, let's copy formatted string or args if possible.
-    // Ideally, we store the arguments to format later.
-    // But TVarRec contains pointers. Pointers to stack variables are dangerous in async!
-    // So we MUST copy the data.
-    // "Zero-alloc" usually implies a pre-allocated buffer where we copy bytes.
-    // For MVP, we will format the string inside the Producer (Log method) to be safe, 
-    // OR act as a synchronous sink if args are present, UNLESS we implement a deep copier.
-    // Architecture decision: For now, format message immediately if args are present, 
-    // unless we implement the complex Arg serializer.
-    FormattedMessage: string; 
-    
-    IsReady: Boolean; // Commit flag
+
+    ScopeSnapshot: IInterface;
+    MessageTemplate: string;
+    /// <summary>
+    ///   Message formatted by the producer. The arguments of an "array of
+    ///   const" point to the caller's stack, so they cannot cross threads.
+    /// </summary>
+    FormattedMessage: string;
   end;
 
-  // Alignment and padding to ensure cache line exclusivity
   /// <summary>
-  ///   Aligned pointers for the ring buffer to avoid false sharing.
+  ///   One slot of the queue: the entry and the sequence that says whose
+  ///   turn it is (producer: Sequence = position; consumer: position + 1).
+  /// </summary>
+  TLogSlot = record
+    Sequence: Integer;
+    Entry: TLogEntry;
+  end;
+
+  /// <summary>
+  ///   Producer and consumer positions on separate cache lines, so the
+  ///   producers' CAS on Head does not invalidate the consumer's Tail.
   /// </summary>
   TRingBufferPointers = record
-    Head: Int64; // Producer index
-    padding1: array[0..55] of Byte; 
-    Tail: Int64; // Consumer index
-    padding2: array[0..55] of Byte;
+    Head: Integer; // next position to reserve (producers)
+    Padding1: array[0..CACHE_LINE_SIZE - SizeOf(Integer) - 1] of Byte;
+    Tail: Integer; // next position to read (single consumer)
+    Padding2: array[0..CACHE_LINE_SIZE - SizeOf(Integer) - 1] of Byte;
   end;
 
   /// <summary>
-  ///   High-performance Single-Consumer Multi-Producer Ring Buffer.
+  ///   Bounded multi-producer, single-consumer queue of log entries with an
+  ///   event-based wake-up for the consumer.
   /// </summary>
   TRingBuffer = class
   private
-    FBuffer: TArray<TLogEntry>;
-    FMsk: Int64;
+    FSlots: TArray<TLogSlot>;
+    FMask: Integer;
+    FCapacity: Integer;
     FPointers: TRingBufferPointers;
-
+    FDropped: Integer;
+    FSleeping: Integer;
+    FWakeEvent: TEvent;
+    function GetDropped: Integer;
   public
+    /// <summary>Creates a queue with 2^SizePowerOfTwo slots (1 to 2^24).</summary>
     constructor Create(SizePowerOfTwo: Integer);
-    
+    destructor Destroy; override;
+
     /// <summary>
-    ///   Tries to reserve a slot for writing. Returns True if successful and provides a pointer to the slot.
-    ///   If buffer is full, returns False (Drop strategy).
+    ///   Reserves the next slot for writing. Returns False, and counts a
+    ///   drop, when the queue is full. After filling Entry the producer
+    ///   must call Publish(Position).
     /// </summary>
-    function TryWrite(out Entry: PLogEntry): Boolean;
-    
+    function TryReserve(out Position: Integer; out Entry: PLogEntry): Boolean;
+
     /// <summary>
-    ///   Tries to read the next entry. Returns True if data is available.
+    ///   Makes the reserved slot visible to the consumer and wakes it if it
+    ///   is waiting.
+    /// </summary>
+    procedure Publish(Position: Integer);
+
+    /// <summary>
+    ///   Consumer only. Points Entry at the next published entry without
+    ///   copying it. The consumer must call Release after using it.
+    /// </summary>
+    function TryPeek(out Entry: PLogEntry): Boolean;
+
+    /// <summary>
+    ///   Consumer only. Clears the entry returned by TryPeek (so its strings
+    ///   are freed now, not a lap later) and hands the slot back.
+    /// </summary>
+    procedure Release;
+
+    /// <summary>
+    ///   Consumer only. Copies the next published entry and releases its
+    ///   slot. Returns False when nothing is published yet.
     /// </summary>
     function TryRead(out Entry: TLogEntry): Boolean;
-    
-    property Capacity: Int64 read FMsk;
+
+    /// <summary>
+    ///   Consumer only. Sleeps until a producer publishes, Wake is called or
+    ///   TimeoutMs elapses. Returns at once if an entry is already waiting.
+    /// </summary>
+    procedure WaitForData(TimeoutMs: Cardinal);
+
+    /// <summary>Wakes the consumer (used to stop it).</summary>
+    procedure Wake;
+
+    /// <summary>Number of slots.</summary>
+    property Capacity: Integer read FCapacity;
+    /// <summary>Entries dropped because the queue was full.</summary>
+    property Dropped: Integer read GetDropped;
   end;
 
 implementation
 
-constructor TRingBuffer.Create(SizePowerOfTwo: Integer);
+/// <summary>
+///   Acquire load of a sequence. On x86/x64 an aligned 32-bit load is atomic
+///   and already has acquire semantics; ARM needs the explicit barrier. A
+///   locked CompareExchange here would take the cache line exclusively and
+///   make producer and consumer fight over it on every entry.
+/// </summary>
+function LoadAcquire(const Value: Integer): Integer; inline;
 begin
-  inherited Create;
-  if (SizePowerOfTwo < 0) or (SizePowerOfTwo > 30) then
-    raise EArgumentException.Create('Invalid size power');
-    
-  SetLength(FBuffer, 1 shl SizePowerOfTwo);
-  FMsk := Length(FBuffer) - 1;
-  FPointers.Head := 0;
-  FPointers.Tail := 0;
+  Result := Value;
+  {$IF defined(CPUARM) or defined(CPUARM64)}
+  MemoryBarrier;
+  {$ENDIF}
 end;
 
+{ TRingBuffer }
 
-
-function TRingBuffer.TryWrite(out Entry: PLogEntry): Boolean;
+constructor TRingBuffer.Create(SizePowerOfTwo: Integer);
 var
-  CurrentHead, NextHead, Cap, Tail: Int64;
+  i: Integer;
 begin
-  Cap := Length(FBuffer);
-  
-  // Optimistic CAS loop
-  repeat
-    CurrentHead := TInterlocked.Read(FPointers.Head);
-    
-    // Check if full (Head wraps around and "catches" Tail)
-    Tail := TInterlocked.Read(FPointers.Tail);
-    if (CurrentHead - Tail) >= Cap then
-    begin
-      Result := False; // Buffer Full
-      Exit;
-    end;
-    
-    NextHead := CurrentHead + 1;
-  until TInterlocked.CompareExchange(FPointers.Head, NextHead, CurrentHead) = CurrentHead;
+  inherited Create;
+  if (SizePowerOfTwo < 0) or (SizePowerOfTwo > 24) then
+    raise EArgumentException.Create('Invalid size power');
 
-  // Slot reserved
-  Entry := @FBuffer[CurrentHead and FMsk];
-  
-  // Important: The consumer must wait until we say "IsReady".
-  // Consumer logic will spin or check IsReady on the Tail index.
-  // Actually, standard RingBuffers often rely on Head/Tail only, but that only works for Single-Producer.
-  // For Multi-Producer, we have reserved the slot (index), but we haven't written data yet.
-  // If Consumer reads now, it sees garbage.
-  // Solution: "IsReady" flag or "Sequence" check.
-  // We use IsReady := False before returning pointer.
-  // CALLER is responsible for setting Entry.IsReady := True after writing.
-  // Since we are recycling slots, we need to be careful.
-  // Ideally, the slot should have a Sequence number.
-  
-  Entry.SequenceId := CurrentHead;
-  Entry.IsReady := False; 
-  
+  FCapacity := 1 shl SizePowerOfTwo;
+  FMask := FCapacity - 1;
+  SetLength(FSlots, FCapacity);
+  for i := 0 to FCapacity - 1 do
+    FSlots[i].Sequence := i; // slot i is free for position i
+  FPointers.Head := 0;
+  FPointers.Tail := 0;
+  FWakeEvent := TEvent.Create(nil, False, False, ''); // auto-reset
+end;
+
+destructor TRingBuffer.Destroy;
+begin
+  FWakeEvent.Free;
+  inherited;
+end;
+
+function TRingBuffer.GetDropped: Integer;
+begin
+  Result := LoadAcquire(FDropped);
+end;
+
+function TRingBuffer.TryReserve(out Position: Integer; out Entry: PLogEntry): Boolean;
+var
+  Pos, Seq, Dif: Integer;
+  Slot: ^TLogSlot;
+begin
+  Pos := FPointers.Head;
+  while True do
+  begin
+    Slot := @FSlots[Pos and FMask];
+    Seq := LoadAcquire(Slot.Sequence);
+    Dif := Seq - Pos;
+    if Dif = 0 then
+    begin
+      // The slot is free for this position: try to claim the position
+      if TInterlocked.CompareExchange(FPointers.Head, Pos + 1, Pos) = Pos then
+        Break;
+      Pos := FPointers.Head;
+    end
+    else if Dif < 0 then
+    begin
+      // The slot still holds the entry from the previous lap: queue full
+      TInterlocked.Increment(FDropped);
+      Exit(False);
+    end
+    else
+      Pos := FPointers.Head; // another producer took it; try the new head
+  end;
+
+  Position := Pos;
+  Entry := @Slot.Entry;
+  Entry.SequenceId := Pos;
   Result := True;
+end;
+
+procedure TRingBuffer.Publish(Position: Integer);
+begin
+  // Full barrier: the entry's fields are visible before the new sequence,
+  // and the sequence is visible before we read FSleeping below
+  TInterlocked.Exchange(FSlots[Position and FMask].Sequence, Position + 1);
+
+  if (FSleeping <> 0) and (TInterlocked.CompareExchange(FSleeping, 0, 1) = 1) then
+    FWakeEvent.SetEvent;
+end;
+
+function TRingBuffer.TryPeek(out Entry: PLogEntry): Boolean;
+var
+  Slot: ^TLogSlot;
+begin
+  Slot := @FSlots[FPointers.Tail and FMask];
+  if LoadAcquire(Slot.Sequence) <> FPointers.Tail + 1 then
+    Exit(False); // empty, or reserved but not published yet
+  Entry := @Slot.Entry;
+  Result := True;
+end;
+
+procedure TRingBuffer.Release;
+var
+  Pos: Integer;
+  Slot: ^TLogSlot;
+begin
+  Pos := FPointers.Tail;
+  Slot := @FSlots[Pos and FMask];
+  // Frees the strings now (not a lap later); the other fields are
+  // overwritten by the next producer
+  Slot.Entry.Category := '';
+  Slot.Entry.MessageTemplate := '';
+  Slot.Entry.FormattedMessage := '';
+  Slot.Entry.ScopeSnapshot := nil;
+  // Hand the slot to the producer of the next lap
+  TInterlocked.Exchange(Slot.Sequence, Pos + FCapacity);
+  FPointers.Tail := Pos + 1;
 end;
 
 function TRingBuffer.TryRead(out Entry: TLogEntry): Boolean;
 var
-  CurrentTail, Head: Int64;
   Slot: PLogEntry;
 begin
-  CurrentTail := TInterlocked.Read(FPointers.Tail);
-  Head := TInterlocked.Read(FPointers.Head);
+  Result := TryPeek(Slot);
+  if Result then
+  begin
+    Entry := Slot^;
+    Release;
+  end;
+end;
 
-  if CurrentTail >= Head then
-    Exit(False); // Empty
+procedure TRingBuffer.WaitForData(TimeoutMs: Cardinal);
+var
+  Dummy: PLogEntry;
+begin
+  // Announce the sleep, then look again: a producer that published before
+  // the announcement is seen here; one that publishes after it sees the flag
+  // and signals. Both sides use full barriers, so no wake-up is lost.
+  TInterlocked.Exchange(FSleeping, 1);
+  if not TryPeek(Dummy) then
+    FWakeEvent.WaitFor(TimeoutMs);
+  TInterlocked.Exchange(FSleeping, 0);
+end;
 
-  // Peek at the slot
-  Slot := @FBuffer[CurrentTail and FMsk];
-
-  // For MPSC, we must check if the producer finished writing to this slot.
-  // The producer reserves the index, then writes. If we are faster than the writer, we might see IsReady=False.
-  if not Slot.IsReady then
-    Exit(False); // Slot reserved but data not yet committed.
-
-  // Copy data out
-  Entry := Slot^;
-  
-  // Advance Tail
-  // Only one consumer, so we can just increment.
-  // But wait! IsReady needs to be reset? 
-  // No, next producer will overwrite/reset.
-  
-  // Important: Standard memory barrier needed? TInterlocked handles it.
-  TInterlocked.Increment(FPointers.Tail);
-  
-  Result := True;
+procedure TRingBuffer.Wake;
+begin
+  FWakeEvent.SetEvent;
 end;
 
 end.

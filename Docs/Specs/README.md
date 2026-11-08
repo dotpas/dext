@@ -73,6 +73,7 @@ ID | Title | Status | Goal
 **S67** | [CommandLine & UserSecrets Configuration Providers](S67-CommandLine-UserSecrets-Configuration.md) | ✅ Finalized | Enterprise 5-layer configuration pipeline with CLI argument parsing and isolated developer secrets.
 **S68** | [Book Review Gaps — Framework Alignment](S68-Book-Review-Framework-Gaps.md) | ✅ P0+P1 Done | Executable P0+P1 delivered; P2 deferred to `Docs\Specs` S69–S74 (plus partial 415 helper).
 **S75** | [C++Builder Test Explorer](S75-CppBuilder-Test-Explorer.md) | 🟡 In review | Win64x line coverage via llvm-cov, coverage UI hidden on other `.cbproj` platforms, manual expert install. GetIt and a signed DLL are still open. Full C++ support is not announced.
+**S77** | [Async Logging Pipeline & Test Runner Hot Path](S77-Async-Logging-Pipeline.md) | ✅ Finalized | Sidecar off by default, Vyukov MPSC queue with event-based consumer, honoured minimum level, drop reporting, and cached test attributes in the runner.
 
 ---
 

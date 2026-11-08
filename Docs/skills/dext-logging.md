@@ -107,3 +107,12 @@ Builder
   .AddConsole
   .AddFile('logs/app.log');
 ```
+
+### Async pipeline rules (also the global `Log`)
+
+- Entries below the minimum level are dropped **before formatting**. Default level: `Information`. Global logger: `Log.SetMinimumLevel(TLogLevel.Debug)`.
+- No sink registered → `ILogger.IsEnabled` is `False` and log calls return at once (test runs have no console sink).
+- The consumer thread sleeps on an event (no polling); entries reach sinks in tens of microseconds.
+- A full queue (65,536 entries) drops and counts: sinks get a `Warning` from category `Dext.Logging` ("N log entries dropped...") and `TAsyncLoggerFactory.Dropped` holds the total. Logging never blocks the caller.
+- `TLogEntry.Category` carries the logger category for custom `ILogSink` implementations; `Emit` runs on the consumer thread.
+- The Sidecar sink is **off by default**; enable it only with `DEXT_SIDECAR_ENABLED=true` or `TSidecarOptions.Enabled`. Never rely on auto-detection.
