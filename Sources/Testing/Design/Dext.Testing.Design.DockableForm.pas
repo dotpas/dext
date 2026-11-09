@@ -83,6 +83,8 @@ type
     FProjectFile: string;
   public
     constructor Create(AForm: TFormDextTestRunner; const AProjectFile: string);
+    // IOTANotifier
+    procedure Destroyed;
     // IOTAModuleNotifier
     function CheckOverwrite: Boolean;
     procedure ModuleRenamed(const NewName: string); overload;
@@ -238,9 +240,15 @@ type
     // Process handling
     FRunningProcessHandle: THandle;
 
-    // Project changes notification
+    // Project changes notification. One notifier at most: FActiveProjectForNotifier
+    // is the project it is registered on (index FActiveProjectNotifierIndex);
+    // FPendingNotifierProject waits for the deferred AddNotifier, and only the
+    // newest request (FProjectNotifierGeneration) may register.
     FActiveProjectNotifierIndex: Integer;
     FActiveProjectForNotifier: IOTAProject;
+    FActiveProjectNotifierFile: string;
+    FPendingNotifierProject: IOTAProject;
+    FProjectNotifierGeneration: Integer;
 
     // Sessions
     FSessions: TObjectList<TTestSession>;
@@ -312,6 +320,12 @@ type
     FStackFrameNavs: TObjectList<TObject>;
     FStackHintLabel: TLabel;
 
+    /// <summary>
+    ///   Removes the project notifier registered by this form, if any, and
+    ///   clears its index. Safe to call when none is registered.
+    /// </summary>
+    /// <param name="AReason">Text written to the expert log with the removal.</param>
+    procedure RemoveProjectNotifier(const AReason: string);
     function ActiveFilterEdit: TEdit;
     function CompileCppProject(const AProjFile: string): Boolean;
     function CompileProjectDirect(const AProjFile: string): Boolean;
@@ -1075,6 +1089,21 @@ begin
   FProjectFile := AProjectFile;
 end;
 
+procedure TDextProjectNotifier.Destroyed;
+begin
+  { The project is going away: forget it without RemoveNotifier (the IDE is
+    walking this very list and releases it with the module). }
+  LogToFile('[ProjectNotifier] destroyed ' + FProjectFile);
+  if (FormDextTestRunner = nil) or (csDestroying in FormDextTestRunner.ComponentState) then
+    Exit;
+  if SameText(FormDextTestRunner.FActiveProjectNotifierFile, FProjectFile) then
+  begin
+    FormDextTestRunner.FActiveProjectNotifierIndex := -1;
+    FormDextTestRunner.FActiveProjectForNotifier := nil;
+    FormDextTestRunner.FActiveProjectNotifierFile := '';
+  end;
+end;
+
 function TDextProjectNotifier.CheckOverwrite: Boolean;
 begin
   Result := True;
@@ -1365,6 +1394,9 @@ begin
   FRunningProcessHandle := 0;
   FActiveProjectNotifierIndex := -1;
   FActiveProjectForNotifier := nil;
+  FActiveProjectNotifierFile := '';
+  FPendingNotifierProject := nil;
+  FProjectNotifierGeneration := 0;
   FStopwatch := TStopwatch.Create;
   FScanCache := TObjectDictionary<string, TFileScanCache>.Create([doOwnsValues]);
   FGroupNodes := TDictionary<string, TTreeNode>.Create;
@@ -1961,15 +1993,10 @@ begin
     FreeAndNil(FCoveragePlatformTimer);
   end;
 
-  if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
-  begin
-    try
-      FActiveProjectForNotifier.RemoveNotifier(FActiveProjectNotifierIndex);
-    except
-    end;
-    FActiveProjectNotifierIndex := -1;
-    FActiveProjectForNotifier := nil;
-  end;
+  // A queued AddNotifier that has not run yet must not run any more
+  Inc(FProjectNotifierGeneration);
+  FPendingNotifierProject := nil;
+  RemoveProjectNotifier('form destroy');
 
   if FRunningProcessHandle <> 0 then
   begin
@@ -3402,10 +3429,28 @@ begin
   end;
 end;
 
+procedure TFormDextTestRunner.RemoveProjectNotifier(const AReason: string);
+begin
+  if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
+  begin
+    LogToFile(Format('[ProjectNotifier] remove index=%d %s (%s)',
+      [FActiveProjectNotifierIndex, FActiveProjectNotifierFile, AReason]));
+    try
+      FActiveProjectForNotifier.RemoveNotifier(FActiveProjectNotifierIndex);
+    except
+      // ignore in case the project was already destroyed
+    end;
+  end;
+  FActiveProjectNotifierIndex := -1;
+  FActiveProjectForNotifier := nil;
+  FActiveProjectNotifierFile := '';
+end;
+
 procedure TFormDextTestRunner.ProjectsComboBoxChange(Sender: TObject);
 var
   Proj: IOTAProject;
   ProjInfo: TDextProjectInfo;
+  Generation: Integer;
 begin
   UpdateSummaryCounts;
   if ProjectsComboBox.ItemIndex = -1 then Exit;
@@ -3422,16 +3467,7 @@ begin
   ApplyCoverageForActivePlatform;
 
   // Unregister old project notifier
-  if (FActiveProjectNotifierIndex <> -1) and Assigned(FActiveProjectForNotifier) then
-  begin
-    try
-      FActiveProjectForNotifier.RemoveNotifier(FActiveProjectNotifierIndex);
-    except
-      // ignore in case project was already destroyed
-    end;
-    FActiveProjectNotifierIndex := -1;
-    FActiveProjectForNotifier := nil;
-  end;
+  RemoveProjectNotifier('project changed');
 
   { Defer project AddNotifier + AST refresh — sync AddNotifier during .cbproj select
     can race C++ MainSource editor open. }
@@ -3441,7 +3477,14 @@ begin
   if Assigned(FSaveTimer) then
     FSaveTimer.Enabled := False;
 
-  FActiveProjectForNotifier := Proj;
+  { Two selections before the queue runs used to register two notifiers and
+    keep the index of the last one only: the other stayed in the project's
+    list for good, and after the package was rebuilt (unloaded) inside the IDE
+    closing the project called into unloaded code (AV in TCodeIDocModule.
+    NotifyDestroyed, IDE hung). Only the newest request may register now. }
+  FPendingNotifierProject := Proj;
+  Inc(FProjectNotifierGeneration);
+  Generation := FProjectNotifierGeneration;
   TThread.ForceQueue(nil, TThreadProcedure(procedure
     var
       P: IOTAProject;
@@ -3450,17 +3493,26 @@ begin
         Exit;
       if (FormDextTestRunner = nil) or (csDestroying in FormDextTestRunner.ComponentState) then
         Exit;
+      if FormDextTestRunner.FProjectNotifierGeneration <> Generation then
+        Exit; // a newer selection is queued; it does the work
       if not IsDextTestExplorerEnabled then
         Exit;
-      P := FormDextTestRunner.FActiveProjectForNotifier;
+      P := FormDextTestRunner.FPendingNotifierProject;
+      FormDextTestRunner.FPendingNotifierProject := nil;
       if P = nil then
         Exit;
+      FormDextTestRunner.RemoveProjectNotifier('before add');
       try
         FormDextTestRunner.FActiveProjectNotifierIndex :=
           P.AddNotifier(TDextProjectNotifier.Create(FormDextTestRunner, P.FileName));
+        FormDextTestRunner.FActiveProjectForNotifier := P;
+        FormDextTestRunner.FActiveProjectNotifierFile := P.FileName;
+        LogToFile(Format('[ProjectNotifier] add index=%d %s',
+          [FormDextTestRunner.FActiveProjectNotifierIndex, P.FileName]));
       except
         FormDextTestRunner.FActiveProjectNotifierIndex := -1;
         FormDextTestRunner.FActiveProjectForNotifier := nil;
+        FormDextTestRunner.FActiveProjectNotifierFile := '';
       end;
 
       FormDextTestRunner.FLastCoverageReportDir := '';
