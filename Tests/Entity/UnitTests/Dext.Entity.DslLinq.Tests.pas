@@ -83,6 +83,12 @@ type
     procedure Aggregates_By_Name_Respect_The_Filter;
     [Test]
     procedure Aggregates_By_Name_Work_With_Integer_Property;
+    [Test]
+    procedure GroupBy_String_Prototype_Groups_By_The_Column;
+    [Test]
+    procedure GroupBy_Integer_Prototype_Groups_By_The_Column;
+    [Test]
+    procedure GroupBy_Column_Name_Still_Works;
   end;
 
 implementation
@@ -207,6 +213,38 @@ begin
   // Customers 1,2,3,1,2,3
   Should(FDb.Orders.Where(O.Id > 0).Sum('CustomerId')).Be(12);
   Should(FDb.Orders.Where(O.Id > 0).Max('CustomerId')).Be(3);
+end;
+
+procedure TDslLinqTests.GroupBy_String_Prototype_Groups_By_The_Column;
+var
+  O: TDlOrder;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Two statuses (Open, Paid) -> two groups
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.Status).ToList;
+  Should(Rows.Count).Be(2);
+end;
+
+procedure TDslLinqTests.GroupBy_Integer_Prototype_Groups_By_The_Column;
+var
+  O: TDlOrder;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Three customers -> three groups
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.CustomerId).ToList;
+  Should(Rows.Count).Be(3);
+end;
+
+procedure TDslLinqTests.GroupBy_Column_Name_Still_Works;
+var
+  O: TDlOrder;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy('Status').ToList;
+  Should(Rows.Count).Be(2);
 end;
 
 end.

@@ -295,6 +295,8 @@ type
     function GroupBy(const AColumn: string): TFluentQuery<T>; overload;
     function GroupBy(const AColumns: array of string): TFluentQuery<T>; overload;
     function GroupBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
+    function GroupBy(const AProp: IPropInfo): TFluentQuery<T>; overload;
+    function GroupBy(const AProp: StringType): TFluentQuery<T>; overload;
     
     // Aggregations
     function Count: Integer; overload;
@@ -1585,6 +1587,21 @@ begin
       FSpecification.GroupBy(Col);
   end;
   Result := Self;
+end;
+
+function TFluentQuery<T>.GroupBy(const AProp: IPropInfo): TFluentQuery<T>;
+begin
+  if AProp = nil then
+    raise Exception.Create('GroupBy: the property is not a prototype property');
+  if AProp.ColumnName <> '' then
+    Result := GroupBy(AProp.ColumnName)
+  else
+    Result := GroupBy(AProp.PropertyName);
+end;
+
+function TFluentQuery<T>.GroupBy(const AProp: StringType): TFluentQuery<T>;
+begin
+  Result := GroupBy(IPropInfo(AProp));
 end;
 
 function TFluentQuery<T>.GroupBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
