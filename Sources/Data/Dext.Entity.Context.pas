@@ -561,8 +561,15 @@ begin
     if not FModelCache.TryGetValue(Self.ClassType, FModelBuilder) then
     begin
       FModelBuilder := TModelBuilder.Create;
-      // Initialize Model
-      OnModelCreating(FModelBuilder);
+      // Initialize Model. If the model is invalid (for example, an unknown property
+      // name), the builder is not cached and nobody owns it yet: free it here.
+      try
+        OnModelCreating(FModelBuilder);
+      except
+        FModelBuilder.Free;
+        FModelBuilder := nil;
+        raise;
+      end;
       
       FModelCache.Add(Self.ClassType, FModelBuilder);
     end;
