@@ -483,11 +483,28 @@ type
     function UsingEntity(const AJoinTableName, ALeftKey, ARightKey: string): IRelationshipBuilder<T>; overload;
   end;
 
+/// <summary>Creates the converter of a class chosen by [TypeConverter] or HasConverter.</summary>
+function CreateConverterFromClass(AClass: TClass): ITypeConverter;
+
 implementation
 
 uses
   System.StrUtils,
   Dext.Utils;
+
+// A converter chosen by [TypeConverter] or HasConverter is a class: create it.
+function CreateConverterFromClass(AClass: TClass): ITypeConverter;
+var
+  Obj: TObject;
+begin
+  Obj := TReflection.CreateInstance(AClass);
+  if not Supports(Obj, ITypeConverter, Result) then
+  begin
+    Obj.Free;
+    raise EEntityMappingException.CreateFmt(
+      'Class "%s" does not implement ITypeConverter.', [AClass.ClassName]);
+  end;
+end;
 
 constructor TEntityMap.Create(AEntityType: PTypeInfo);
 begin
@@ -589,7 +606,11 @@ begin
     if AAttr is NotMappedAttribute then APropMap.IsIgnored := True;
     if AAttr is ForeignKeyAttribute then APropMap.ForeignKeyColumn := ForeignKeyAttribute(AAttr).ColumnName;
     if AAttr is DbTypeAttribute then APropMap.DataType := DbTypeAttribute(AAttr).DataType;
-    if AAttr is TypeConverterAttribute then APropMap.ConverterClass := TypeConverterAttribute(AAttr).ConverterClass;
+    if AAttr is TypeConverterAttribute then
+  begin
+    APropMap.ConverterClass := TypeConverterAttribute(AAttr).ConverterClass;
+    APropMap.Converter := CreateConverterFromClass(APropMap.ConverterClass);
+  end;
 
     if AAttr is RequiredAttribute then APropMap.IsRequired := True;
     if AAttr is MaxLengthAttribute then APropMap.MaxLength := MaxLengthAttribute(AAttr).Length;
@@ -1684,6 +1705,7 @@ end;
 function TEntityBuilder<T>.HasConverter(AConverterClass: TClass): TEntityBuilder<T>;
 begin
   GetCurrentProp.ConverterClass := AConverterClass;
+  GetCurrentProp.Converter := CreateConverterFromClass(AConverterClass);
   Result := Self;
 end;
 
@@ -1828,6 +1850,7 @@ end;
 function TPropertyBuilder<T>.HasConverter(AConverterClass: TClass): IPropertyBuilder<T>;
 begin
   FPropMap.ConverterClass := AConverterClass;
+  FPropMap.Converter := CreateConverterFromClass(AConverterClass);
   Result := Self;
 end;
 

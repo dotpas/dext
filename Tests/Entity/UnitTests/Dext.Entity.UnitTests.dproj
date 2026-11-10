@@ -136,6 +136,7 @@
         <DCCReference Include="Dext.Entity.MappingNames.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Inheritance.Tests.pas"/>
         <DCCReference Include="Dext.Entity.PostgreSQL.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.ConverterAttribute.Tests.pas"/>
         <DCCReference Include="Dext.Grpc.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Testing\Dext.Testing.Entity.pas"/>
         <DCCReference Include="..\..\Testing\Dext.Testing.Entity.Tests.pas"/>
