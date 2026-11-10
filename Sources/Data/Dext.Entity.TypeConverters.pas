@@ -608,7 +608,8 @@ function TArrayConverter.GetSQLCast(const AParamName: string; ADialect: TDatabas
 begin
   case ADialect of
     ddPostgreSQL:
-      Result := AParamName; // Array literal already includes type
+      // The array is stored as JSON text (see ToDatabase), in a jsonb column.
+      Result := Format('%s::jsonb', [AParamName]);
     else
       Result := AParamName;
   end;

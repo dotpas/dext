@@ -40,6 +40,24 @@ type
     property Name: string read FName write FName;
   end;
 
+  [Table('pg_array_thing')]
+  TPgArrayThing = class
+  private
+    FId: Integer;
+    FTags: TArray<string>;
+  public
+    [PrimaryKey, AutoInc]
+    property Id: Integer read FId write FId;
+    property Tags: TArray<string> read FTags write FTags;
+  end;
+
+  TPgArrayDb = class(TDbContext)
+  private
+    function GetItems: IDbSet<TPgArrayThing>;
+  public
+    property Items: IDbSet<TPgArrayThing> read GetItems;
+  end;
+
   TPgSchemaDb = class(TDbContext)
   private
     function GetThings: IDbSet<TPgSchemaThing>;
@@ -57,6 +75,9 @@ type
     [Test]
     [Description('EnsureCreated creates the table in the current schema even when another schema has one with the same name')]
     procedure EnsureCreated_Ignores_A_Table_Of_Another_Schema;
+    [Test]
+    [Description('A TArray<string> property is written to a jsonb column and read back')]
+    procedure Dynamic_Array_Round_Trips_Through_Jsonb;
   end;
 
 implementation
@@ -135,6 +156,41 @@ begin
     DbA.Free;
     DbB.Free;
   end;
+end;
+
+procedure TPostgreSQLSchemaTests.Dynamic_Array_Round_Trips_Through_Jsonb;
+var
+  Db: TPgArrayDb;
+  Item: TPgArrayThing;
+begin
+  if Connection = '' then
+    Exit; // no server configured
+
+  if GLink = nil then
+    NewDb.Free;
+  Db := TPgArrayDb.Create(DbContextOptions.UsePostgreSQL(Connection));
+  try
+    Db.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_c CASCADE').Execute;
+    Db.Connection.CreateCommand('CREATE SCHEMA dext_ut_c').Execute;
+    Db.Connection.CreateCommand('SET search_path TO dext_ut_c').Execute;
+    Db.EnsureCreated;
+
+    Item := TPgArrayThing.Create;
+    Item.Tags := ['a', 'b', 'c'];
+    Db.Items.Add(Item);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Should(Db.Items.ToList[0].Tags[1]).Be('b');
+    Db.Connection.CreateCommand('DROP SCHEMA dext_ut_c CASCADE').Execute;
+  finally
+    Db.Free;
+  end;
+end;
+
+function TPgArrayDb.GetItems: IDbSet<TPgArrayThing>;
+begin
+  Result := Entities<TPgArrayThing>;
 end;
 
 initialization

@@ -91,6 +91,8 @@ type
     procedure Attribute_Converter_Writes_And_Reads_A_Value_Object;
     [Test]
     procedure Fluent_Converter_Writes_And_Reads_A_Value_Object;
+    [Test]
+    procedure Array_Converter_Casts_To_Jsonb_On_PostgreSQL_Only;
   end;
 
 implementation
@@ -175,6 +177,17 @@ begin
   finally
     Db.Free;
   end;
+end;
+
+procedure TConverterAttributeTests.Array_Converter_Casts_To_Jsonb_On_PostgreSQL_Only;
+var
+  Conv: ITypeConverter;
+begin
+  // The array travels as JSON text and the column is jsonb: PostgreSQL needs
+  // the cast. Before, the parameter went uncast and the server refused it.
+  Conv := TArrayConverter.Create;
+  Should(Conv.GetSQLCast(':p1', ddPostgreSQL)).Be(':p1::jsonb');
+  Should(Conv.GetSQLCast(':p1', ddSQLite)).Be(':p1');
 end;
 
 procedure TConverterAttributeTests.Fluent_Converter_Writes_And_Reads_A_Value_Object;
