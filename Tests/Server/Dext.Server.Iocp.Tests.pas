@@ -130,6 +130,8 @@ type
     procedure BodyOver64KBUnderTheLimit_IsWhole;
     [Test]
     procedure SecondRequest_DoesNotSeeTheHeadersOfTheFirst;
+    [Test]
+    procedure ManyPipelinedRequests_LargerThanTheFirstBuffer;
   end;
 
 implementation
@@ -691,6 +693,45 @@ begin
     Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('POST 2 195');
     SendText(S, 'GET /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
     Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('GET 0 0');
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.ManyPipelinedRequests_LargerThanTheFirstBuffer;
+const
+  COUNT = 40;
+var
+  S: TSocket;
+  Text: string;
+  I: Integer;
+
+  function One(N: Integer): string;
+  begin
+    // about 300 bytes, each with its own number (the answer repeats it)
+    Result := 'GET /header HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'X-Probe: ' +
+      IntToStr(N) + CRLF + 'X-Pad: ' + StringOfChar('p', 250) + CRLF + CRLF;
+  end;
+
+begin
+  // 40 pipelined requests: the first 30 (about 9 KB) are more than the first
+  // buffer of the connection (8 KB), so a request is split across two reads
+  // and what is left of it must move to the front; the last 10 arrive later,
+  // on the same connection. Every answer must be the one of its request.
+  S := Connect;
+  try
+    Text := '';
+    for I := 1 to 30 do
+      Text := Text + One(I);
+    SendText(S, Text);
+    Sleep(100);
+    Text := '';
+    for I := 31 to COUNT do
+      Text := Text + One(I);
+    SendText(S, Text);
+    for I := 1 to COUNT do
+      Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith(
+        'X-Probe=' + IntToStr(I));
   finally
     closesocket(S);
   end;

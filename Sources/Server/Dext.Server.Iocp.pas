@@ -228,7 +228,9 @@ type
     Overlapped: TOverlapped;
     OpType: TIocpOpType;
     Socket: TSocket;
-    Buffer: array[0..16383] of Byte;
+    // The local and remote address written by AcceptEx (no data is received
+    // with the accept). Reads go straight into the session's accumulator.
+    AddrBuffer: array[0..2 * (SizeOf(TSockAddrIn) + 16) - 1] of Byte;
     BytesTransferred: DWORD;
     Connection: Pointer;
     Data: PByte;       // Heap send buffer, owned by this overlapped, freed on ioWrite
@@ -248,7 +250,7 @@ type
     FLocalPort: Word;
     FOverlapped: PIocpOverlapped;
     FAccum: TBytes;
-    FAccumLen: Integer;  // bytes of FAccum in use
+    FAccumLen: Integer;  // bytes of FAccum in use; a read writes right after them
     FSkip: Boolean;      // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS set on the socket
     // The request and response objects are kept for reuse by the next request
     // on this connection, and the body of a request points into FAccum. A
@@ -407,6 +409,13 @@ begin
   end;
   Result := GDateText;
 end;
+
+const
+  // The accumulator of a connection starts at IOCP_RECV_INITIAL bytes and a
+  // read always has at least IOCP_RECV_MIN_FREE bytes to write into (it
+  // doubles otherwise). An idle keep-alive connection keeps only this.
+  IOCP_RECV_INITIAL = 8192;
+  IOCP_RECV_MIN_FREE = 4096;
 
 const
   // mswsock.h: an AcceptEx socket inherits the listening socket's properties
@@ -1053,7 +1062,7 @@ function TDextIocpSession.PostRecv: Boolean;
 var
   WsaBuf: TWsaBuf;
   Bytes, Flags: DWORD;
-  Ret: Integer;
+  Ret, NewLen: Integer;
 begin
   if FClosed or (FSocket = INVALID_SOCKET) or (not FEngine.FRunning) then
   begin
@@ -1066,8 +1075,20 @@ begin
   FOverlapped^.Socket := FSocket;
   FOverlapped^.Connection := Self;
 
-  WsaBuf.buf := PAnsiChar(@FOverlapped^.Buffer[0]);
-  WsaBuf.len := SizeOf(FOverlapped^.Buffer);
+  // The read goes straight into the accumulator, after the bytes still in use
+  // (no copy from a separate receive buffer). It grows here, never while a
+  // read is pending: there is at most one read per connection.
+  if Length(FAccum) - FAccumLen < IOCP_RECV_MIN_FREE then
+  begin
+    NewLen := Length(FAccum) * 2;
+    if NewLen < IOCP_RECV_INITIAL then
+      NewLen := IOCP_RECV_INITIAL;
+    while NewLen - FAccumLen < IOCP_RECV_MIN_FREE do
+      NewLen := NewLen * 2;
+    SetLength(FAccum, NewLen);
+  end;
+  WsaBuf.buf := PAnsiChar(@FAccum[FAccumLen]);
+  WsaBuf.len := Length(FAccum) - FAccumLen;
   Bytes := 0;
   Flags := 0;
 
@@ -1173,7 +1194,6 @@ var
   RawRequest: IDextRawRequest;
   RawResponse: IDextRawResponse;
   Session: TDextIocpSession;
-  OldLen: Integer;
   DataLen: Integer;
   ReqObj: TDextIocpRequest;
   RespObj: TDextIocpResponse;
@@ -1246,7 +1266,7 @@ begin
         // Process new client socket accepted
         // Load local/remote address info
         FEngine.FGetAcceptExSockaddrs(
-          @IocpOverlapped.Buffer[0],
+          @IocpOverlapped.AddrBuffer[0],
           0,
           SizeOf(TSockAddrIn) + 16,
           SizeOf(TSockAddrIn) + 16,
@@ -1323,17 +1343,8 @@ begin
         end;
 
         DataLen := Integer(BytesTransferred);
-        // The accumulator stays with the connection: it grows when needed.
-        if Session.FAccumLen + DataLen > Length(Session.FAccum) then
-        begin
-          OldLen := Length(Session.FAccum) * 2;
-          if OldLen < SizeOf(IocpOverlapped.Buffer) then
-            OldLen := SizeOf(IocpOverlapped.Buffer);
-          while OldLen < Session.FAccumLen + DataLen do
-            OldLen := OldLen * 2;
-          SetLength(Session.FAccum, OldLen);
-        end;
-        Move(IocpOverlapped.Buffer[0], Session.FAccum[Session.FAccumLen], DataLen);
+        // The read wrote straight into the accumulator (PostRecv), after the
+        // bytes already there.
         Inc(Session.FAccumLen, DataLen);
 
         if Assigned(FEngine.FConnectionHandler) then
@@ -1341,12 +1352,14 @@ begin
           try
             FEngine.FConnectionHandler.OnData(
               Session.ConnIntf as IDextTransportConnection,
-              TByteSpan.Create(@IocpOverlapped.Buffer[0], DataLen)
+              TByteSpan.Create(@Session.FAccum[Session.FAccumLen - DataLen], DataLen)
             );
           except
             on E: Exception do
               FEngine.FConnectionHandler.OnError(Session.ConnIntf as IDextTransportConnection, E);
           end;
+          // The handler got the bytes as a span: the space is free again.
+          Session.FAccumLen := 0;
         end
         else
         begin
@@ -1599,7 +1612,7 @@ begin
     Ret := FAcceptEx(
       FListenSocket,
       AcceptSocket,
-      @Overlapped.Buffer[0],
+      @Overlapped.AddrBuffer[0],
       0,
       SizeOf(TSockAddrIn) + 16,
       SizeOf(TSockAddrIn) + 16,
