@@ -43,6 +43,7 @@ var
   Typ: TRttiType;
   Prop: TRttiProperty;
   Val: TValue;
+  Unwrapped: TValue;
   SVal: string;
   Len: Integer;
   PropMap: TPropertyMap;
@@ -95,6 +96,10 @@ begin
         // Ignore properties that cannot be read (e.g. exceptions in getters)
         Continue;
       end;
+
+      // Smart Properties (Prop<T>) wrap the value: validate the wrapped value
+      if TReflection.TryUnwrapProp(Val, Unwrapped) then
+        Val := Unwrapped;
       
       if IsRequired then
       begin

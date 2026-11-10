@@ -2710,6 +2710,7 @@ var
   RelatedTable, RelatedPK: string;
   LConstraint: string;
   PropTypeHandle: PTypeInfo;
+  LenTypeHandle: PTypeInfo;
   Underlying: PTypeInfo;
   IsSoftDeleteColumn: Boolean;
   IsRequired : Boolean;
@@ -2946,9 +2947,17 @@ begin
         end;
       end;
       
-      // For string types with MaxLength, replace generic types with sized VARCHAR
+      // For string types with MaxLength, replace generic types with sized VARCHAR.
+      // A Smart Property (Prop<T>) is a record: the length rule uses the wrapped type.
+      LenTypeHandle := PropTypeHandle;
+      if (LenTypeHandle <> nil) and (LenTypeHandle.Kind = tkRecord) then
+      begin
+        FieldFValue := Prop.PropertyType.GetField('FValue');
+        if FieldFValue <> nil then
+          LenTypeHandle := FieldFValue.FieldType.Handle;
+      end;
 
-      if (MaxLen > 0) and (PropTypeHandle.Kind in [tkString, tkUString, tkWString, tkChar, tkWChar]) then
+      if (MaxLen > 0) and (LenTypeHandle.Kind in [tkString, tkUString, tkWString, tkChar, tkWChar]) then
       begin
         if GetDialectEnum = ddSQLServer then
           ColType := Format('NVARCHAR(%d)', [MaxLen])
