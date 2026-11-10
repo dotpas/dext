@@ -434,7 +434,10 @@ type
   private
     FValue: Variant;
   public
-    constructor Create(const AValue: Variant);
+    constructor Create(const AValue: Variant); overload;
+    // Typed overloads: a Variant argument is not reliable in attribute RTTI
+    constructor Create(const AValue: string); overload;
+    constructor Create(AValue: Integer); overload;
     property Value: Variant read FValue;
   end;
 
@@ -699,6 +702,16 @@ end;
 { DiscriminatorValueAttribute }
 
 constructor DiscriminatorValueAttribute.Create(const AValue: Variant);
+begin
+  FValue := AValue;
+end;
+
+constructor DiscriminatorValueAttribute.Create(const AValue: string);
+begin
+  FValue := AValue;
+end;
+
+constructor DiscriminatorValueAttribute.Create(AValue: Integer);
 begin
   FValue := AValue;
 end;

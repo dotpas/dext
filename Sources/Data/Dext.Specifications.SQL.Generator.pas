@@ -112,8 +112,16 @@ type
     property NamingStrategy: INamingStrategy read FNamingStrategy write FNamingStrategy;
   end;
 
+  /// <summary>A column declared by a class of a TPH hierarchy.</summary>
+  TDeclaredColumn = record
+    Prop: TRttiProperty;
+    ColumnName: string;
+  end;
+
   TSQLGeneratorHelper = class
   public
+    /// <summary>Mapped columns declared by the class of AMap itself (not inherited): used by TPH.</summary>
+    class function GetDeclaredColumns(AMap: TEntityMap; ANamingStrategy: INamingStrategy): TArray<TDeclaredColumn>; static;
     class function GetCascadeSQL(AAction: TCascadeAction): string;
     class function GetColumnNameForProperty(ATyp: TRttiType; const APropName: string; ANamingStrategy: INamingStrategy = nil): string;
     class function GetRelatedTableAndPK(AClass: TClass; out ATable, ASchema, APK: string; ANamingStrategy: INamingStrategy = nil): Boolean;
@@ -160,6 +168,12 @@ type
     function GetSoftDeleteFilter: string;
     function GetDiscriminatorFilter: string;
     function GetDiscriminatorValueSQL: string;
+    // Table-per-hierarchy support
+    function IsHierarchyMember: Boolean;
+    function IsRootMap(AMap: TEntityMap): Boolean;
+    function GetHierarchyRoot: TEntityMap;
+    function GetSubtypeMaps(ARoot: TEntityMap): TArray<TEntityMap>;
+    function GetHierarchyColumns: TArray<string>;
     function GetQueryFiltersSQL: string;
     
     function GetDialectEnum: TDatabaseDialect;
@@ -1346,6 +1360,127 @@ begin
   end;
 end;
 
+function TSQLGenerator<T>.IsHierarchyMember: Boolean;
+begin
+  Result := (FMap <> nil) and (FContext <> nil) and (FContext.ModelBuilder <> nil) and
+    (FMap.InheritanceStrategy = TInheritanceStrategy.TablePerHierarchy) and
+    (FMap.DiscriminatorColumn <> '');
+end;
+
+function TSQLGenerator<T>.IsRootMap(AMap: TEntityMap): Boolean;
+begin
+  Result := VarIsNull(AMap.DiscriminatorValue) or VarIsEmpty(AMap.DiscriminatorValue);
+end;
+
+// The topmost mapped class of the hierarchy, or nil when T is not in one.
+function TSQLGenerator<T>.GetHierarchyRoot: TEntityMap;
+var
+  Cls: TClass;
+  Info: PTypeInfo;
+begin
+  Result := nil;
+  if not IsHierarchyMember then Exit;
+  Result := FMap;
+  if IsRootMap(FMap) then Exit;
+  Cls := GetTypeData(FMap.EntityType)^.ClassType.ClassParent;
+  while Cls <> nil do
+  begin
+    Info := Cls.ClassInfo;
+    if (Info <> nil) and FContext.ModelBuilder.HasMap(Info) and
+       (FContext.ModelBuilder.GetMap(Info).InheritanceStrategy =
+        TInheritanceStrategy.TablePerHierarchy) then
+      Result := FContext.ModelBuilder.GetMap(Info);
+    Cls := Cls.ClassParent;
+  end;
+end;
+
+function TSQLGenerator<T>.GetSubtypeMaps(ARoot: TEntityMap): TArray<TEntityMap>;
+var
+  Map: TEntityMap;
+  RootClass, MapClass: TClass;
+  List: IList<TEntityMap>;
+begin
+  List := TCollections.CreateList<TEntityMap>;
+  RootClass := GetTypeData(ARoot.EntityType)^.ClassType;
+  for Map in FContext.ModelBuilder.GetMaps do
+  begin
+    if Map = ARoot then Continue;
+    if Map.InheritanceStrategy <> TInheritanceStrategy.TablePerHierarchy then Continue;
+    MapClass := GetTypeData(Map.EntityType)^.ClassType;
+    if MapClass.InheritsFrom(RootClass) then
+      List.Add(Map);
+  end;
+  Result := List.ToArray;
+end;
+
+// For the root set: the discriminator and the columns of every subclass, so a
+// query on the root can build the right subclass and fill its properties.
+function TSQLGenerator<T>.GetHierarchyColumns: TArray<string>;
+var
+  List: IList<string>;
+  Map: TEntityMap;
+  Col: TDeclaredColumn;
+begin
+  SetLength(Result, 0);
+  if (not IsHierarchyMember) or (not IsRootMap(FMap)) then Exit;
+  List := TCollections.CreateList<string>;
+  List.Add(FMap.DiscriminatorColumn);
+  for Map in GetSubtypeMaps(FMap) do
+    for Col in TSQLGeneratorHelper.GetDeclaredColumns(Map, FNamingStrategy) do
+      if not List.Contains(Col.ColumnName) then
+        List.Add(Col.ColumnName);
+  Result := List.ToArray;
+end;
+
+class function TSQLGeneratorHelper.GetDeclaredColumns(AMap: TEntityMap;
+  ANamingStrategy: INamingStrategy): TArray<TDeclaredColumn>;
+var
+  Typ: TRttiType;
+  Prop: TRttiProperty;
+  PropMap: TPropertyMap;
+  Attr: TCustomAttribute;
+  ColName: string;
+  IsMapped: Boolean;
+  LKind: TTypeKind;
+  List: IList<TDeclaredColumn>;
+  Item: TDeclaredColumn;
+begin
+  List := TCollections.CreateList<TDeclaredColumn>;
+  Typ := TReflection.Context.GetType(AMap.EntityType);
+  if Typ <> nil then
+    for Prop in Typ.GetProperties do
+    begin
+      if Prop.Parent.Handle <> Typ.Handle then Continue;
+      ColName := Prop.Name;
+      IsMapped := True;
+      PropMap := nil;
+      AMap.Properties.TryGetValue(Prop.Name, PropMap);
+      if PropMap <> nil then
+      begin
+        if PropMap.IsIgnored or PropMap.IsNavigation or PropMap.IsLazy then IsMapped := False;
+        if PropMap.ColumnName <> '' then ColName := PropMap.ColumnName;
+      end;
+      for Attr in Prop.GetAttributes do
+      begin
+        if Attr is NotMappedAttribute then IsMapped := False;
+        if ((PropMap = nil) or (PropMap.ColumnName = '')) and (Attr is ColumnAttribute) then
+          ColName := ColumnAttribute(Attr).Name;
+      end;
+      LKind := Prop.PropertyType.TypeKind;
+      if (LKind in [tkClass, tkInterface]) and ((PropMap = nil) or (not PropMap.IsJsonColumn)) then
+        IsMapped := False;
+      if (LKind = tkRecord) and Prop.PropertyType.Name.StartsWith('Lazy<') then
+        IsMapped := False;
+      if not IsMapped then Continue;
+      if (ColName = Prop.Name) and (ANamingStrategy <> nil) then
+        ColName := ANamingStrategy.GetColumnName(Prop);
+      Item.Prop := Prop;
+      Item.ColumnName := ColName;
+      List.Add(Item);
+    end;
+  Result := List.ToArray;
+end;
+
 function TSQLGenerator<T>.GetDialectEnum: TDatabaseDialect;
 begin
   if FDialect <> nil then
@@ -2233,6 +2368,10 @@ begin
     Sig := Format('%s:%s:%s:Ign:%d:Del:%d:Ten:%s', 
       [(FDialect as TObject).ClassName, GetTableName, ASpec.GetSignature, 
        Ord(FIgnoreQueryFilters), Ord(FOnlyDeleted), TenantId]);
+    // Types of one hierarchy share the table: the SQL differs by type
+    if FMap <> nil then
+      Sig := Sig + ':Type:' + string(FMap.EntityType.Name) + ':Disc:' +
+        VarToStr(FMap.DiscriminatorValue);
     if TSQLCache.Instance.TryGetSQL(Sig, CachedSQL) then
     begin
       // Re-hydrate parameters using Collector (fast traversal)
@@ -2370,8 +2509,16 @@ begin
         
         SB.Append(QualifyBaseColumn(ColName, BaseTableName, HasJoins));
       end;
+
+      // TPH root: the discriminator and the columns of the subclasses
+      for ColName in GetHierarchyColumns do
+      begin
+        if not First then SB.Append(', ');
+        First := False;
+        SB.Append(QualifyBaseColumn(ColName, BaseTableName, HasJoins));
+      end;
     end;
-    
+
     SB.Append(' FROM ').Append(GetTableName);
     
     // Apply SQL Server Locking Hints if needed
@@ -2567,6 +2714,14 @@ begin
       SB.Append(FDialect.QuoteIdentifier(ColName));
     end;
 
+    // TPH root: the discriminator and the columns of the subclasses
+    for ColName in GetHierarchyColumns do
+    begin
+      if not First then SB.Append(', ');
+      First := False;
+      SB.Append(FDialect.QuoteIdentifier(ColName));
+    end;
+
     SB.Append(' FROM ').Append(GetTableName);
 
     // Add global filters
@@ -2726,17 +2881,50 @@ var
   FieldFValue: TRttiField;
   MaxLen: Integer;
   PrecisionVal, ScaleVal: Integer;
+  HierTypes: IList<TRttiType>;
+  HierMaps: IList<TEntityMap>;
+  Emitted: IList<string>;
+  HIdx: Integer;
+  CurMap, RootMap, SubMap: TEntityMap;
+  DiscValue: Variant;
 begin
   SB := TStringBuilder.Create;
   PKCols := TCollections.CreateList<string>;
   FKConstraints := TCollections.CreateList<string>;
+  HierTypes := TCollections.CreateList<TRttiType>;
+  HierMaps := TCollections.CreateList<TEntityMap>;
+  Emitted := TCollections.CreateList<string>;
   try
     Typ := TReflection.Context.GetType(T);
     First := True;
     HasAutoInc := False;
-    
+
+    // Table per hierarchy: the one table has the columns of every class of it
+    RootMap := GetHierarchyRoot;
+    if RootMap <> nil then
+    begin
+      HierTypes.Add(TReflection.Context.GetType(RootMap.EntityType));
+      HierMaps.Add(RootMap);
+      for SubMap in GetSubtypeMaps(RootMap) do
+      begin
+        HierTypes.Add(TReflection.Context.GetType(SubMap.EntityType));
+        HierMaps.Add(SubMap);
+      end;
+    end
+    else
+    begin
+      HierTypes.Add(Typ);
+      HierMaps.Add(FMap);
+    end;
+
+    for HIdx := 0 to HierTypes.Count - 1 do
+    begin
+    Typ := HierTypes[HIdx];
+    CurMap := HierMaps[HIdx];
+
     for Prop in Typ.GetProperties do
     begin
+      if (HIdx > 0) and (Prop.Parent.Handle <> Typ.Handle) then Continue;
       IsMapped := True;
       IsPK := False;
       IsAutoInc := False;
@@ -2744,8 +2932,8 @@ begin
       ColName := Prop.Name;
       
       PropMap := nil;
-      if FMap <> nil then
-        FMap.Properties.TryGetValue(Prop.Name, PropMap);
+      if CurMap <> nil then
+        CurMap.Properties.TryGetValue(Prop.Name, PropMap);
         
       // Precedence: 
       // 1. Explicit Fluent Mapping (PropMap.ColumnName)
@@ -2866,7 +3054,18 @@ begin
 
       
       if not IsMapped then Continue;
-      
+
+      // A column already emitted by another class of the hierarchy
+      if Emitted.Contains(LowerCase(ColName)) then Continue;
+      Emitted.Add(LowerCase(ColName));
+      // Columns of subclasses are nullable: other subclasses never fill them
+      if HIdx > 0 then
+      begin
+        IsPK := False;
+        IsAutoInc := False;
+        IsRequired := False;
+      end;
+
       if not First then SB.Append(', ');
       First := False;
       
@@ -3005,6 +3204,26 @@ begin
         SB.Append(' DEFAULT ').Append(VarToStr(SoftDeleteDefaultValue));
       end;
     end; // End of Properties Loop
+    end; // End of hierarchy loop
+
+    // Discriminator column of the hierarchy
+    if (RootMap <> nil) and (not Emitted.Contains(LowerCase(RootMap.DiscriminatorColumn))) then
+    begin
+      DiscValue := Null;
+      for SubMap in GetSubtypeMaps(RootMap) do
+        if not VarIsNull(SubMap.DiscriminatorValue) then
+        begin
+          DiscValue := SubMap.DiscriminatorValue;
+          Break;
+        end;
+      if not First then SB.Append(', ');
+      First := False;
+      SB.Append(FDialect.QuoteIdentifier(RootMap.DiscriminatorColumn)).Append(' ');
+      if VarIsNumeric(DiscValue) then
+        SB.Append(FDialect.GetColumnType(TypeInfo(Integer), False, 0, 0))
+      else
+        SB.Append(FDialect.GetColumnType(TypeInfo(string), False, 0, 0));
+    end;
 
     // Add Composite PK constraint or Single PK constraint (if not AutoInc)
     if (PKCols.Count > 0) and not HasAutoInc then

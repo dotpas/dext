@@ -49,6 +49,12 @@ uses
 
 type
   /// <summary>
+  ///   Raised when a mapping refers to something the entity does not have, such as a
+  ///   property name with a typo in the fluent API.
+  /// </summary>
+  EEntityMappingException = class(Exception);
+
+  /// <summary>
   ///   Defines the cardinality and type of an entity relationship.
   /// </summary>
   TRelationshipType = (rtNone, rtOneToMany, rtManyToOne, rtOneToOne, rtManyToMany);
@@ -237,6 +243,7 @@ type
     // Global Query Filters
     FQueryFilters: IList<IExpression>;
     FIsProxy: Boolean;
+    FInheritanceResolved: Boolean;
 
   public
     constructor Create(AEntityType: PTypeInfo);
@@ -264,6 +271,17 @@ type
     procedure ProcessAttribute(APropMap: TPropertyMap; AAttr: TCustomAttribute);
     function GetOrAddProperty(const APropName: string): TPropertyMap;
     function GetOrderedProperties: TArray<TPropertyMap>;
+    /// <summary>
+    ///   Raises EEntityMappingException when the entity class has no property or field
+    ///   with this name. Shadow properties are declared with ShadowProperty, which skips it.
+    /// </summary>
+    procedure RequireClassProperty(const AName: string);
+    /// <summary>
+    ///   Table per hierarchy: a subclass takes the table, the key and the configuration of the
+    ///   properties it inherits from the root. Called by the model builder, once.
+    /// </summary>
+    procedure InheritFrom(ARoot: TEntityMap);
+    property InheritanceResolved: Boolean read FInheritanceResolved write FInheritanceResolved;
   end;
 
   // ---------------------------------------------------------------------------
@@ -421,6 +439,8 @@ type
     class constructor Create;
 
     class destructor Destroy;
+    function LookupMap(AType: PTypeInfo): TEntityMap;
+    procedure ResolveInheritance(AMap: TEntityMap);
   public
     constructor Create;
     destructor Destroy; override;
@@ -652,6 +672,9 @@ end;
 procedure TEntityMap.DiscoverAttributes;
 var
   Typ: TRttiType;
+  BaseTyp: TRttiType;
+  BaseTable: TableAttribute;
+  BaseIsTPH: Boolean;
   Attr: TCustomAttribute;
   Prop: TRttiProperty;
   PropMap: TPropertyMap;
@@ -708,6 +731,36 @@ var
 begin
   Typ := TReflection.Context.GetType(FEntityType);
   if Typ = nil then Exit;
+
+  // A subclass in a table-per-hierarchy inherits the strategy and the discriminator
+  // column that the root declares with attributes
+  BaseTyp := Typ;
+  BaseTable := nil;
+  BaseIsTPH := False;
+  while (BaseTyp is TRttiInstanceType) and (TRttiInstanceType(BaseTyp).BaseType <> nil) do
+  begin
+    BaseTyp := TRttiInstanceType(BaseTyp).BaseType;
+    for Attr in BaseTyp.GetAttributes do
+    begin
+      if Attr is TableAttribute then
+        BaseTable := TableAttribute(Attr);
+      if (Attr is InheritanceAttribute) and
+         (InheritanceAttribute(Attr).Strategy = TInheritanceStrategy.TablePerHierarchy) then
+        BaseIsTPH := True;
+      if (Attr is InheritanceAttribute) and (FInheritanceStrategy = TInheritanceStrategy.None) then
+        FInheritanceStrategy := InheritanceAttribute(Attr).Strategy;
+      if (Attr is DiscriminatorColumnAttribute) and (FDiscriminatorColumn = '') then
+        FDiscriminatorColumn := DiscriminatorColumnAttribute(Attr).Name;
+    end;
+  end;
+  // The subclass of a TPH root declared with attributes uses the root's table
+  // (its own [Table], if any, is read below and wins)
+  if BaseIsTPH and (BaseTable <> nil) then
+  begin
+    FTableName := BaseTable.Name;
+    FSchema := BaseTable.Schema;
+  end;
+
   for Attr in Typ.GetAttributes do
     begin
       if Attr is TableAttribute then
@@ -1071,6 +1124,44 @@ begin
   Result := FOrderedProperties.ToArray;
 end;
 
+procedure TEntityMap.InheritFrom(ARoot: TEntityMap);
+var
+  RootProp, OwnProp: TPropertyMap;
+  Fld: TRttiField;
+  Typ: TRttiType;
+  Key: string;
+begin
+  if FTableName = '' then
+  begin
+    FTableName := ARoot.TableName;
+    FSchema := ARoot.Schema;
+  end;
+  if FDiscriminatorColumn = '' then
+    FDiscriminatorColumn := ARoot.DiscriminatorColumn;
+  if FKeys.Count = 0 then
+    for Key in ARoot.Keys do
+      FKeys.Add(Key);
+  Typ := TReflection.Context.GetType(TPropertyMap);
+  for RootProp in ARoot.OrderedProperties do
+  begin
+    // Only the properties the subclass inherits
+    if not FProperties.TryGetValue(RootProp.PropertyName, OwnProp) then Continue;
+    for Fld in Typ.GetFields do
+      Fld.SetValue(OwnProp, Fld.GetValue(RootProp));
+  end;
+end;
+
+procedure TEntityMap.RequireClassProperty(const AName: string);
+var
+  Typ: TRttiType;
+begin
+  Typ := TReflection.Context.GetType(FEntityType);
+  if (Typ <> nil) and (Typ.GetProperty(AName) = nil) and (Typ.GetField(AName) = nil) then
+    raise EEntityMappingException.CreateFmt(
+      'Property "%s" does not exist in entity "%s". If it is not part of the class, ' +
+      'declare it with ShadowProperty.', [AName, string(FEntityType.Name)]);
+end;
+
 { TPropertyMap }
 
 constructor TPropertyMap.Create(const APropName: string);
@@ -1203,6 +1294,7 @@ end;
 function TEntityBuilder<T>.HasKey(const APropertyName: string): TEntityBuilder<T>;
 begin
   FMap.Keys.Clear;
+  FMap.RequireClassProperty(APropertyName);
   FMap.Keys.Add(APropertyName);
   FMap.GetOrAddProperty(APropertyName).IsPK := True;
   Result := Self;
@@ -1215,6 +1307,7 @@ begin
   FMap.Keys.Clear;
   for Prop in APropertyNames do
   begin
+    FMap.RequireClassProperty(Prop);
     FMap.Keys.Add(Prop);
     FMap.GetOrAddProperty(Prop).IsPK := True;
   end;
@@ -1237,6 +1330,7 @@ end;
 
 function TEntityBuilder<T>.Prop(const APropertyName: string): TEntityBuilder<T>;
 begin
+  FMap.RequireClassProperty(APropertyName);
   FCurrentProp := FMap.GetOrAddProperty(APropertyName);
   Result := Self;
 end;
@@ -1379,6 +1473,7 @@ function TEntityBuilder<T>.HasMany(const APropertyName: string): IRelationshipBu
 var
   LProp: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   LProp := FMap.GetOrAddProperty(APropertyName);
   LProp.IsNavigation := True;
   LProp.Relationship := rtOneToMany;
@@ -1389,6 +1484,7 @@ function TEntityBuilder<T>.HasOne(const APropertyName: string): IRelationshipBui
 var
   LProp: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   LProp := FMap.GetOrAddProperty(APropertyName);
   LProp.IsNavigation := True;
   LProp.Relationship := rtOneToOne;
@@ -1399,6 +1495,7 @@ function TEntityBuilder<T>.BelongsTo(const APropertyName: string): IRelationship
 var
   LProp: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   LProp := FMap.GetOrAddProperty(APropertyName);
   LProp.IsNavigation := True;
   LProp.Relationship := rtManyToOne;
@@ -1409,6 +1506,7 @@ function TEntityBuilder<T>.HasManyToMany(const APropertyName: string): IRelation
 var
   LProp: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   LProp := FMap.GetOrAddProperty(APropertyName);
   LProp.IsNavigation := True;
   LProp.Relationship := rtManyToMany;
@@ -1459,6 +1557,7 @@ end;
 function TEntityTypeBuilder<T>.HasKey(const APropertyName: string): IEntityTypeBuilder<T>;
 begin
   FMap.Keys.Clear;
+  FMap.RequireClassProperty(APropertyName);
   FMap.Keys.Add(APropertyName);
   
   // Mark property as PK
@@ -1473,6 +1572,7 @@ begin
   FMap.Keys.Clear;
   for Prop in APropertyNames do
   begin
+    FMap.RequireClassProperty(Prop);
     FMap.Keys.Add(Prop);
     FMap.GetOrAddProperty(Prop).IsPK := True;
   end;
@@ -1495,6 +1595,7 @@ end;
 
 function TEntityTypeBuilder<T>.Prop(const APropertyName: string): IPropertyBuilder<T>;
 begin
+  FMap.RequireClassProperty(APropertyName);
   Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropertyName));
 end;
 
@@ -1505,11 +1606,13 @@ end;
 
 function TEntityTypeBuilder<T>.ShadowProperty(const APropName: string): IPropertyBuilder<T>;
 begin
-  Result := Prop(APropName).IsShadow(True);
+  Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropName))
+    .IsShadow(True);
 end;
 
 function TEntityTypeBuilder<T>.Ignore(const APropertyName: string): IEntityTypeBuilder<T>;
 begin
+  FMap.RequireClassProperty(APropertyName);
   FMap.GetOrAddProperty(APropertyName).IsIgnored := True;
   Result := Self;
 end;
@@ -1518,6 +1621,7 @@ function TEntityTypeBuilder<T>.HasMany(const APropertyName: string): IRelationsh
 var
   PropMap: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   PropMap := FMap.GetOrAddProperty(APropertyName);
   PropMap.IsNavigation := True;
   PropMap.Relationship := rtOneToMany;
@@ -1528,6 +1632,7 @@ function TEntityTypeBuilder<T>.HasOne(const APropertyName: string): IRelationshi
 var
   PropMap: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   PropMap := FMap.GetOrAddProperty(APropertyName);
   PropMap.IsNavigation := True;
   PropMap.Relationship := rtOneToOne;
@@ -1538,6 +1643,7 @@ function TEntityTypeBuilder<T>.BelongsTo(const APropertyName: string): IRelation
 var
   PropMap: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   PropMap := FMap.GetOrAddProperty(APropertyName);
   PropMap.IsNavigation := True;
   PropMap.Relationship := rtManyToOne;
@@ -1548,6 +1654,7 @@ function TEntityTypeBuilder<T>.HasManyToMany(const APropertyName: string): IRela
 var
   PropMap: TPropertyMap;
 begin
+  FMap.RequireClassProperty(APropertyName);
   PropMap := FMap.GetOrAddProperty(APropertyName);
   PropMap.IsNavigation := True;
   PropMap.Relationship := rtManyToMany;
@@ -1857,7 +1964,42 @@ begin
   Result := TEntityBuilder<T>.Create(Map);
 end;
 
-function TModelBuilder.GetMap(AType: PTypeInfo): TEntityMap;
+procedure TModelBuilder.ResolveInheritance(AMap: TEntityMap);
+var
+  Cls: TClass;
+  Info: PTypeInfo;
+  Candidate, Root: TEntityMap;
+begin
+  if (AMap = nil) or AMap.InheritanceResolved then Exit;
+  if (AMap.InheritanceStrategy <> TInheritanceStrategy.TablePerHierarchy) or
+     VarIsNull(AMap.DiscriminatorValue) or VarIsEmpty(AMap.DiscriminatorValue) then Exit;
+  Root := nil;
+  Cls := GetTypeData(AMap.EntityType)^.ClassType.ClassParent;
+  while Cls <> nil do
+  begin
+    Info := Cls.ClassInfo;
+    if Info <> nil then
+    begin
+      FLock.BeginRead;
+      try
+        if FMaps.TryGetValue(Info, Candidate) and
+           (Candidate.InheritanceStrategy = TInheritanceStrategy.TablePerHierarchy) then
+          Root := Candidate;
+      finally
+        FLock.EndRead;
+      end;
+    end;
+    Cls := Cls.ClassParent;
+  end;
+  // Without a registered root yet, try again on the next lookup
+  if Root <> nil then
+  begin
+    AMap.InheritFrom(Root);
+    AMap.InheritanceResolved := True;
+  end;
+end;
+
+function TModelBuilder.LookupMap(AType: PTypeInfo): TEntityMap;
 begin
   FLock.BeginRead;
   try
@@ -1881,6 +2023,12 @@ begin
   end;
 end;
 
+function TModelBuilder.GetMap(AType: PTypeInfo): TEntityMap;
+begin
+  Result := LookupMap(AType);
+  ResolveInheritance(Result);
+end;
+
 function TModelBuilder.HasMap(AType: PTypeInfo): Boolean;
 begin
   FLock.BeginRead;
@@ -1892,6 +2040,8 @@ begin
 end;
 
 function TModelBuilder.GetMaps: TArray<TEntityMap>;
+var
+  Map: TEntityMap;
 begin
   FLock.BeginRead;
   try
@@ -1899,6 +2049,8 @@ begin
   finally
     FLock.EndRead;
   end;
+  for Map in Result do
+    ResolveInheritance(Map);
 end;
 
 function TModelBuilder.FindMapByDiscriminator(ABaseType: PTypeInfo; const AValue: Variant): TEntityMap;

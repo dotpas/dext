@@ -89,11 +89,15 @@ type
     DirectKind: TDextNativeKind;
     DirectDataType: TFieldType;
     UseDirect: Boolean;
+    // Class that declares the property when it belongs to a TPH subclass
+    OwnerClass: TClass;
   end;
 
   THydrationPlan = record
     Items: TArray<TColumnHydrationItem>;
     PKColumns: TArray<Integer>;
+    // Index of the discriminator column in the reader, or -1
+    DiscriminatorIndex: Integer;
   end;
 
   /// <summary>
@@ -150,8 +154,12 @@ type
     FOrphans: IList<T>; // Stores detached objects until DbSet is destroyed
     FPKColumns: IList<string>;
     FProps: IDictionary<string, TRttiProperty>;
+    FSubProps: IDictionary<string, TDeclaredColumn>;
+    FSubPropsBuilt: Boolean;
     FTableName: string;
 
+    function TryGetSubtypeProp(const AColumnLower: string;
+      out AProp: TRttiProperty; out AOwner: TClass): Boolean;
     function CreateGenerator: TSqlGenerator<T>;
     function BuildHydrationPlan(const Reader: IDbReader): THydrationPlan;
     function Hydrate(const Reader: IDbReader; const Plan: THydrationPlan; const Tracking: Boolean = True): T;
@@ -1033,6 +1041,45 @@ begin
   raise Exception.Create('Could not determine Primary Key for related entity ' + AObject.ClassName);
 end;
 
+function TDbSet<T>.TryGetSubtypeProp(const AColumnLower: string;
+  out AProp: TRttiProperty; out AOwner: TClass): Boolean;
+var
+  Map: TEntityMap;
+  RootClass, MapClass: TClass;
+  Col: TDeclaredColumn;
+  Existing: TDeclaredColumn;
+begin
+  AProp := nil;
+  AOwner := nil;
+  if not FSubPropsBuilt then
+  begin
+    FSubPropsBuilt := True;
+    FSubProps := TCollections.CreateDictionary<string, TDeclaredColumn>;
+    // Only the root of a table-per-hierarchy reads the columns of its subclasses
+    if (FMap <> nil) and (FContext <> nil) and (FContext.ModelBuilder <> nil) and
+       (FMap.InheritanceStrategy = TInheritanceStrategy.TablePerHierarchy) and
+       (FMap.DiscriminatorColumn <> '') and
+       (VarIsNull(FMap.DiscriminatorValue) or VarIsEmpty(FMap.DiscriminatorValue)) then
+    begin
+      RootClass := GetTypeData(TypeInfo(T))^.ClassType;
+      for Map in FContext.ModelBuilder.GetMaps do
+      begin
+        MapClass := GetTypeData(Map.EntityType)^.ClassType;
+        if (MapClass = RootClass) or (not MapClass.InheritsFrom(RootClass)) then Continue;
+        for Col in TSQLGeneratorHelper.GetDeclaredColumns(Map, FContext.NamingStrategy) do
+          if not FSubProps.TryGetValue(Col.ColumnName.ToLower, Existing) then
+            FSubProps.Add(Col.ColumnName.ToLower, Col);
+      end;
+    end;
+  end;
+  Result := FSubProps.TryGetValue(AColumnLower, Col);
+  if Result then
+  begin
+    AProp := Col.Prop;
+    AOwner := GetTypeData(Col.Prop.Parent.Handle)^.ClassType;
+  end;
+end;
+
 function TDbSet<T>.BuildHydrationPlan(const Reader: IDbReader): THydrationPlan;
 var
   i: Integer;
@@ -1049,6 +1096,7 @@ var
   ItemIdx, PKIdx: Integer;
   Signature: string;
   SignatureBuilder: TStringBuilder;
+  OwnerCls: TClass;
 begin
   ColCount := Reader.GetColumnCount;
   SignatureBuilder := TStringBuilder.Create(ColCount * 24);
@@ -1069,6 +1117,7 @@ begin
 
   SetLength(Result.Items, ColCount);
   SetLength(Result.PKColumns, ColCount);
+  Result.DiscriminatorIndex := -1;
   ItemIdx := 0;
   PKIdx := 0;
 
@@ -1076,6 +1125,10 @@ begin
   begin
     ColName := Reader.GetColumnName(i);
     ColNameLower := ColName.ToLower;
+
+    if (FMap <> nil) and (FMap.DiscriminatorColumn <> '') and
+       SameText(FMap.DiscriminatorColumn, ColName) then
+      Result.DiscriminatorIndex := i;
 
     // 1. Check if it's a primary key column
     for PKCol in FPKColumns do
@@ -1089,7 +1142,9 @@ begin
     end;
 
     // 2. Resolve properties / mapping
-    if FProps.TryGetValue(ColNameLower, Prop) then
+    OwnerCls := nil;
+    if FProps.TryGetValue(ColNameLower, Prop) or
+       TryGetSubtypeProp(ColNameLower, Prop, OwnerCls) then
     begin
       PropMap := nil;
       if FMap <> nil then 
@@ -1122,7 +1177,8 @@ begin
       Item.DirectKind := nkUnknown;
       Item.DirectDataType := ftUnknown;
       Item.UseDirect := False;
-      if (PropMap <> nil) and (Converter = nil) and (PropMap.FieldValueOffset > 0) and
+      Item.OwnerClass := OwnerCls;
+      if (OwnerCls = nil) and (PropMap <> nil) and (Converter = nil) and (PropMap.FieldValueOffset > 0) and
          (PropMap.FieldOffset < 0) and (not PropMap.IsLazy) and
          (TDextTypeModel.IsDirectKind(PropMap.NativeKind)) then
       begin
@@ -1155,6 +1211,7 @@ begin
         Item.DirectOffset := -1;
         Item.DirectKind := nkUnknown;
         Item.UseDirect := False;
+        Item.OwnerClass := nil;
         
         // Let's resolve the target class property to make sure it exists
         if FProps.TryGetValue(Item.MultiMapPrefix.ToLower, Prop) and (Prop.PropertyType.TypeKind = tkClass) then
@@ -1213,11 +1270,18 @@ begin
   end;
   
   // Create new instance with Discriminator support
+  // Only the root set (no discriminator value of its own) has to pick the
+  // class of each row; a subclass set always builds its own class.
   if (FMap <> nil) and (FMap.InheritanceStrategy = TInheritanceStrategy.TablePerHierarchy) and 
-     (FMap.DiscriminatorColumn <> '') then
+     (FMap.DiscriminatorColumn <> '') and (Plan.DiscriminatorIndex >= 0) and
+     (VarIsNull(FMap.DiscriminatorValue) or VarIsEmpty(FMap.DiscriminatorValue)) then
   begin
-     DiscVal := Reader.GetValue(FMap.DiscriminatorColumn).AsVariant;
-     SubMap := FContext.ModelBuilder.FindMapByDiscriminator(TypeInfo(T), DiscVal);
+     DiscVal := Null;
+     if not Reader.IsNull(Plan.DiscriminatorIndex) then
+       DiscVal := Reader.GetValue(Plan.DiscriminatorIndex).AsVariant;
+     SubMap := nil;
+     if not VarIsNull(DiscVal) then
+       SubMap := FContext.ModelBuilder.FindMapByDiscriminator(TypeInfo(T), DiscVal);
      if (SubMap <> nil) and (SubMap.EntityType <> TypeInfo(T)) then
         Result := T(TActivator.CreateInstance(GetTypeData(SubMap.EntityType)^.ClassType, []))
      else
@@ -1262,6 +1326,10 @@ begin
   for i := 0 to Length(Plan.Items) - 1 do
   begin
     Item := Plan.Items[i];
+
+    // A column of another subclass of the hierarchy: not this instance's
+    if (Item.OwnerClass <> nil) and (not Target.InheritsFrom(Item.OwnerClass)) then
+      Continue;
     
     if not Item.IsMultiMap then
     begin

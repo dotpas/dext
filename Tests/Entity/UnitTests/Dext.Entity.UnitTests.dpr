@@ -39,6 +39,8 @@ uses
   Dext.Entity.PersistOwnership.Tests in 'Dext.Entity.PersistOwnership.Tests.pas',
   Dext.Entity.ChangeTracker.Tests in 'Dext.Entity.ChangeTracker.Tests.pas',
   Dext.Entity.SmartAttributes.Tests in 'Dext.Entity.SmartAttributes.Tests.pas',
+  Dext.Entity.MappingNames.Tests in 'Dext.Entity.MappingNames.Tests.pas',
+  Dext.Entity.Inheritance.Tests in 'Dext.Entity.Inheritance.Tests.pas',
   Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas',
   Dext.Testing.Entity in '..\..\..\Sources\Testing\Dext.Testing.Entity.pas',
   Dext.Testing.Entity.Tests in '..\..\Testing\Dext.Testing.Entity.Tests.pas';
@@ -94,6 +96,8 @@ begin
         TPersistUpdateOwnershipTests,
         TChangeTrackerSnapshotTests,
         TSmartAttributesTests,
+        TMappingNamesTests,
+        TInheritanceTests,
         TGrpcTests,
         TMockDbSetTests
       ]));
