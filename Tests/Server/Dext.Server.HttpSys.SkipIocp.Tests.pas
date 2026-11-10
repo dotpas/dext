@@ -78,9 +78,8 @@ const
   CRLF = #13#10;
   // Over 64 KB: the body is received in several HttpReceiveRequestEntityBody.
   LARGE_BODY = 300000;
-  // Large enough to be still sending when the client goes away.
-  PART_SIZE = 65536;
-  PART_COUNT = 200;
+  // Large enough to be still sending when the client goes away (13 MB).
+  BIG_RESPONSE = 200 * 65536;
 
 { Handler }
 
@@ -124,20 +123,15 @@ begin
   end
   else if ARequest.GetPath = '/big' then
   begin
-    // Many flushed parts: the client goes away while they are being sent.
+    // One large body, sent by Close with its Content-Length: the client can
+    // go away while it is being sent. (Not several Write + Flush: after the
+    // first Flush, a Write sends the LAST part of the response, so the
+    // response ends at the second part.)
     AResponse.SetStatus(200);
     AResponse.SetHeader('Content-Type', 'application/octet-stream');
-    SetLength(Body, PART_SIZE);
-    FillChar(Body[0], PART_SIZE, Ord('x'));
-    try
-      for I := 1 to PART_COUNT do
-      begin
-        AResponse.Write(Body, 0, Length(Body));
-        AResponse.Flush;
-      end;
-    except
-      // The send fails once the client is gone: expected.
-    end;
+    SetLength(Body, BIG_RESPONSE);
+    FillChar(Body[0], BIG_RESPONSE, Ord('x'));
+    AResponse.Write(Body, 0, Length(Body));
   end
   else
   begin
@@ -301,13 +295,37 @@ procedure TDextHttpSysSkipIocpTests.CheckDisconnectMidResponse;
 var
   S: TSocket;
   Lingering: TLinger;
-  Round: Integer;
+  Round, N: Integer;
+  Got: Int64;
+  Buffer: TBytes;
 begin
+  // First the whole response, on a connection that stays open: every byte.
+  S := Connect;
+  try
+    SendText(S, 'GET /big HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
+    Should(ReadUntil(S, CRLF + CRLF)).StartWith('HTTP/1.1 200').&And.Contain(
+      'Content-Length: ' + IntToStr(BIG_RESPONSE) + CRLF);
+    SetLength(Buffer, 65536);
+    Got := 0;
+    while Got < BIG_RESPONSE do
+    begin
+      N := recv(S, Buffer[0], Length(Buffer), 0);
+      if N <= 0 then
+        Break;
+      Inc(Got, N);
+    end;
+    Should(Got).Be(BIG_RESPONSE);
+  finally
+    closesocket(S);
+  end;
   for Round := 1 to 3 do
   begin
     S := Connect;
     SendText(S, 'GET /big HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
     Should(ReadUntil(S, CRLF + CRLF)).StartWith('HTTP/1.1 200');
+    // Some of the body, then the client goes away.
+    SetLength(Buffer, 65536);
+    recv(S, Buffer[0], Length(Buffer), 0);
     // Abortive close (RST) with most of the response still to come.
     Lingering.l_onoff := 1;
     Lingering.l_linger := 0;
