@@ -41,6 +41,7 @@ uses
   Dext.Entity.SmartAttributes.Tests in 'Dext.Entity.SmartAttributes.Tests.pas',
   Dext.Entity.MappingNames.Tests in 'Dext.Entity.MappingNames.Tests.pas',
   Dext.Entity.Inheritance.Tests in 'Dext.Entity.Inheritance.Tests.pas',
+  Dext.Entity.PostgreSQL.Tests in 'Dext.Entity.PostgreSQL.Tests.pas',
   Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas',
   Dext.Testing.Entity in '..\..\..\Sources\Testing\Dext.Testing.Entity.pas',
   Dext.Testing.Entity.Tests in '..\..\Testing\Dext.Testing.Entity.Tests.pas';
@@ -98,6 +99,7 @@ begin
         TSmartAttributesTests,
         TMappingNamesTests,
         TInheritanceTests,
+        TPostgreSQLSchemaTests,
         TGrpcTests,
         TMockDbSetTests
       ]));

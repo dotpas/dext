@@ -1514,7 +1514,29 @@ var
   List: TStringList;
   LSchema: string;
   Table: string;
+  Relation: string;
+  DotPos: Integer;
 begin
+  // PostgreSQL: ask the server, which resolves the name through the search_path.
+  // GetTableNames lists the tables of other schemas as well, so a table with the
+  // same name in another schema would hide a missing one in the current schema.
+  if GetDialect = ddPostgreSQL then
+  begin
+    try
+      Relation := ATableName.Replace('"', '');
+      DotPos := Relation.IndexOf('.');
+      if DotPos > 0 then
+        Relation := '"' + Relation.Substring(0, DotPos) + '"."' +
+          Relation.Substring(DotPos + 1) + '"'
+      else
+        Relation := '"' + Relation + '"';
+      Exit(Boolean(FConnection.ExecSQLScalar(
+        'SELECT to_regclass(:n) IS NOT NULL', [Relation])));
+    except
+      // Fall back to the metadata listing below
+    end;
+  end;
+
   List := TStringList.Create;
   try
     try
