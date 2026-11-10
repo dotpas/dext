@@ -44,6 +44,7 @@ uses
   Dext.Entity.PostgreSQL.Tests in 'Dext.Entity.PostgreSQL.Tests.pas',
   Dext.Entity.ConverterAttribute.Tests in 'Dext.Entity.ConverterAttribute.Tests.pas',
   Dext.Entity.JsonColumn.Tests in 'Dext.Entity.JsonColumn.Tests.pas',
+  Dext.Entity.DslLinq.Tests in 'Dext.Entity.DslLinq.Tests.pas',
   Dext.Entity.NestedDto.Tests in 'Dext.Entity.NestedDto.Tests.pas',
   Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas',
   Dext.Testing.Entity in '..\..\..\Sources\Testing\Dext.Testing.Entity.pas',
@@ -105,6 +106,7 @@ begin
         TPostgreSQLSchemaTests,
         TConverterAttributeTests,
         TJsonColumnTests,
+        TDslLinqTests,
         TNestedDtoTests,
         TGrpcTests,
         TMockDbSetTests

@@ -905,11 +905,22 @@ begin
   Result := TFunc<T, TResult>(function(const Item: T): TResult
     var
       Instance: TObject;
+      Raw, Converted: TValue;
     begin
       Instance := TValue.From<T>(Item).AsObject;
       if Instance = nil then 
         Exit(Default(TResult));
-      Result := AProp.GetValue(Instance).AsType<TResult>;
+      // A Smart Property (IntType, StringType...) holds the value in a record
+      // (TryUnwrapProp returns the value as it came when it is not wrapped)
+      TReflection.TryUnwrapProp(AProp.GetValue(Instance), Raw);
+      if Raw.IsEmpty then
+        Exit(Default(TResult));
+      if Raw.TypeInfo = TypeInfo(TResult) then
+        Exit(Raw.AsType<TResult>);
+      if Raw.TryCast(TypeInfo(TResult), Converted) then
+        Result := Converted.AsType<TResult>
+      else
+        Result := Raw.AsType<TResult>;
     end);
 end;
 
