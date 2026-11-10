@@ -119,6 +119,9 @@ var
   MapLoadTask: IAsyncTask = nil;
   MapLoadTokenSource: TCancellationTokenSource = nil;
   MapReadyEvent: TEvent = nil;
+  // Set by finalization: a background load still parsing the .map must stop
+  // before the unit releases its globals (otherwise: leak or hang at exit).
+  MapLoadCancelled: Boolean = False;
 
 { PE Header Helpers }
 
@@ -296,6 +299,7 @@ begin
   try
     if MapLoadAttempted then Exit;
     MapLoadAttempted := True;
+    if MapLoadCancelled then Exit;
     
     try
       MapPath := ChangeFileExt(ParamStr(0), '.map');
@@ -335,6 +339,9 @@ begin
 
   while GetLine(S) do
   begin
+    if MapLoadCancelled then
+      Break;
+
     if System.Pos('Publics by Value', S) > 0 then
     begin
       InPublics := True;
@@ -379,6 +386,15 @@ begin
 
     // Free raw buffer
     SetLength(Buf, 0);
+
+    if MapLoadCancelled then
+    begin
+      MapSymbols := nil;
+      MapSymbolCount := 0;
+      MapLines := nil;
+      MapLineCount := 0;
+      Exit;
+    end;
 
     SetLength(MapSymbols, MapSymbolCount);
     SetLength(MapLines, MapLineCount);
@@ -720,6 +736,15 @@ initialization
 
 finalization
   UninstallExceptionCallStack;
+  // A short-lived process can end while the background task is still parsing
+  // the .map: cancel it and wait, so the task never touches freed globals.
+  if Assigned(MapLoadTask) then
+  begin
+    MapLoadCancelled := True;
+    if Assigned(MapReadyEvent) then
+      MapReadyEvent.WaitFor(10000);
+    MapLoadTask := nil;
+  end;
   MapLoadTokenSource.Free;
   MapReadyEvent.Free;
 

@@ -535,6 +535,12 @@ function Should(const Value: Int64Type): ShouldInt64; overload;
 function Should(const Value: BoolType): ShouldBoolean; overload;
 function Should(const Value: FloatType): ShouldDouble; overload;
 function Should(const Value: CurrencyType): ShouldDouble; overload;
+/// <summary>Compares a date/time Smart Property with ShouldDateTime.</summary>
+function Should(const Value: DateTimeType): ShouldDateTime; overload;
+/// <summary>Compares a date Smart Property with ShouldDateTime.</summary>
+function Should(const Value: DateType): ShouldDateTime; overload;
+/// <summary>Compares a time Smart Property with ShouldDateTime.</summary>
+function Should(const Value: TimeType): ShouldDateTime; overload;
 
 // Nullable<T> Overloads
 function Should(const Value: Nullable<string>): ShouldString; overload;
@@ -543,6 +549,12 @@ function Should(const Value: Nullable<Int64>): ShouldInt64; overload;
 function Should(const Value: Nullable<Boolean>): ShouldBoolean; overload;
 function Should(const Value: Nullable<Double>): ShouldDouble; overload;
 function Should(const Value: Nullable<Currency>): ShouldDouble; overload;
+/// <summary>Compares a Nullable date/time (fails when null).</summary>
+function Should(const Value: Nullable<TDateTime>): ShouldDateTime; overload;
+/// <summary>Compares a Nullable date (fails when null).</summary>
+function Should(const Value: Nullable<TDate>): ShouldDateTime; overload;
+/// <summary>Compares a Nullable time (fails when null).</summary>
+function Should(const Value: Nullable<TTime>): ShouldDateTime; overload;
 function ShouldDate(const Value: Nullable<TDateTime>): ShouldDateTime; overload;
 function ShouldDate(const Value: Prop<TDateTime>): ShouldDateTime; overload;
 
@@ -1529,6 +1541,24 @@ end;
 
 { ShouldObjectMembers }
 
+// A Smart Property (Prop<T>) read by RTTI arrives as a record; assertions
+// compare the inner FValue, not the record.
+function UnwrapSmartValue(const Value: TValue): TValue;
+var
+  RecType: TRttiRecordType;
+  ValueField: TRttiField;
+begin
+  Result := Value;
+  if (Value.Kind = tkRecord) and (Value.TypeInfo <> nil) and
+    string(Value.TypeInfo.Name).StartsWith('Prop<') then
+  begin
+    RecType := TReflection.Context.GetType(Value.TypeInfo).AsRecord;
+    ValueField := RecType.GetField('FValue');
+    if ValueField <> nil then
+      Result := ValueField.GetValue(Value.GetReferenceToRawData);
+  end;
+end;
+
 class function ShouldObjectMembers.HaveProperty(const Subject: ShouldObject; const PropertyName: string): ShouldProperty;
 var
   RttiType: TRttiType;
@@ -1549,7 +1579,7 @@ begin
     Exit(ShouldProperty.Create(Subject, PropertyName, TValue.Empty));
   end;
 
-  Val := Prop.GetValue(Subject.FValue);
+  Val := UnwrapSmartValue(Prop.GetValue(Subject.FValue));
   Result := ShouldProperty.Create(Subject, PropertyName, Val);
 end;
 
@@ -1571,8 +1601,6 @@ var
   Field: TRttiField;
   ActualValue: TValue;
   ActualStr, ExpectedStr: string;
-  RecType: TRttiRecordType;
-  ValueField: TRttiField;
 begin
   Result := Subject;
   if Subject.FValue = nil then
@@ -1604,16 +1632,11 @@ begin
     end;
         
     ActualValue := Field.GetValue(Subject.FValue);
-    
-    // If it's a Prop<T> Smart Type, extract the inner FValue
-    if (ActualValue.Kind = tkRecord) and string(ActualValue.TypeInfo.Name).StartsWith('Prop<') then
-    begin
-      RecType := TReflection.Context.GetType(ActualValue.TypeInfo).AsRecord;
-      ValueField := RecType.GetField('FValue');
-      if ValueField <> nil then
-        ActualValue := ValueField.GetValue(ActualValue.GetReferenceToRawData);
-    end;
   end;
+
+  // If it's a Prop<T> Smart Type (read through the property or the field),
+  // compare the inner FValue, not the record
+  ActualValue := UnwrapSmartValue(ActualValue);
   
   // Compare values using extracted strings
   ActualStr := ActualValue.ToString;
@@ -1628,7 +1651,7 @@ class function ShouldObjectMembers.HaveValue(const Subject: ShouldObject; const 
   const ExpectedValue: string): ShouldObject;
 begin
   if not PropertyMetadata.IsQueryMode then
-    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T> from Dext.Core.SmartTypes).');
 
   Result := HavePropertyValue(Subject, PropertyMetadata.Name, TValue.From<string>(ExpectedValue));
 end;
@@ -1637,7 +1660,7 @@ class function ShouldObjectMembers.HaveValue(const Subject: ShouldObject; const 
   ExpectedValue: Integer): ShouldObject;
 begin
   if not PropertyMetadata.IsQueryMode then
-    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Subject.Fail('HaveValue requires a Smart Property prototype (use Prototype.Entity<T> from Dext.Core.SmartTypes).');
 
   Result := HavePropertyValue(Subject, PropertyMetadata.Name, TValue.From<Integer>(ExpectedValue));
 end;
@@ -1675,7 +1698,7 @@ begin
   
   if InfoValue.IsEmpty or (InfoValue.AsInterface = nil) then
   begin
-    Subject.Fail('HaveValue<T> requires a Smart Property prototype (use Prototype.Entity<T>).');
+    Subject.Fail('HaveValue<T> requires a Smart Property prototype (use Prototype.Entity<T> from Dext.Core.SmartTypes).');
     Exit;
   end;
   
@@ -2406,6 +2429,21 @@ begin
   Result := ShouldDouble.Create(Value.Value);
 end;
 
+function Should(const Value: DateTimeType): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value.Value);
+end;
+
+function Should(const Value: DateType): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value.Value);
+end;
+
+function Should(const Value: TimeType): ShouldDateTime; overload;
+begin
+  Result := ShouldDateTime.Create(Value.Value);
+end;
+
 { Nullable<T> Implementations }
 
 function Should(const Value: Nullable<string>): ShouldString; overload;
@@ -2448,6 +2486,27 @@ begin
   if not Value.HasValue then
     Assert.Fail('Expected Nullable<Currency> to have a value, but it was Null');
   Result := ShouldDouble.Create(Value.Value);
+end;
+
+function Should(const Value: Nullable<TDateTime>): ShouldDateTime; overload;
+begin
+  if not Value.HasValue then
+    Assert.Fail('Expected Nullable<TDateTime> to have a value, but it was Null');
+  Result := ShouldDateTime.Create(Value.Value);
+end;
+
+function Should(const Value: Nullable<TDate>): ShouldDateTime; overload;
+begin
+  if not Value.HasValue then
+    Assert.Fail('Expected Nullable<TDate> to have a value, but it was Null');
+  Result := ShouldDateTime.Create(Value.Value);
+end;
+
+function Should(const Value: Nullable<TTime>): ShouldDateTime; overload;
+begin
+  if not Value.HasValue then
+    Assert.Fail('Expected Nullable<TTime> to have a value, but it was Null');
+  Result := ShouldDateTime.Create(Value.Value);
 end;
 
 function ShouldDate(const Value: Nullable<TDateTime>): ShouldDateTime; overload;

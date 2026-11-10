@@ -33,6 +33,8 @@ uses
   System.SysUtils,
   System.Rtti,
   Dext,
+  Dext.Core.SmartTypes,
+  Dext.Types.Nullable,
   // {BEGIN_DEXT_USES}
   // Generated Uses
   Dext.Assertions,
@@ -287,8 +289,48 @@ function Should(const Value: TGUID): ShouldGuid; overload;
 function Should(const Value: TUUID): ShouldUUID; overload;
 /// <summary>Initiates a fluent assertion for Variant types.</summary>
 function Should(const Value: Variant): ShouldVariant; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of string.</summary>
+function Should(const Value: StringType): ShouldString; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of Integer.</summary>
+function Should(const Value: IntType): ShouldInteger; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of Int64.</summary>
+function Should(const Value: Int64Type): ShouldInt64; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of Boolean.</summary>
+function Should(const Value: BoolType): ShouldBoolean; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of Double.</summary>
+function Should(const Value: FloatType): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for a Smart Property of Currency.</summary>
+function Should(const Value: CurrencyType): ShouldDouble; overload;
+/// <summary>Initiates a date/time assertion for a Smart Property of TDateTime.</summary>
+function Should(const Value: DateTimeType): ShouldDateTime; overload;
+/// <summary>Initiates a date assertion for a Smart Property of TDate.</summary>
+function Should(const Value: DateType): ShouldDateTime; overload;
+/// <summary>Initiates a time assertion for a Smart Property of TTime.</summary>
+function Should(const Value: TimeType): ShouldDateTime; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;string&gt; (fails when null).</summary>
+function Should(const Value: Nullable<string>): ShouldString; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;Integer&gt; (fails when null).</summary>
+function Should(const Value: Nullable<Integer>): ShouldInteger; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;Int64&gt; (fails when null).</summary>
+function Should(const Value: Nullable<Int64>): ShouldInt64; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;Boolean&gt; (fails when null).</summary>
+function Should(const Value: Nullable<Boolean>): ShouldBoolean; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;Double&gt; (fails when null).</summary>
+function Should(const Value: Nullable<Double>): ShouldDouble; overload;
+/// <summary>Initiates a fluent assertion for Nullable&lt;Currency&gt; (fails when null).</summary>
+function Should(const Value: Nullable<Currency>): ShouldDouble; overload;
+/// <summary>Initiates a date/time assertion for Nullable&lt;TDateTime&gt; (fails when null).</summary>
+function Should(const Value: Nullable<TDateTime>): ShouldDateTime; overload;
+/// <summary>Initiates a date assertion for Nullable&lt;TDate&gt; (fails when null).</summary>
+function Should(const Value: Nullable<TDate>): ShouldDateTime; overload;
+/// <summary>Initiates a time assertion for Nullable&lt;TTime&gt; (fails when null).</summary>
+function Should(const Value: Nullable<TTime>): ShouldDateTime; overload;
 /// <summary>Initiates a specialized fluent assertion for dates and times.</summary>
 function ShouldDate(Value: TDateTime): ShouldDateTime; overload;
+/// <summary>Initiates a date assertion for Nullable&lt;TDateTime&gt; (fails when null).</summary>
+function ShouldDate(const Value: Nullable<TDateTime>): ShouldDateTime; overload;
+/// <summary>Initiates a date assertion for a Smart Property of TDateTime.</summary>
+function ShouldDate(const Value: Prop<TDateTime>): ShouldDateTime; overload;
 /// <summary>Generic helper for other specialized fluent assertions.</summary>
 function Should: ShouldHelper; overload;
 
@@ -319,7 +361,27 @@ function Should(const Value: IInterface): ShouldInterface; begin Result := Dext.
 function Should(const Value: TGUID): ShouldGuid; begin Result := Dext.Assertions.Should(Value); end;
 function Should(const Value: TUUID): ShouldUUID; begin Result := Dext.Assertions.Should(Value); end;
 function Should(const Value: Variant): ShouldVariant; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: StringType): ShouldString; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: IntType): ShouldInteger; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Int64Type): ShouldInt64; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: BoolType): ShouldBoolean; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: FloatType): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: CurrencyType): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: DateTimeType): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: DateType): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: TimeType): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<string>): ShouldString; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<Integer>): ShouldInteger; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<Int64>): ShouldInt64; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<Boolean>): ShouldBoolean; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<Double>): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<Currency>): ShouldDouble; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<TDateTime>): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<TDate>): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
+function Should(const Value: Nullable<TTime>): ShouldDateTime; begin Result := Dext.Assertions.Should(Value); end;
 function ShouldDate(Value: TDateTime): ShouldDateTime; begin Result := Dext.Assertions.ShouldDate(Value); end;
+function ShouldDate(const Value: Nullable<TDateTime>): ShouldDateTime; begin Result := Dext.Assertions.ShouldDate(Value); end;
+function ShouldDate(const Value: Prop<TDateTime>): ShouldDateTime; begin Result := Dext.Assertions.ShouldDate(Value); end;
 function Should: ShouldHelper; begin end;
 
 { ShouldObjectHelper }

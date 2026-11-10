@@ -179,6 +179,7 @@ type
   DateType = Dext.Core.SmartTypes.DateType;
   TimeType = Dext.Core.SmartTypes.TimeType;
   BoolExpr = Dext.Core.SmartTypes.BoolExpr;
+  Prototype = Dext.Core.SmartTypes.Prototype;
   // Prop<T> = Dext.Core.SmartTypes.Prop<T>;
   // TQueryPredicate<T> = Dext.Core.SmartTypes.TQueryPredicate<T>;
 

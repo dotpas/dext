@@ -293,6 +293,39 @@ type
   /// </summary>
   TQueryPredicate<T> = reference to function(Arg: T): BooleanExpression;
 
+  /// <summary>
+  ///   Creates and caches prototype instances of classes that declare Smart
+  ///   Properties (Prop<T>). A prototype has the metadata (IPropInfo) injected
+  ///   into each Prop<T>, so expressions, typed validation and assertions such
+  ///   as HaveValue know which property is being referenced.
+  ///   The Core factory uses RTTI only: the property name is also the column
+  ///   name, and no ORM mapping is needed. Dext.Entity registers a richer
+  ///   factory (column names, nested entities) through Prototype.Creator.
+  /// </summary>
+  /// <example>
+  ///   u := Prototype.Entity<TFatura>;
+  ///   Should(Fatura).HaveValue(u.Status, 'PAGA');
+  /// </example>
+  Prototype = class
+  public
+    /// <summary>
+    ///   Factory used to build new prototypes. nil means the Core factory
+    ///   (CreateDefault). Dext.Entity.Prototype assigns the ORM factory.
+    /// </summary>
+    class var Creator: TFunc<PTypeInfo, TObject>;
+    /// <summary>Returns the cached prototype of T, creating it on first use.</summary>
+    class function Entity<T>: T; overload; static;
+    /// <summary>Returns the cached prototype of ATypeInfo, creating it on first use.</summary>
+    class function Entity(ATypeInfo: PTypeInfo): TObject; overload; static;
+    /// <summary>
+    ///   Core factory: creates the instance and injects IPropInfo into each
+    ///   Prop<T> field, using the property name as the column name.
+    /// </summary>
+    class function CreateDefault(ATypeInfo: PTypeInfo): TObject; static;
+    /// <summary>Clears the prototype cache (tests, hot reload).</summary>
+    class procedure ClearCache; static;
+  end;
+
 /// <summary>
 ///   Extracts the inner value from a Smart Type (Prop<T>) record.
 ///   If the value is not a Smart Type, returns the original TValue.ToString.
@@ -303,9 +336,142 @@ function GetSmartValue(const AValue: TValue; const ATypeName: string): string;
 implementation
 
 uses
+  System.Generics.Collections,
   Dext.Core.ValueConverters,
   Dext.Specifications.OrderBy,
   Dext.Types.UUID;
+
+var
+  GPrototypeCache: TDictionary<PTypeInfo, TObject>;
+  GPrototypeStack: TList<PTypeInfo>;
+
+{ Prototype }
+
+function HasSmartProperty(const Typ: TRttiType): Boolean;
+
+  function IsSmart(const AType: TRttiType): Boolean;
+  var
+    Meta: TTypeMetadata;
+  begin
+    if AType = nil then
+      Exit(False);
+    if not TReflection.IsSmartProp(AType.Handle) then
+      Exit(False);
+    Meta := TReflection.GetMetadata(AType.Handle);
+    Result := not Meta.IsNullable and not Meta.IsLazy;
+  end;
+
+var
+  Fld: TRttiField;
+  Prop: TRttiProperty;
+begin
+  for Fld in Typ.GetFields do
+    if IsSmart(Fld.FieldType) then
+      Exit(True);
+  for Prop in Typ.GetProperties do
+    if IsSmart(Prop.PropertyType) then
+      Exit(True);
+  Result := False;
+end;
+
+class function Prototype.CreateDefault(ATypeInfo: PTypeInfo): TObject;
+var
+  Typ: TRttiType;
+  Fld: TRttiField;
+  Meta, Inner: TTypeMetadata;
+  Offset: Integer;
+  Name: string;
+  Info: IPropInfo;
+begin
+  Typ := TReflection.Context.GetType(ATypeInfo);
+  Result := Typ.AsInstance.MetaclassType.Create;
+  for Fld in Typ.GetFields do
+  begin
+    if Fld.FieldType = nil then
+      Continue;
+    Meta := TReflection.GetMetadata(Fld.FieldType.Handle);
+    if not (Meta.IsSmartProp or Meta.IsNullable) or Meta.IsLazy then
+      Continue;
+
+    // Same offsets as the ORM mapping: FInfo of Prop<T>, or of the inner
+    // record in Prop<Nullable<T>>. Plain Nullable<T> has a Boolean flag
+    // instead of FInfo and is skipped.
+    Offset := -1;
+    if (Meta.InnerType <> nil) and string(Meta.InnerType.Name).Contains('Nullable') then
+    begin
+      if Meta.ValueField <> nil then
+      begin
+        Inner := TReflection.GetMetadata(Meta.InnerType);
+        if (Inner.HasValueField <> nil) and
+           (Inner.HasValueField.FieldType.TypeKind = tkInterface) then
+          Offset := Fld.Offset + Meta.ValueField.Offset + Inner.HasValueField.Offset;
+      end;
+    end
+    else if (Meta.HasValueField <> nil) and
+            (Meta.HasValueField.FieldType.TypeKind = tkInterface) then
+      Offset := Fld.Offset + Meta.HasValueField.Offset;
+    if Offset < 0 then
+      Continue;
+
+    Name := TReflection.NormalizeFieldName(Fld.Name);
+    Info := TPropInfo.Create(Name, Name);
+    // The prototype keeps a raw reference; it is released when the
+    // prototype is freed (record finalization of the Prop<T> field).
+    Info._AddRef;
+    PPointer(NativeInt(Result) + Offset)^ := Pointer(Info);
+  end;
+end;
+
+class function Prototype.Entity(ATypeInfo: PTypeInfo): TObject;
+var
+  Typ: TRttiType;
+begin
+  if GPrototypeCache.TryGetValue(ATypeInfo, Result) then
+    Exit;
+
+  // Recursion guard (nested entities in the ORM factory)
+  if GPrototypeStack.Contains(ATypeInfo) then
+    Exit(nil);
+
+  Typ := TReflection.Context.GetType(ATypeInfo);
+  if (Typ = nil) or (Typ.TypeKind <> tkClass) then
+    raise Exception.Create('Prototype.Entity<T> only supports class types.');
+
+  if not HasSmartProperty(Typ) then
+    raise Exception.CreateFmt(
+      'Entity "%s" does not contain any Smart Properties (Prop<T>). ' +
+      'Expressions using Prototype.Entity<%s> will fail because standard Delphi properties compare at compile-time. ' +
+      'To query this entity, please use its metadata class (inheriting from TEntityType<%s>) or string-based properties (e.g. Prop(''PropertyName'')).',
+      [Typ.Name, Typ.Name, Typ.Name]);
+
+  GPrototypeStack.Add(ATypeInfo);
+  try
+    if Assigned(Creator) then
+      Result := Creator(ATypeInfo)
+    else
+      Result := CreateDefault(ATypeInfo);
+    GPrototypeCache.Add(ATypeInfo, Result);
+  finally
+    GPrototypeStack.Remove(ATypeInfo);
+  end;
+end;
+
+class function Prototype.Entity<T>: T;
+var
+  Obj: TObject;
+begin
+  Obj := Entity(TypeInfo(T));
+  Result := T(Pointer(@Obj)^);
+end;
+
+class procedure Prototype.ClearCache;
+var
+  Obj: TObject;
+begin
+  for Obj in GPrototypeCache.Values do
+    Obj.Free;
+  GPrototypeCache.Clear;
+end;
 
 { TPropInfo }
 
@@ -1334,6 +1500,16 @@ begin
   else
     Result := nil;
 end;
+
+initialization
+  GPrototypeCache := TDictionary<PTypeInfo, TObject>.Create;
+  GPrototypeStack := TList<PTypeInfo>.Create;
+
+finalization
+  Prototype.ClearCache;
+  Prototype.Creator := nil;
+  FreeAndNil(GPrototypeStack);
+  FreeAndNil(GPrototypeCache);
 
 end.
 

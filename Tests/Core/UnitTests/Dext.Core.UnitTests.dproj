@@ -185,6 +185,8 @@
         <DCCReference Include="Dext.Configuration.UserSecrets.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas"/>
         <DCCReference Include="Dext.Testing.Coverage.Lcov.Tests.pas"/>
+        <DCCReference Include="Dext.Core.SmartTypes.Prototype.Tests.pas"/>
+        <DCCReference Include="Dext.Testing.SmartDates.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

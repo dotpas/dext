@@ -690,11 +690,13 @@ var
 begin
   if FModel = nil then
   begin
-    if not Assigned(PrototypeFactory) then
-      raise Exception.Create('Entity Prototype Factory is not registered. Make sure Dext.Entity package is loaded.');
-
     try
-      Obj := PrototypeFactory(TypeInfo(T));
+      // Dext.Entity registers its ORM factory; without it, the Core
+      // prototype (RTTI only) is enough for typed validation rules.
+      if Assigned(PrototypeFactory) then
+        Obj := PrototypeFactory(TypeInfo(T))
+      else
+        Obj := Dext.Core.SmartTypes.Prototype.Entity(TypeInfo(T));
       FModel := T(Pointer(@Obj)^);
     except
       on E: Exception do

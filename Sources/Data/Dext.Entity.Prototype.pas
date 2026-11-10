@@ -22,10 +22,11 @@
 {  Author:  Cesar Romero                                                    }
 {  Created: 2025-12-27                                                      }
 {                                                                           }
-{  Prototype - Creates "ghost entities" for query building.                 }
+{  Prototype - ORM factory for "ghost entities" used in query building.     }
 {                                                                           }
-{  Prototypes are cached per type for performance (avoids RTTI overhead).   }
-{  Since prototypes are readonly (only metadata), caching is safe.          }
+{  The Prototype class itself lives in Dext.Core.SmartTypes (Core), so      }
+{  HaveValue and typed validation work without the ORM. This unit plugs the }
+{  ORM mapping into it: column names from TEntityMap and nested entities.   }
 {                                                                           }
 {  Usage:                                                                   }
 {    u := Prototype.Entity<TSmartPerson>;                                   }
@@ -37,9 +38,6 @@ unit Dext.Entity.Prototype;
 interface
 
 uses
-  System.Character,
-  Dext.Collections,
-  Dext.Collections.Dict,
   System.SysUtils,
   System.Rtti,
   System.TypInfo,
@@ -47,29 +45,11 @@ uses
 
 type
   /// <summary>
-  ///   Factory class for creating and caching prototype entities.
-  ///   Prototypes are cached per type for performance.
+  ///   The prototype factory is in Dext.Core.SmartTypes. This alias keeps
+  ///   existing code that uses Dext.Entity.Prototype.Prototype compiling;
+  ///   linking this unit registers the ORM factory (Prototype.Creator).
   /// </summary>
-  Prototype = class
-  private class var
-    FCache: IDictionary<PTypeInfo, TObject>;
-    FStack: IList<PTypeInfo>;
-    class constructor Create;
-    class destructor Destroy;
-    class function CreatePrototype(ATypeInfo: PTypeInfo): TObject; static;
-    class function Entity(ATypeInfo: PTypeInfo): TObject; overload; static;
-  public
-    /// <summary>
-    ///   Returns a cached prototype entity for query building.
-    ///   Creates and caches the prototype on first call for each type.
-    /// </summary>
-    class function Entity<T>: T; overload; static;
-    
-    /// <summary>
-    ///   Clears the prototype cache. Useful for testing or hot-reload scenarios.
-    /// </summary>
-    class procedure ClearCache; static;
-  end;
+  Prototype = Dext.Core.SmartTypes.Prototype;
 
   // Backward compatibility alias
   Build = Prototype;
@@ -82,43 +62,11 @@ uses
   Dext.Entity.Mapping,
   Dext.Validation;
 
-{ Prototype }
-
-class constructor Prototype.Create;
-begin
-  FCache := TCollections.CreateDictionary<PTypeInfo, TObject>;
-  FStack := TCollections.CreateList<PTypeInfo>;
-
-  Dext.Validation.PrototypeFactory := function(ATypeInfo: PTypeInfo): TObject
-    begin
-      Result := Prototype.Entity(ATypeInfo);
-    end;
-end;
-
-class destructor Prototype.Destroy;
-var
-  Obj: TObject;
-begin
-  if FCache <> nil then
-  begin
-    for Obj in FCache.Values do
-      Obj.Free;
-  end;
-  FCache := nil;
-  FStack := nil;
-  Dext.Validation.PrototypeFactory := nil;
-end;
-
-class procedure Prototype.ClearCache;
-var
-  Obj: TObject;
-begin
-  for Obj in FCache.Values do
-    Obj.Free;
-  FCache.Clear;
-end;
-
-class function Prototype.CreatePrototype(ATypeInfo: PTypeInfo): TObject;
+/// <summary>
+///   ORM factory: injects IPropInfo with the mapped column name and
+///   drill-down sub-prototypes for nested entities.
+/// </summary>
+function CreateEntityPrototype(ATypeInfo: PTypeInfo): TObject;
 var
   Typ: TRttiType;
   PropInfo: IPropInfo;
@@ -126,47 +74,8 @@ var
   ColumnName: string;
   EntityMap: TEntityMap;
   PropMap: TPropertyMap;
-  HasSmartProperty: Boolean;
-  Fld: TRttiField;
-  RttiProp: TRttiProperty;
 begin
   Typ := TReflection.Context.GetType(ATypeInfo);
-  if (Typ = nil) or (Typ.TypeKind <> tkClass) then
-    raise Exception.Create('Prototype.Entity<T> only supports class types.');
-
-  // Verify if the entity has at least one smart property of type Prop<T> (excluding Nullable<T> and Lazy<T>)
-  HasSmartProperty := False;
-  for Fld in Typ.GetFields do
-  begin
-    if TReflection.IsSmartProp(Fld.FieldType.Handle) and 
-       not TReflection.GetMetadata(Fld.FieldType.Handle).IsNullable and 
-       not TReflection.GetMetadata(Fld.FieldType.Handle).IsLazy then
-    begin
-      HasSmartProperty := True;
-      Break;
-    end;
-  end;
-
-  if not HasSmartProperty then
-  begin
-    for RttiProp in Typ.GetProperties do
-    begin
-      if TReflection.IsSmartProp(RttiProp.PropertyType.Handle) and 
-         not TReflection.GetMetadata(RttiProp.PropertyType.Handle).IsNullable and 
-         not TReflection.GetMetadata(RttiProp.PropertyType.Handle).IsLazy then
-      begin
-        HasSmartProperty := True;
-        Break;
-      end;
-    end;
-  end;
-
-  if not HasSmartProperty then
-    raise Exception.CreateFmt(
-      'Entity "%s" does not contain any Smart Properties (Prop<T>). ' +
-      'Expressions using Prototype.Entity<%s> will fail because standard Delphi properties compare at compile-time. ' +
-      'To query this entity, please use its metadata class (inheriting from TEntityType<%s>) or string-based properties (e.g. Prop(''PropertyName'')).',
-      [Typ.Name, Typ.Name, Typ.Name]);
 
   // Create Instance - Prefer default constructor if available
   Result := Typ.AsInstance.MetaclassType.Create;
@@ -192,40 +101,29 @@ begin
       end;
 
       // 2. Inject Sub-Prototypes (Recursive Drill-down Support)
-      if (PropMap.FieldValueOffset <> -1) and (PropMap.PropertyType <> nil) and 
+      if (PropMap.FieldValueOffset <> -1) and (PropMap.PropertyType <> nil) and
          (PropMap.PropertyType.Kind = tkClass) then
       begin
-         // We use the non-generic Entity call which handles the cache and recursion
-         PPointer(NativeInt(InstancePtr) + PropMap.FieldValueOffset)^ := Entity(PropMap.PropertyType);
+         // The non-generic Entity call handles the cache and recursion
+         PPointer(NativeInt(InstancePtr) + PropMap.FieldValueOffset)^ := Prototype.Entity(PropMap.PropertyType);
       end;
     end;
   end;
 end;
 
-class function Prototype.Entity<T>: T;
-var
-  Obj: TObject;
-begin
-  Obj := Entity(TypeInfo(T));
-  Result := T(Pointer(@Obj)^);
-end;
+initialization
+  Prototype.ClearCache;
+  Prototype.Creator := CreateEntityPrototype;
+  Dext.Validation.PrototypeFactory := function(ATypeInfo: PTypeInfo): TObject
+    begin
+      Result := Prototype.Entity(ATypeInfo);
+    end;
 
-class function Prototype.Entity(ATypeInfo: PTypeInfo): TObject;
-begin
-  if FCache.TryGetValue(ATypeInfo, Result) then
-    Exit;
-
-  // Recursion Guard
-  if FStack.Contains(ATypeInfo) then
-    Exit(nil);
-
-  FStack.Add(ATypeInfo);
-  try
-    Result := CreatePrototype(ATypeInfo);
-    FCache.Add(ATypeInfo, Result);
-  finally
-    FStack.Remove(ATypeInfo);
-  end;
-end;
+finalization
+  // Free the ORM prototypes while their classes are still loaded (the cache
+  // lives in Core, which is finalized after this unit).
+  Prototype.ClearCache;
+  Prototype.Creator := nil;
+  Dext.Validation.PrototypeFactory := nil;
 
 end.

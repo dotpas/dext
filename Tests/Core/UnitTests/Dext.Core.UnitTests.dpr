@@ -59,7 +59,9 @@ uses
   Dext.Configuration.CommandLine.Tests in 'Dext.Configuration.CommandLine.Tests.pas',
   Dext.Configuration.UserSecrets.Tests in 'Dext.Configuration.UserSecrets.Tests.pas',
   Dext.Testing.Coverage.Lcov in '..\..\..\Sources\Testing\Dext.Testing.Coverage.Lcov.pas',
-  Dext.Testing.Coverage.Lcov.Tests in 'Dext.Testing.Coverage.Lcov.Tests.pas';
+  Dext.Testing.Coverage.Lcov.Tests in 'Dext.Testing.Coverage.Lcov.Tests.pas',
+  Dext.Core.SmartTypes.Prototype.Tests in 'Dext.Core.SmartTypes.Prototype.Tests.pas',
+  Dext.Testing.SmartDates.Tests in 'Dext.Testing.SmartDates.Tests.pas';
 
 begin
   SetConsoleCharSet();
@@ -107,6 +109,8 @@ begin
         TUtf8SerializerCurrencyTests,
         TUtf8JsonWriterTests,
         TValidationFluentTests,
+        TSmartPrototypeTests,
+        TSmartDateAssertionTests,
         TBackgroundJobsTests,
         TSmartTypesCombinatorialTests,
         TTypeModelTests,
