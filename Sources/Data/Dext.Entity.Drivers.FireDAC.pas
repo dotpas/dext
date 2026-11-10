@@ -206,6 +206,7 @@ end;
 function FireDACFieldToTValue(Field: TField): TValue;
 var
   StrVal: string;
+  Guid: TGUID;
 begin
   if (Field = nil) or Field.IsNull then
     Exit(TValue.Empty);
@@ -260,7 +261,21 @@ begin
         Result := TValue.FromVariant(Field.Value);
       end;
     ftGuid:
-      Result := TValue.From<TGUID>(Field.AsGuid);
+      begin
+        Guid := Field.AsGuid;
+        // FireDAC reads a PostgreSQL uuid into the TGUID fields in network byte
+        // order, so D1, D2 and D3 come swapped: undo it for that driver.
+        if (Field.DataSet is TFDRdbmsDataSet) and
+           (TFDRdbmsDataSet(Field.DataSet).Connection <> nil) and
+           SameText(TFDRdbmsDataSet(Field.DataSet).Connection.DriverName, 'PG') then
+        begin
+          Guid.D1 := ((Guid.D1 and $000000FF) shl 24) or ((Guid.D1 and $0000FF00) shl 8) or
+                     ((Guid.D1 and $00FF0000) shr 8) or ((Guid.D1 and $FF000000) shr 24);
+          Guid.D2 := Swap(Guid.D2);
+          Guid.D3 := Swap(Guid.D3);
+        end;
+        Result := TValue.From<TGUID>(Guid);
+      end;
   else
     Result := TValue.FromVariant(Field.Value);
   end;

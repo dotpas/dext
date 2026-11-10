@@ -45,10 +45,12 @@ type
   private
     FId: Integer;
     FTags: TArray<string>;
+    FIdent: TGUID;
   public
     [PrimaryKey, AutoInc]
     property Id: Integer read FId write FId;
     property Tags: TArray<string> read FTags write FTags;
+    property Ident: TGUID read FIdent write FIdent;
   end;
 
   TPgArrayDb = class(TDbContext)
@@ -78,6 +80,9 @@ type
     [Test]
     [Description('A TArray<string> property is written to a jsonb column and read back')]
     procedure Dynamic_Array_Round_Trips_Through_Jsonb;
+    [Test]
+    [Description('A TGUID written to a uuid column is read back with the same value')]
+    procedure Guid_Round_Trips_Through_A_Uuid_Column;
   end;
 
 implementation
@@ -183,6 +188,39 @@ begin
 
     Should(Db.Items.ToList[0].Tags[1]).Be('b');
     Db.Connection.CreateCommand('DROP SCHEMA dext_ut_c CASCADE').Execute;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TPostgreSQLSchemaTests.Guid_Round_Trips_Through_A_Uuid_Column;
+var
+  Db: TPgArrayDb;
+  Item: TPgArrayThing;
+  Original: TGUID;
+begin
+  if Connection = '' then
+    Exit; // no server configured
+
+  if GLink = nil then
+    NewDb.Free;
+  // Every field differs, so a byte swap of D1, D2 or D3 shows
+  Original := StringToGUID('{AB8CB5AC-0B92-4DFB-A328-BD55F8DC31A7}');
+  Db := TPgArrayDb.Create(DbContextOptions.UsePostgreSQL(Connection));
+  try
+    Db.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_d CASCADE').Execute;
+    Db.Connection.CreateCommand('CREATE SCHEMA dext_ut_d').Execute;
+    Db.Connection.CreateCommand('SET search_path TO dext_ut_d').Execute;
+    Db.EnsureCreated;
+
+    Item := TPgArrayThing.Create;
+    Item.Ident := Original;
+    Db.Items.Add(Item);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Should(GUIDToString(Db.Items.ToList[0].Ident)).Be(GUIDToString(Original));
+    Db.Connection.CreateCommand('DROP SCHEMA dext_ut_d CASCADE').Execute;
   finally
     Db.Free;
   end;
