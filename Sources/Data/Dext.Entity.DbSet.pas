@@ -121,6 +121,8 @@ type
   /// </summary>
   TDtoColumnMapping = record
     ColumnIndex: Integer;
+    // Chain of [Nested] properties from the DTO down to the owner of Prop/Field
+    Path: TArray<TRttiProperty>;
     Prop: TRttiProperty;
     Field: TRttiField;
     TargetKind: TTypeKind;
@@ -133,6 +135,12 @@ type
   TDextDtoHydrator = class
   private
     FMappings: TArray<TDtoColumnMapping>;
+    class function NormalizeName(const S: string): string; static;
+    class function IsNestedProp(const AProp: TRttiProperty): Boolean; static;
+    class function ResolveColumn(const AType: TRttiType;
+      const AColName: string; AColIndex: Integer;
+      const APath: TArray<TRttiProperty>;
+      out AMapping: TDtoColumnMapping): Boolean; static;
   public
     constructor Create(ATypeInfo: PTypeInfo; const Reader: IDbReader);
     procedure Hydrate(const Target: TObject; const Reader: IDbReader);
@@ -546,79 +554,115 @@ end;
 
 { TDextDtoHydrator }
 
+class function TDextDtoHydrator.NormalizeName(const S: string): string;
+begin
+  Result := StringReplace(LowerCase(S), '_', '', [rfReplaceAll]);
+end;
+
+class function TDextDtoHydrator.IsNestedProp(const AProp: TRttiProperty): Boolean;
+var
+  Attr: TCustomAttribute;
+begin
+  Result := False;
+  if (AProp.PropertyType = nil) or (AProp.PropertyType.TypeKind <> tkClass) or
+     (not AProp.IsWritable) then
+    Exit;
+  for Attr in AProp.GetAttributes do
+    if Attr is NestedAttribute then
+      Exit(True);
+end;
+
+/// <summary>
+///   Finds where a result column goes in AType: a property, a field, or, when
+///   the name has a prefix that identifies a [Nested] property (Category_Name,
+///   Category.Name), the matching column of the nested class, at any depth.
+/// </summary>
+class function TDextDtoHydrator.ResolveColumn(const AType: TRttiType;
+  const AColName: string; AColIndex: Integer;
+  const APath: TArray<TRttiProperty>;
+  out AMapping: TDtoColumnMapping): Boolean;
+var
+  Props: TArray<TRttiProperty>;
+  Fields: TArray<TRttiField>;
+  NormColName, NormMemberName, Prefix: string;
+  j, p: Integer;
+begin
+  Result := False;
+  Props := AType.GetProperties;
+  Fields := AType.GetFields;
+  NormColName := NormalizeName(AColName);
+
+  // 1. Match Properties (case-insensitive & snake_case agnostic)
+  for j := 0 to Length(Props) - 1 do
+  begin
+    if not Props[j].IsWritable then Continue;
+    if NormalizeName(Props[j].Name) = NormColName then
+    begin
+      AMapping.ColumnIndex := AColIndex;
+      AMapping.Path := APath;
+      AMapping.Prop := Props[j];
+      AMapping.Field := nil;
+      AMapping.TargetKind := Props[j].PropertyType.TypeKind;
+      AMapping.TargetTypeInfo := Props[j].PropertyType.Handle;
+      Exit(True);
+    end;
+  end;
+
+  // 2. Match Fields (e.g. FValor -> valor, valor_total -> FValorTotal)
+  for j := 0 to Length(Fields) - 1 do
+  begin
+    NormMemberName := NormalizeName(Fields[j].Name);
+    if (NormMemberName.Length > 1) and (NormMemberName[1] = 'f') then
+      NormMemberName := Copy(NormMemberName, 2, MaxInt);
+
+    if NormMemberName = NormColName then
+    begin
+      AMapping.ColumnIndex := AColIndex;
+      AMapping.Path := APath;
+      AMapping.Prop := nil;
+      AMapping.Field := Fields[j];
+      AMapping.TargetKind := Fields[j].FieldType.TypeKind;
+      AMapping.TargetTypeInfo := Fields[j].FieldType.Handle;
+      Exit(True);
+    end;
+  end;
+
+  // 3. [Nested]: the part before a '_' or '.' names a [Nested] property and
+  //    the rest names a column of its class (tried at every separator, so
+  //    prefixes such as Data_Pagamento also work)
+  for p := 1 to Length(AColName) - 2 do
+  begin
+    if not CharInSet(AColName.Chars[p], ['_', '.']) then Continue;
+    Prefix := NormalizeName(AColName.Substring(0, p));
+    for j := 0 to Length(Props) - 1 do
+    begin
+      if (NormalizeName(Props[j].Name) = Prefix) and IsNestedProp(Props[j]) then
+      begin
+        if ResolveColumn(Props[j].PropertyType, AColName.Substring(p + 1),
+          AColIndex, APath + [Props[j]], AMapping) then
+          Exit(True);
+      end;
+    end;
+  end;
+end;
+
 constructor TDextDtoHydrator.Create(ATypeInfo: PTypeInfo; const Reader: IDbReader);
 var
   RttiCtx: TRttiContext;
   RttiType: TRttiType;
-  Props: TArray<TRttiProperty>;
-  Fields: TArray<TRttiField>;
-  ColCount, i, j: Integer;
-  ColName, NormColName, NormMemberName: string;
-  Found: Boolean;
+  i: Integer;
   Mapping: TDtoColumnMapping;
   MappingsList: TList<TDtoColumnMapping>;
-
-  function NormalizeName(const S: string): string;
-  begin
-    Result := StringReplace(LowerCase(S), '_', '', [rfReplaceAll]);
-  end;
-
 begin
   RttiCtx := TRttiContext.Create;
   RttiType := RttiCtx.GetType(ATypeInfo);
   if RttiType = nil then Exit;
 
-  Props := RttiType.GetProperties;
-  Fields := RttiType.GetFields;
-  ColCount := Reader.GetColumnCount;
-
   MappingsList := TList<TDtoColumnMapping>.Create;
   try
-    for i := 0 to ColCount - 1 do
-    begin
-      ColName := Reader.GetColumnName(i);
-      NormColName := NormalizeName(ColName);
-      Found := False;
-
-      // 1. Match Properties (case-insensitive & snake_case agnostic)
-      for j := 0 to Length(Props) - 1 do
-      begin
-        if not Props[j].IsWritable then Continue;
-        NormMemberName := NormalizeName(Props[j].Name);
-        if NormMemberName = NormColName then
-        begin
-          Mapping.ColumnIndex := i;
-          Mapping.Prop := Props[j];
-          Mapping.Field := nil;
-          Mapping.TargetKind := Props[j].PropertyType.TypeKind;
-          Mapping.TargetTypeInfo := Props[j].PropertyType.Handle;
-          MappingsList.Add(Mapping);
-          Found := True;
-          Break;
-        end;
-      end;
-
-      if Found then Continue;
-
-      // 2. Match Fields (e.g. FValor -> valor, valor_total -> FValorTotal)
-      for j := 0 to Length(Fields) - 1 do
-      begin
-        NormMemberName := NormalizeName(Fields[j].Name);
-        if (NormMemberName.Length > 1) and (NormMemberName[1] = 'f') then
-          NormMemberName := Copy(NormMemberName, 2, MaxInt);
-
-        if NormMemberName = NormColName then
-        begin
-          Mapping.ColumnIndex := i;
-          Mapping.Prop := nil;
-          Mapping.Field := Fields[j];
-          Mapping.TargetKind := Fields[j].FieldType.TypeKind;
-          Mapping.TargetTypeInfo := Fields[j].FieldType.Handle;
-          MappingsList.Add(Mapping);
-          Break;
-        end;
-      end;
-    end;
+    for i := 0 to Reader.GetColumnCount - 1 do
+      if ResolveColumn(RttiType, Reader.GetColumnName(i), i, nil, Mapping) then
+        MappingsList.Add(Mapping);
 
     FMappings := MappingsList.ToArray;
   finally
@@ -631,6 +675,8 @@ var
   i: Integer;
   Mapping: TDtoColumnMapping;
   RawVal, Val: TValue;
+  Owner, Child: TObject;
+  NestedProp: TRttiProperty;
 begin
   for i := 0 to Length(FMappings) - 1 do
   begin
@@ -671,17 +717,32 @@ begin
       Val := RawVal;
     end;
 
+    // A nested object is created only when one of its columns has a value,
+    // so a LEFT JOIN without a match leaves it nil.
+    Owner := Target;
+    for NestedProp in Mapping.Path do
+    begin
+      Child := NestedProp.GetValue(Owner).AsObject;
+      if Child = nil then
+      begin
+        Child := TActivator.CreateInstance(
+          NestedProp.PropertyType.AsInstance.MetaclassType, []);
+        NestedProp.SetValue(Owner, Child);
+      end;
+      Owner := Child;
+    end;
+
     if Mapping.Prop <> nil then
     begin
       try
-        Mapping.Prop.SetValue(Target, Val);
+        Mapping.Prop.SetValue(Owner, Val);
       except
       end;
     end
     else if Mapping.Field <> nil then
     begin
       try
-        Mapping.Field.SetValue(Target, Val);
+        Mapping.Field.SetValue(Owner, Val);
       except
       end;
     end;
