@@ -77,6 +77,12 @@ type
     procedure Select_String_Property_With_Distinct;
     [Test]
     procedure Select_Integer_Property_Returns_The_Values;
+    [Test]
+    procedure Aggregates_By_Name_Work_With_Smart_Properties;
+    [Test]
+    procedure Aggregates_By_Name_Respect_The_Filter;
+    [Test]
+    procedure Aggregates_By_Name_Work_With_Integer_Property;
   end;
 
 implementation
@@ -170,6 +176,37 @@ begin
     .Select<Integer>(O.CustomerId).ToList;
   Should(Values.Count).Be(1);
   Should(Values[0]).Be(3);
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_Work_With_Smart_Properties;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 0).Sum('Amount')).Be(1050);
+  Should(FDb.Orders.Where(O.Id > 0).Average('Amount')).Be(175);
+  Should(FDb.Orders.Where(O.Id > 0).Min('Amount')).Be(50);
+  Should(FDb.Orders.Where(O.Id > 0).Max('Amount')).Be(300);
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_Respect_The_Filter;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Paid orders: 100 + 200 + 300
+  Should(FDb.Orders.Where(O.Status = 'Paid').Sum('Amount')).Be(600);
+  Should(FDb.Orders.Where(O.Status = 'Paid').Max('Amount')).Be(300);
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_Work_With_Integer_Property;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Customers 1,2,3,1,2,3
+  Should(FDb.Orders.Where(O.Id > 0).Sum('CustomerId')).Be(12);
+  Should(FDb.Orders.Where(O.Id > 0).Max('CustomerId')).Be(3);
 end;
 
 end.

@@ -49,6 +49,15 @@ uses
   Dext.Core.SmartTypes; // Add SmartTypes
 
 type
+  /// <summary>Numeric conversion of property values for the aggregates.</summary>
+  TQueryValueHelper = class
+  public
+    /// <summary>The value of a property as Double: unwraps Smart Properties and
+    /// Nullable (an empty value counts as zero) and converts any integer or
+    /// floating-point type.</summary>
+    class function ToDouble(const AValue: TValue): Double; static;
+  end;
+
   /// <summary>
   ///   Helper class to handle join operations and metadata resolution.
   /// </summary>
@@ -428,6 +437,25 @@ uses
   Dext.Specifications.OrderBy,
   Dext.Entity.Joining,
   Dext.Entity.Prototype; // Add Prototype
+
+
+class function TQueryValueHelper.ToDouble(const AValue: TValue): Double;
+var
+  Raw, Converted: TValue;
+begin
+  TReflection.TryUnwrapProp(AValue, Raw);
+  if Raw.IsEmpty then
+    Exit(0);
+  case Raw.Kind of
+    tkInteger, tkInt64, tkEnumeration: Result := Raw.AsInt64;
+    tkFloat: Result := Raw.AsExtended;
+  else
+    if Raw.TryCast(TypeInfo(Double), Converted) then
+      Result := Converted.AsType<Double>
+    else
+      Result := Raw.AsType<Double>;
+  end;
+end;
 
 class function TQueryJoinHelper.GetDefaultAlias(ATypeInfo: PTypeInfo): string;
 var
@@ -1741,7 +1769,7 @@ begin
       Obj := TValue.From<T>(Enumerator.Current).AsObject;
       if Obj <> nil then
       begin
-        Val := Prop.GetValue(Obj).AsType<Double>;
+        Val := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
         Result := Result + Val;
       end;
     end;
@@ -1812,7 +1840,7 @@ begin
       Obj := TValue.From<T>(Enumerator.Current).AsObject;
       if Obj <> nil then
       begin
-        Val := Prop.GetValue(Obj).AsType<Double>;
+        Val := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
         SumVal := SumVal + Val;
         Inc(CountVal);
       end;
@@ -1892,7 +1920,7 @@ begin
       Obj := TValue.From<T>(Enumerator.Current).AsObject;
       if Obj <> nil then
       begin
-        Result := Prop.GetValue(Obj).AsType<Double>;
+        Result := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
         HasValue := True;
         
         while Enumerator.MoveNext do
@@ -1900,7 +1928,7 @@ begin
           Obj := TValue.From<T>(Enumerator.Current).AsObject;
           if Obj <> nil then
           begin
-            Val := Prop.GetValue(Obj).AsType<Double>;
+            Val := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
             if Val < Result then Result := Val;
           end;
         end;
@@ -1979,7 +2007,7 @@ begin
       Obj := TValue.From<T>(Enumerator.Current).AsObject;
       if Obj <> nil then
       begin
-        Result := Prop.GetValue(Obj).AsType<Double>;
+        Result := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
         HasValue := True;
         
         while Enumerator.MoveNext do
@@ -1987,7 +2015,7 @@ begin
           Obj := TValue.From<T>(Enumerator.Current).AsObject;
           if Obj <> nil then
           begin
-            Val := Prop.GetValue(Obj).AsType<Double>;
+            Val := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
             if Val > Result then Result := Val;
           end;
         end;
@@ -2066,13 +2094,13 @@ begin
       Obj := TValue.From<T>(Enumerator.Current).AsObject;
       if Obj <> nil then
       begin
-        Result := Prop.GetValue(Obj).AsType<Double>;
+        Result := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
         while Enumerator.MoveNext do
         begin
           Obj := TValue.From<T>(Enumerator.Current).AsObject;
           if Obj <> nil then
           begin
-            Val := Prop.GetValue(Obj).AsType<Double>;
+            Val := TQueryValueHelper.ToDouble(Prop.GetValue(Obj));
             if Val > Result then Result := Val;
           end;
         end;
