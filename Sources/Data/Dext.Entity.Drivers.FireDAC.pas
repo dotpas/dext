@@ -203,6 +203,18 @@ begin
   Result := TInterlocked.Add(GActiveDbConnections, 0);
 end;
 
+// FireDAC moves a TGUID to and from a PostgreSQL uuid with D1, D2 and D3 in network
+// byte order. Applying this swap on the way in and on the way out keeps the
+// canonical text (the one GUIDToString shows) in the column.
+function SwapPgGuid(const AGuid: TGUID): TGUID;
+begin
+  Result := AGuid;
+  Result.D1 := ((AGuid.D1 and $000000FF) shl 24) or ((AGuid.D1 and $0000FF00) shl 8) or
+              ((AGuid.D1 and $00FF0000) shr 8) or ((AGuid.D1 and $FF000000) shr 24);
+  Result.D2 := Swap(AGuid.D2);
+  Result.D3 := Swap(AGuid.D3);
+end;
+
 function FireDACFieldToTValue(Field: TField): TValue;
 var
   StrVal: string;
@@ -268,12 +280,7 @@ begin
         if (Field.DataSet is TFDRdbmsDataSet) and
            (TFDRdbmsDataSet(Field.DataSet).Connection <> nil) and
            SameText(TFDRdbmsDataSet(Field.DataSet).Connection.DriverName, 'PG') then
-        begin
-          Guid.D1 := ((Guid.D1 and $000000FF) shl 24) or ((Guid.D1 and $0000FF00) shl 8) or
-                     ((Guid.D1 and $00FF0000) shr 8) or ((Guid.D1 and $FF000000) shr 24);
-          Guid.D2 := Swap(Guid.D2);
-          Guid.D3 := Swap(Guid.D3);
-        end;
+          Guid := SwapPgGuid(Guid);
         Result := TValue.From<TGUID>(Guid);
       end;
   else
@@ -1205,6 +1212,17 @@ begin
             if Param.DataType <> ftWideMemo then Param.DataType := ftWideMemo;
             if Param.Size < Length(Val.AsString) then Param.Size := Length(Val.AsString);
             Param.AsWideStrings[i] := Val.AsString; // Arrays use AsWideStrings, no AsWideMemos array prop usually
+          end
+          // A GUID written as text must reach PostgreSQL as a uuid, as in the
+          // single-row path (SetParamValue)
+          else if ((Length(Val.AsString) = 36) or (Length(Val.AsString) = 38)) and
+                  (Val.AsString.IndexOf('-') > 0) and (GetDialect = ddPostgreSQL) then
+          begin
+            Param.DataType := ftGuid;
+            if Val.AsString.StartsWith('{') then
+              Param.AsGUIDs[i] := SwapPgGuid(StringToGUID(Val.AsString))
+            else
+              Param.AsGUIDs[i] := SwapPgGuid(StringToGUID('{' + Val.AsString + '}'));
           end
           else
             Param.AsWideStrings[i] := Val.AsString;

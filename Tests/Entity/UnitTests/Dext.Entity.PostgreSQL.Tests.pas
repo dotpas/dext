@@ -53,6 +53,25 @@ type
     property Ident: TGUID read FIdent write FIdent;
   end;
 
+  // An assigned (not generated) key: several rows go through the array insert.
+  [Table('pg_guid_batch')]
+  TPgGuidBatch = class
+  private
+    FId: Integer;
+    FIdent: TGUID;
+  public
+    [PrimaryKey]
+    property Id: Integer read FId write FId;
+    property Ident: TGUID read FIdent write FIdent;
+  end;
+
+  TPgGuidBatchDb = class(TDbContext)
+  private
+    function GetItems: IDbSet<TPgGuidBatch>;
+  public
+    property Items: IDbSet<TPgGuidBatch> read GetItems;
+  end;
+
   TPgArrayDb = class(TDbContext)
   private
     function GetItems: IDbSet<TPgArrayThing>;
@@ -83,6 +102,9 @@ type
     [Test]
     [Description('A TGUID written to a uuid column is read back with the same value')]
     procedure Guid_Round_Trips_Through_A_Uuid_Column;
+    [Test]
+    [Description('Several entities with a TGUID are inserted in one SaveChanges')]
+    procedure Guids_Of_Several_Entities_Are_Inserted_Together;
   end;
 
 implementation
@@ -224,6 +246,54 @@ begin
   finally
     Db.Free;
   end;
+end;
+
+procedure TPostgreSQLSchemaTests.Guids_Of_Several_Entities_Are_Inserted_Together;
+var
+  Db: TPgGuidBatchDb;
+  First, Second: TPgGuidBatch;
+  Reader: IDbReader;
+begin
+  if Connection = '' then
+    Exit; // no server configured
+
+  if GLink = nil then
+    NewDb.Free;
+  Db := TPgGuidBatchDb.Create(DbContextOptions.UsePostgreSQL(Connection));
+  try
+    Db.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_e CASCADE').Execute;
+    Db.Connection.CreateCommand('CREATE SCHEMA dext_ut_e').Execute;
+    Db.Connection.CreateCommand('SET search_path TO dext_ut_e').Execute;
+    Db.EnsureCreated;
+
+    // Two rows in one SaveChanges take the array (batch) insert path.
+    First := TPgGuidBatch.Create;
+    First.Id := 1;
+    First.Ident := StringToGUID('{AB8CB5AC-0B92-4DFB-A328-BD55F8DC31A7}');
+    Second := TPgGuidBatch.Create;
+    Second.Id := 2;
+    Second.Ident := StringToGUID('{12345678-9ABC-4DEF-8123-56789ABCDEF0}');
+    Db.Items.Add(First);
+    Db.Items.Add(Second);
+    Should(Db.SaveChanges).Be(2);
+    Db.Clear;
+
+    Should(Db.Items.ToList.Count).Be(2);
+
+    // The server holds the same text a single-row insert would store.
+    Reader := Db.Connection.CreateCommand(
+      'SELECT "Ident"::text FROM pg_guid_batch WHERE "Id" = 1').ExecuteQuery;
+    Should(Reader.Next).BeTrue;
+    Should(Reader.GetString(0)).Be('ab8cb5ac-0b92-4dfb-a328-bd55f8dc31a7');
+    Db.Connection.CreateCommand('DROP SCHEMA dext_ut_e CASCADE').Execute;
+  finally
+    Db.Free;
+  end;
+end;
+
+function TPgGuidBatchDb.GetItems: IDbSet<TPgGuidBatch>;
+begin
+  Result := Entities<TPgGuidBatch>;
 end;
 
 function TPgArrayDb.GetItems: IDbSet<TPgArrayThing>;
