@@ -95,6 +95,10 @@ type
   private
     FTrackedEntities: IDictionary<TObject, TEntityState>;
     FShadowStates: IDictionary<TObject, TEntityShadowState>;
+    FMapProvider: TFunc<PTypeInfo, TEntityMap>;
+    function MapOf(const AEntity: TObject): TEntityMap;
+    function IsPersisted(const AHandler: IPropertyHandler; const AMap: TEntityMap): Boolean;
+    procedure TakeSnapshot(const AEntity: TObject);
   public
     constructor Create;
     destructor Destroy; override;
@@ -135,6 +139,12 @@ type
     ///   Gets the values of "Shadow Properties" (infrastructure properties that do not exist in the class).
     /// </summary>
     function GetShadowState(const AEntity: TObject): TEntityShadowState;
+
+    /// <summary>
+    ///   Resolves the entity map of a type. The context sets it, so DetectChanges and the
+    ///   snapshots only consider the properties that are persisted as columns.
+    /// </summary>
+    property MapProvider: TFunc<PTypeInfo, TEntityMap> read FMapProvider write FMapProvider;
   end;
 
   /// <summary>
@@ -494,6 +504,8 @@ begin
 end;
 
 constructor TDbContext.Create(const AConnection: IDbConnection; const ADialect: ISQLDialect; const ANamingStrategy: INamingStrategy; const ATenantProvider: ITenantProvider);
+var
+  Tracker: TChangeTracker;
 begin
   inherited Create;
   FConnection := AConnection;
@@ -517,7 +529,16 @@ begin
     FNamingStrategy := TDefaultNamingStrategy.Create; // Default
     
   FCache := TCollections.CreateDictionary<PTypeInfo, IInterface>;
-  FChangeTracker := TChangeTracker.Create;
+  Tracker := TChangeTracker.Create;
+  Tracker.MapProvider :=
+    function(AType: PTypeInfo): TEntityMap
+    begin
+      if FModelBuilder <> nil then
+        Result := FModelBuilder.GetMap(AType)
+      else
+        Result := nil;
+    end;
+  FChangeTracker := Tracker;
   FTenantProvider := ATenantProvider;
   FTenantConfigApplied := False;
   FProxies := TCollections.CreateList<TObject>(True);
@@ -1761,7 +1782,9 @@ end;
 constructor TChangeTracker.Create;
 begin
   inherited Create;
-  FTrackedEntities := TCollections.CreateDictionary<TObject, TEntityState>;
+  // Insertion-ordered: SaveChanges writes the entities in the order they were
+  // tracked (Add order), not in the arbitrary order of a pointer-keyed hash.
+  FTrackedEntities := TCollections.CreateOrderedDictionary<TObject, TEntityState>;
   FShadowStates := TCollections.CreateDictionary<TObject, TEntityShadowState>(True);
 end;
 
@@ -1775,8 +1798,6 @@ end;
 procedure TChangeTracker.Track(const AEntity: TObject; AState: TEntityState);
 var
   State: TEntityShadowState;
-  Meta: TTypeMetadata;
-  Handler: IPropertyHandler;
 begin
   if AEntity = nil then Exit;
   FTrackedEntities.AddOrSetValue(AEntity, AState);
@@ -1785,11 +1806,7 @@ begin
   begin
     State := GetShadowState(AEntity);
     if State.ShadowValues.Count = 0 then
-    begin
-      Meta := TReflection.GetMetadata(AEntity.ClassInfo);
-      for Handler in Meta.GetPropertyHandlers() do
-        State.ShadowValues.AddOrSetValue(Handler.Name, Handler.GetValue(Pointer(AEntity)));
-    end;
+      TakeSnapshot(AEntity);
   end;
 end;
 
@@ -1816,6 +1833,7 @@ var
   HasAnyModified: Boolean;
   CurrentState: TEntityState;
   KeysList: IList<TObject>;
+  Map: TEntityMap;
   i: Integer;
 begin
   KeysList := TCollections.CreateList<TObject>;
@@ -1828,10 +1846,16 @@ begin
     begin
       State := GetShadowState(Entity);
       Meta := TReflection.GetMetadata(Entity.ClassInfo);
+      Map := MapOf(Entity);
       HasAnyModified := False;
       
       for Handler in Meta.GetPropertyHandlers() do
       begin
+        // Navigation, lazy and [NotMapped] properties are not columns: a change
+        // there writes nothing, and reading them would trigger lazy loads.
+        if not IsPersisted(Handler, Map) then
+          Continue;
+
         CurrentVal := Handler.GetValue(Pointer(Entity));
         if not State.ShadowValues.TryGetValue(
           Handler.Name, OriginalVal) then
@@ -1909,17 +1933,81 @@ begin
   end;
 end;
 
+function TChangeTracker.MapOf(const AEntity: TObject): TEntityMap;
+begin
+  if Assigned(FMapProvider) then
+    Result := FMapProvider(AEntity.ClassInfo)
+  else
+    Result := nil;
+end;
+
+// Same rule the SQL generator uses to decide which properties are columns.
+function TChangeTracker.IsPersisted(const AHandler: IPropertyHandler;
+  const AMap: TEntityMap): Boolean;
+var
+  PropMap: TPropertyMap;
+  Member: TRttiMember;
+begin
+  Result := True;
+  Member := AHandler.GetMember;
+  if Member.HasAttribute(JsonColumnAttribute) then
+    Exit(True);
+
+  PropMap := nil;
+  if AMap <> nil then
+    AMap.Properties.TryGetValue(AHandler.GetName, PropMap);
+
+  if PropMap <> nil then
+  begin
+    if PropMap.IsIgnored then
+      Exit(False);
+    if PropMap.IsNavigation and not PropMap.IsJsonColumn then
+      Exit(False);
+  end
+  else if (Member is TRttiProperty) and
+    (TRttiProperty(Member).PropertyType.TypeKind in [tkClass, tkInterface]) then
+    Exit(False);
+
+  if Member.HasAttribute(NotMappedAttribute) or
+     Member.HasAttribute(HasManyAttribute) or
+     Member.HasAttribute(BelongsToAttribute) or
+     Member.HasAttribute(HasOneAttribute) or
+     Member.HasAttribute(ManyToManyAttribute) then
+    Exit(False);
+end;
+
+procedure TChangeTracker.TakeSnapshot(const AEntity: TObject);
+var
+  State: TEntityShadowState;
+  Meta: TTypeMetadata;
+  Handler: IPropertyHandler;
+  Map: TEntityMap;
+begin
+  State := GetShadowState(AEntity);
+  Meta := TReflection.GetMetadata(AEntity.ClassInfo);
+  Map := MapOf(AEntity);
+  for Handler in Meta.GetPropertyHandlers() do
+    if IsPersisted(Handler, Map) then
+      State.ShadowValues.AddOrSetValue(Handler.Name, Handler.GetValue(Pointer(AEntity)));
+end;
+
 procedure TChangeTracker.AcceptAllChanges;
 var
   LKey: TObject;
   LPair: TPair<TObject, TEntityShadowState>;
+  LKeys: IList<TObject>;
 begin
+  LKeys := TCollections.CreateList<TObject>;
   for LKey in FTrackedEntities.Keys do
   begin
     if FTrackedEntities[LKey] = esDeleted then
       FTrackedEntities.Remove(LKey)
     else
+    begin
+      if FTrackedEntities[LKey] in [esAdded, esModified] then
+        LKeys.Add(LKey);
       FTrackedEntities[LKey] := esUnchanged;
+    end;
   end;
     
   for LPair in FShadowStates do
@@ -1927,6 +2015,14 @@ begin
     LPair.Value.ModifiedProperties.Clear;
     LPair.Value.ExplicitlyModified.Clear;
   end;
+
+  // The values just saved are the new baseline for DetectChanges. Without a
+  // fresh snapshot, an entity saved with Add has none and one saved after a
+  // change keeps the old one, so the next SaveChanges would see every
+  // property as modified and write the entity again. Only the entities that
+  // were written now are refreshed; the others keep the snapshot they have.
+  for LKey in LKeys do
+    TakeSnapshot(LKey);
 end;
 
 procedure TChangeTracker.Clear;

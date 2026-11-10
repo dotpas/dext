@@ -131,6 +131,7 @@
         <DCCReference Include="Dext.Entity.Sequences.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SaveChanges.Tests.pas"/>
         <DCCReference Include="Dext.Entity.PersistOwnership.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.ChangeTracker.Tests.pas"/>
         <DCCReference Include="Dext.Grpc.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Testing\Dext.Testing.Entity.pas"/>
         <DCCReference Include="..\..\Testing\Dext.Testing.Entity.Tests.pas"/>
