@@ -43,6 +43,7 @@ uses
   Dext.Entity.Inheritance.Tests in 'Dext.Entity.Inheritance.Tests.pas',
   Dext.Entity.PostgreSQL.Tests in 'Dext.Entity.PostgreSQL.Tests.pas',
   Dext.Entity.ConverterAttribute.Tests in 'Dext.Entity.ConverterAttribute.Tests.pas',
+  Dext.Entity.JsonColumn.Tests in 'Dext.Entity.JsonColumn.Tests.pas',
   Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas',
   Dext.Testing.Entity in '..\..\..\Sources\Testing\Dext.Testing.Entity.pas',
   Dext.Testing.Entity.Tests in '..\..\Testing\Dext.Testing.Entity.Tests.pas';
@@ -102,6 +103,7 @@ begin
         TInheritanceTests,
         TPostgreSQLSchemaTests,
         TConverterAttributeTests,
+        TJsonColumnTests,
         TGrpcTests,
         TMockDbSetTests
       ]));

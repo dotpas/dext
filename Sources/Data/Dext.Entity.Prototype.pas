@@ -101,11 +101,21 @@ begin
       end;
 
       // 2. Inject Sub-Prototypes (Recursive Drill-down Support)
+      // A class stored as a JSON column is not an entity: it has no prototype.
       if (PropMap.FieldValueOffset <> -1) and (PropMap.PropertyType <> nil) and
-         (PropMap.PropertyType.Kind = tkClass) then
+         (PropMap.PropertyType.Kind = tkClass) and (not PropMap.IsJsonColumn) then
       begin
-         // The non-generic Entity call handles the cache and recursion
-         PPointer(NativeInt(InstancePtr) + PropMap.FieldValueOffset)^ := Prototype.Entity(PropMap.PropertyType);
+         // The non-generic Entity call handles the cache and recursion.
+         // A class with no Smart Properties (a JSON class configured in a fluent
+         // mapping this singleton map does not see, for example) is not an entity:
+         // it just gets no sub-prototype.
+         try
+           PPointer(NativeInt(InstancePtr) + PropMap.FieldValueOffset)^ :=
+             Prototype.Entity(PropMap.PropertyType);
+         except
+           on Exception do
+             PPointer(NativeInt(InstancePtr) + PropMap.FieldValueOffset)^ := nil;
+         end;
       end;
     end;
   end;

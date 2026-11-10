@@ -676,6 +676,9 @@ begin
     begin
       APropMap.IsJsonColumn := True;
       APropMap.UseJsonB := JsonColumnAttribute(AAttr).UseJsonB;
+      // A class stored as JSON is a column, not a relationship to another entity
+      APropMap.IsNavigation := False;
+      APropMap.Relationship := rtNone;
     end;
     
     // UI Metadata
@@ -1421,6 +1424,9 @@ function TEntityBuilder<T>.IsJson(AUseJsonB: Boolean): TEntityBuilder<T>;
 begin
   GetCurrentProp.IsJsonColumn := True;
   GetCurrentProp.UseJsonB := AUseJsonB;
+  // A class stored as JSON is a column, not a relationship to another entity
+  GetCurrentProp.IsNavigation := False;
+  GetCurrentProp.Relationship := rtNone;
   Result := Self;
 end;
 
