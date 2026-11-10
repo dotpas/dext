@@ -94,6 +94,8 @@ type
     function ReadResponse(ASocket: TSocket): string;
     function ReadUntil(ASocket: TSocket; const AEnd: string): string;
     function PeerClosed(ASocket: TSocket): Boolean;
+    procedure SendBytes(ASocket: TSocket; const ABytes: TBytes);
+    function ReadLargeResponse(ASocket: TSocket; out ABody: TBytes): string;
   public
     [BeforeAll]
     procedure StartEngine;
@@ -118,6 +120,16 @@ type
     procedure BadContentLength_Gets400AndClose;
     [Test]
     procedure ChunkedBody_Gets501AndClose;
+    [Test]
+    procedure LargeResponse_WithConnectionClose_ArrivesWhole;
+    [Test]
+    procedure TwoRequestsInOnePacket_BothAnswered;
+    [Test]
+    procedure BodySplitOverSeveralReceives_IsWhole;
+    [Test]
+    procedure BodyOver64KBUnderTheLimit_IsWhole;
+    [Test]
+    procedure SecondRequest_DoesNotSeeTheHeadersOfTheFirst;
   end;
 
 implementation
@@ -125,7 +137,9 @@ implementation
 const
   TEST_PORT = 28791;
   TEST_MAX_HEADER = 4096;
-  TEST_MAX_BODY = 1024;
+  // Above 64 KB: a body between 64 KB and the limit must be received whole.
+  TEST_MAX_BODY = 256 * 1024;
+  BIG_RESPONSE = 4 * 1024 * 1024;
   CRLF = #13#10;
 
 { TDextIocpParserTests }
@@ -286,9 +300,38 @@ begin
       const AResponse: IDextRawResponse)
     var
       Body: TBytes;
+      Stream: TStream;
+      Sum: Int64;
+      I, N: Integer;
     begin
-      // Answers with the method and the length of the body it received.
-      Body := TEncoding.ASCII.GetBytes(ARequest.GetMethod + ' ' + IntToStr(ARequest.GetBodyStream.Size));
+      if ARequest.GetPath = '/big' then
+      begin
+        // A large response: byte I is Byte(I).
+        SetLength(Body, BIG_RESPONSE);
+        for I := 0 to High(Body) do
+          Body[I] := Byte(I);
+      end
+      else if ARequest.GetPath = '/header' then
+        // The value of X-Probe (empty when the request has none).
+        Body := TEncoding.ASCII.GetBytes('X-Probe=' + ARequest.GetHeader('X-Probe'))
+      else
+      begin
+        // The method and the length of the body (/sum: and the sum of its bytes).
+        Stream := ARequest.GetBodyStream;
+        Stream.Position := 0;
+        SetLength(Body, 8192);
+        Sum := 0;
+        repeat
+          N := Stream.Read(Body[0], Length(Body));
+          for I := 0 to N - 1 do
+            Inc(Sum, Body[I]);
+        until N <= 0;
+        if ARequest.GetPath = '/sum' then
+          Body := TEncoding.ASCII.GetBytes(ARequest.GetMethod + ' ' + IntToStr(Stream.Size) +
+            ' ' + IntToStr(Sum))
+        else
+          Body := TEncoding.ASCII.GetBytes(ARequest.GetMethod + ' ' + IntToStr(Stream.Size));
+      end;
       AResponse.SetStatus(200);
       AResponse.SetHeader('Content-Type', 'text/plain');
       AResponse.Write(Body, 0, Length(Body));
@@ -371,6 +414,42 @@ begin
   // 0 = orderly close; a timeout (-1) means the connection is still open.
   R := recv(ASocket, Ch, 1, 0);
   Result := R = 0;
+end;
+
+procedure TDextIocpEngineTests.SendBytes(ASocket: TSocket; const ABytes: TBytes);
+var
+  Sent, N: Integer;
+begin
+  Sent := 0;
+  while Sent < Length(ABytes) do
+  begin
+    N := send(ASocket, ABytes[Sent], Length(ABytes) - Sent, 0);
+    if N <= 0 then
+      raise Exception.Create('send failed: ' + IntToStr(WSAGetLastError));
+    Inc(Sent, N);
+  end;
+end;
+
+function TDextIocpEngineTests.ReadLargeResponse(ASocket: TSocket; out ABody: TBytes): string;
+var
+  P, Len, Got, N: Integer;
+begin
+  // The head as text, the body (Content-Length bytes) read in large pieces.
+  Result := ReadUntil(ASocket, CRLF + CRLF);
+  Len := 0;
+  P := Pos('content-length:', LowerCase(Result));
+  if P > 0 then
+    Len := StrToIntDef(Trim(Copy(Result, P + 15, Pos(#13, Result, P) - P - 15)), 0);
+  SetLength(ABody, Len);
+  Got := 0;
+  while Got < Len do
+  begin
+    N := recv(ASocket, ABody[Got], Len - Got, 0);
+    if N <= 0 then
+      Break;
+    Inc(Got, N);
+  end;
+  SetLength(ABody, Got);
 end;
 
 procedure TDextIocpEngineTests.KeepAlive_TwoRequestsOnOneConnection;
@@ -500,6 +579,118 @@ begin
       '3' + CRLF + 'abc' + CRLF + '0' + CRLF + CRLF);
     Should(ReadResponse(S)).StartWith('HTTP/1.1 501');
     Should(PeerClosed(S)).BeTrue;
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.LargeResponse_WithConnectionClose_ArrivesWhole;
+var
+  S: TSocket;
+  Body: TBytes;
+  I, Wrong: Integer;
+begin
+  // The FIN (shutdown SD_SEND) goes right after an outstanding WSASend: every
+  // byte of the response must still arrive, and then the close.
+  S := Connect;
+  try
+    SendText(S, 'GET /big HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Connection: close' + CRLF + CRLF);
+    Should(ReadLargeResponse(S, Body)).StartWith('HTTP/1.1 200').&And.Contain('Connection: close' + CRLF);
+    Should(Length(Body)).Be(BIG_RESPONSE);
+    Wrong := 0;
+    for I := 0 to High(Body) do
+      if Body[I] <> Byte(I) then
+        Inc(Wrong);
+    Should(Wrong).Be(0);
+    Should(PeerClosed(S)).BeTrue;
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.TwoRequestsInOnePacket_BothAnswered;
+var
+  S: TSocket;
+begin
+  S := Connect;
+  try
+    SendText(S, 'GET /a HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF +
+      'POST /b HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Content-Length: 4' + CRLF + CRLF + 'abcd');
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('GET 0');
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('POST 4');
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.BodySplitOverSeveralReceives_IsWhole;
+var
+  S: TSocket;
+begin
+  S := Connect;
+  try
+    // The head and the body in four separate sends, with pauses: four receives.
+    SendText(S, 'POST /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Content-Length: 9' + CRLF + CRLF);
+    Sleep(50);
+    SendText(S, 'abc');
+    Sleep(50);
+    SendText(S, 'def');
+    Sleep(50);
+    SendText(S, 'ghi');
+    // a..i = 97..105: the sum is 909.
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('POST 9 909');
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.BodyOver64KBUnderTheLimit_IsWhole;
+const
+  SIZE = 200 * 1024;
+var
+  S: TSocket;
+  Body: TBytes;
+  Sum: Int64;
+  I: Integer;
+begin
+  SetLength(Body, SIZE);
+  Sum := 0;
+  for I := 0 to High(Body) do
+  begin
+    Body[I] := Byte(I * 7 + 3);
+    Inc(Sum, Body[I]);
+  end;
+  S := Connect;
+  try
+    SendText(S, 'POST /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Content-Length: ' + IntToStr(SIZE) +
+      CRLF + CRLF);
+    SendBytes(S, Body);
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith(
+      'POST ' + IntToStr(SIZE) + ' ' + IntToStr(Sum));
+    // Again on the same connection, after the accumulator has grown.
+    SendText(S, 'POST /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Content-Length: 3' + CRLF + CRLF + 'abc');
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('POST 3 294');
+  finally
+    closesocket(S);
+  end;
+end;
+
+procedure TDextIocpEngineTests.SecondRequest_DoesNotSeeTheHeadersOfTheFirst;
+var
+  S: TSocket;
+begin
+  // The request object is reused on the connection: nothing of the first
+  // request may survive into the second.
+  S := Connect;
+  try
+    SendText(S, 'GET /header HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'X-Probe: first' + CRLF + CRLF);
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('X-Probe=first');
+    SendText(S, 'GET /header HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('X-Probe=');
+    SendText(S, 'POST /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + 'Content-Length: 2' + CRLF + CRLF + 'ab');
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('POST 2 195');
+    SendText(S, 'GET /sum HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith('GET 0 0');
   finally
     closesocket(S);
   end;

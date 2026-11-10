@@ -233,7 +233,7 @@ type
     Connection: Pointer;
     Data: PByte;       // Heap send buffer, owned by this overlapped, freed on ioWrite
     DataLen: Integer;
-    BodyRef: Pointer;  // A TBytes held by reference until the write completes (DEXT_SOCKET_ONECOPY)
+    BodyRef: Pointer;  // A TBytes held by reference until the write completes (body sent without a copy)
   end;
 
   /// <summary>
@@ -250,7 +250,11 @@ type
     FAccum: TBytes;
     FAccumLen: Integer;  // bytes of FAccum in use
     FSkip: Boolean;      // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS set on the socket
-    FReqObj: TDextIocpRequest;     // kept for reuse (DEXT_SOCKET_REUSE)
+    // The request and response objects are kept for reuse by the next request
+    // on this connection, and the body of a request points into FAccum. A
+    // handler must not keep the request (or its body stream) after it
+    // returns: the next request on the connection overwrites them.
+    FReqObj: TDextIocpRequest;
     FReqIntf: IDextRawRequest;
     FRespObj: TDextIocpResponse;
     FRespIntf: IDextRawResponse;
@@ -414,6 +418,25 @@ const
 
 function SetFileCompletionNotificationModes(FileHandle: THandle; Flags: UCHAR): BOOL; stdcall;
   external kernel32 name 'SetFileCompletionNotificationModes';
+
+function SetSkipCompletionPortOnSuccess(ASocket: TSocket): Boolean;
+var
+  Info: WSAPROTOCOL_INFOW;
+  Len: Integer;
+begin
+  // Only on a socket of an IFS provider: with a layered (non-IFS) service
+  // provider a completion packet is still queued for an immediate success,
+  // and the inline finish would then run twice for the same operation.
+  Result := False;
+  Len := SizeOf(Info);
+  FillChar(Info, SizeOf(Info), 0);
+  if getsockopt(ASocket, SOL_SOCKET, SO_PROTOCOL_INFOW, PAnsiChar(@Info), Len) <> 0 then
+    Exit;
+  if (Info.dwServiceFlags1 and XP1_IFS_HANDLES) = 0 then
+    Exit;
+  Result := SetFileCompletionNotificationModes(THandle(ASocket),
+    FILE_SKIP_COMPLETION_PORT_ON_SUCCESS or FILE_SKIP_SET_EVENT_ON_HANDLE);
+end;
 
 procedure FreeWriteOverlapped(O: PIocpOverlapped);
 begin
@@ -1263,9 +1286,8 @@ begin
           IocpOverlapped
         );
         // A send that completes at once queues no packet: it is finished
-        // inline instead of waking a worker for it.
-        Session.FSkip := SetFileCompletionNotificationModes(Session.Socket,
-            FILE_SKIP_COMPLETION_PORT_ON_SUCCESS or FILE_SKIP_SET_EVENT_ON_HANDLE);
+        // inline instead of waking a worker for it (IFS providers only).
+        Session.FSkip := SetSkipCompletionPortOnSuccess(Session.Socket);
 
         if Assigned(FEngine.FOnConnection) then
         begin
