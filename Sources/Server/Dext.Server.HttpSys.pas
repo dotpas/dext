@@ -2715,8 +2715,18 @@ var
   Ret: DWORD;
   BodyChunk: PHTTP_DATA_CHUNK_INMEMORY;
   BodyChunkIndex: Integer;
+  // The idle hook (DextWorkerIdle), read once: nil = wait as before.
+  Idle: TDextWorkerIdleProc;
+  WaitMs: Cardinal;
+  // Work handled since the last call of the idle hook.
+  Worked: Boolean;
 begin
   ApplyGroupAffinityToThread(GetCurrentThread, FAffinity);
+  Idle := DextWorkerIdle;
+  WaitMs := 1000;
+  if Assigned(Idle) and (DextWorkerIdleMs > 0) then
+    WaitMs := DextWorkerIdleMs;
+  Worked := False;
 
   try
     while not Terminated and FEngine.FRunning do
@@ -2727,15 +2737,27 @@ begin
     Ret := ERROR_SUCCESS;
 
     if not GetQueuedCompletionStatus(FEngine.FIocp, Transferred,
-      CompletionKey, Overlapped, 1000) then
+      CompletionKey, Overlapped, WaitMs) then
     begin
       Ret := GetLastError;
       if (Ret = WAIT_TIMEOUT) or (Overlapped = nil) then
+      begin
+        if (Ret = WAIT_TIMEOUT) and Worked and Assigned(Idle) then
+        begin
+          Worked := False;
+          try
+            Idle;
+          except
+            // An exception from the hook must not end the worker.
+          end;
+        end;
         Continue;
+      end;
     end;
 
     if Overlapped <> nil then
     begin
+      Worked := True;
       Op := PDextHttpSysOperation(Overlapped);
 
       case Op^.Kind of

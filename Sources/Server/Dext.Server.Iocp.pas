@@ -963,8 +963,18 @@ var
   Acc: TBytes;
   OldLen: Integer;
   DataLen: Integer;
+  // The idle hook (DextWorkerIdle), read once: nil = wait as before.
+  Idle: TDextWorkerIdleProc;
+  WaitMs: Cardinal;
+  // Work handled since the last call of the idle hook.
+  Worked: Boolean;
 begin
   ApplyGroupAffinityToThread(GetCurrentThread, FAffinity);
+  Idle := DextWorkerIdle;
+  WaitMs := INFINITE;
+  if Assigned(Idle) and (DextWorkerIdleMs > 0) then
+    WaitMs := DextWorkerIdleMs;
+  Worked := False;
 
   IocpOverlapped := nil;
 
@@ -979,8 +989,25 @@ begin
       BytesTransferred,
       CompletionKey,
       POverlapped(IocpOverlapped),
-      INFINITE
+      WaitMs
     );
+
+    // The wait ran out with nothing dequeued (only with the idle hook: the
+    // wait is INFINITE otherwise).
+    if (not Ret) and (IocpOverlapped = nil) and (GetLastError = WAIT_TIMEOUT) then
+    begin
+      if Worked then
+      begin
+        Worked := False;
+        try
+          Idle;
+        except
+          // An exception from the hook must not end the worker.
+        end;
+      end;
+      Continue;
+    end;
+    Worked := True;
 
     if (not Ret) or (IocpOverlapped = nil) then
     begin
