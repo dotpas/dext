@@ -73,6 +73,23 @@ type
     property NotNested: TNdCategoryDto read FNotNested write FNotNested;
   end;
 
+  // Read entity: [Nested] on an entity, used with FromSql. It has its own
+  // table name because the SQL of FromSql decides where the rows come from.
+  [Table('nd_items_read')]
+  TNdItemRead = class
+  private
+    FId: Integer;
+    FName: string;
+    FCategory: TNdCategoryDto;
+  public
+    destructor Destroy; override;
+    [PrimaryKey]
+    property Id: Integer read FId write FId;
+    property Name: string read FName write FName;
+    [Nested]
+    property Category: TNdCategoryDto read FCategory write FCategory;
+  end;
+
   TNdDb = class(TDbContext)
   private
     function GetCategories: IDbSet<TNdCategory>;
@@ -106,6 +123,16 @@ type
     procedure SqlQueryFirst_Fills_The_Nested_Object;
     [Test]
     procedure Dot_Separator_Is_Accepted;
+    [Test]
+    procedure FromSql_Fills_The_Nested_Object_Of_An_Entity;
+    [Test]
+    procedure FromSql_Keeps_Flat_Columns_Next_To_The_Nested_Ones;
+    [Test]
+    procedure FromSql_Nested_Stays_Nil_When_All_Its_Columns_Are_Null;
+    [Test]
+    procedure FromSql_Nested_Works_Over_Two_Levels;
+    [Test]
+    procedure FromSql_Nested_Reads_Each_Row_Own_Values;
   end;
 
 implementation
@@ -124,6 +151,14 @@ destructor TNdItemDto.Destroy;
 begin
   FCategory.Free;
   FNotNested.Free;
+  inherited;
+end;
+
+{ TNdItemRead }
+
+destructor TNdItemRead.Destroy;
+begin
+  FCategory.Free;
   inherited;
 end;
 
@@ -255,6 +290,81 @@ begin
   finally
     Item.Free;
   end;
+end;
+
+procedure TNestedDtoTests.FromSql_Fills_The_Nested_Object_Of_An_Entity;
+var
+  List: IList<TNdItemRead>;
+begin
+  List := FDb.Entities<TNdItemRead>.FromSql(
+    'SELECT i.Id, i.Name, c.Name AS Category_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId').ToList;
+  Should(List.Count).Be(1);
+  Should(List[0].Category <> nil).BeTrue;
+  Should(List[0].Category.Name).Be('Hardware');
+end;
+
+procedure TNestedDtoTests.FromSql_Keeps_Flat_Columns_Next_To_The_Nested_Ones;
+var
+  List: IList<TNdItemRead>;
+begin
+  List := FDb.Entities<TNdItemRead>.FromSql(
+    'SELECT i.Id, i.Name, c.Name AS Category_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId').ToList;
+  Should(List[0].Id).Be(10);
+  Should(List[0].Name).Be('Keyboard');
+end;
+
+procedure TNestedDtoTests.FromSql_Nested_Stays_Nil_When_All_Its_Columns_Are_Null;
+var
+  List: IList<TNdItemRead>;
+begin
+  List := FDb.Entities<TNdItemRead>.FromSql(
+    'SELECT i.Id, i.Name, c.Name AS Category_Name ' +
+    'FROM nd_items i LEFT JOIN nd_categories c ON c.Id = i.CategoryId ' +
+    'ORDER BY i.Id').ToList;
+  Should(List.Count).Be(2);
+  Should(List[0].Category <> nil).BeTrue;
+  Should(List[1].Name).Be('Orphan');
+  Should(List[1].Category = nil).BeTrue;
+end;
+
+procedure TNestedDtoTests.FromSql_Nested_Works_Over_Two_Levels;
+var
+  List: IList<TNdItemRead>;
+begin
+  List := FDb.Entities<TNdItemRead>.FromSql(
+    'SELECT i.Id, i.Name, c.Name AS Category_Name, ' +
+    '''Root'' AS Category_Parent_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId').ToList;
+  Should(List[0].Category.Parent <> nil).BeTrue;
+  Should(List[0].Category.Parent.Name).Be('Root');
+end;
+
+procedure TNestedDtoTests.FromSql_Nested_Reads_Each_Row_Own_Values;
+var
+  C: TNdCategory;
+  I: TNdItem;
+  List: IList<TNdItemRead>;
+begin
+  C := TNdCategory.Create;
+  C.Id := 2;
+  C.Name := 'Software';
+  FDb.Categories.Add(C);
+  I := TNdItem.Create;
+  I.Id := 12;
+  I.Name := 'Editor';
+  I.CategoryId := 2;
+  FDb.Items.Add(I);
+  FDb.SaveChanges;
+
+  List := FDb.Entities<TNdItemRead>.FromSql(
+    'SELECT i.Id, i.Name, c.Name AS Category_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId ' +
+    'ORDER BY i.Id').ToList;
+  Should(List.Count).Be(2);
+  Should(List[0].Category.Name).Be('Hardware');
+  Should(List[1].Category.Name).Be('Software');
 end;
 
 procedure TNestedDtoTests.Dot_Separator_Is_Accepted;

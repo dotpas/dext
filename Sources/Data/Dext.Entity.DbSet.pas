@@ -76,6 +76,19 @@ type
   TDbProjectionWriteProc = procedure(AContext, AData: Pointer;
     ALength: Integer);
 
+  /// <summary>
+  ///   Mapping item between database result set column and a DTO property/field.
+  /// </summary>
+  TDtoColumnMapping = record
+    ColumnIndex: Integer;
+    // Chain of [Nested] properties from the DTO down to the owner of Prop/Field
+    Path: TArray<TRttiProperty>;
+    Prop: TRttiProperty;
+    Field: TRttiField;
+    TargetKind: TTypeKind;
+    TargetTypeInfo: PTypeInfo;
+  end;
+
   TColumnHydrationItem = record
     ColumnIndex: Integer;
     Prop: TRttiProperty;
@@ -91,6 +104,9 @@ type
     UseDirect: Boolean;
     // Class that declares the property when it belongs to a TPH subclass
     OwnerClass: TClass;
+    // Target of a [Nested] column (IsMultiMap): the chain of [Nested]
+    // properties and the final property or field
+    Nested: TDtoColumnMapping;
   end;
 
   THydrationPlan = record
@@ -117,19 +133,6 @@ type
   end;
 
   /// <summary>
-  ///   Mapping item between database result set column and a DTO property/field.
-  /// </summary>
-  TDtoColumnMapping = record
-    ColumnIndex: Integer;
-    // Chain of [Nested] properties from the DTO down to the owner of Prop/Field
-    Path: TArray<TRttiProperty>;
-    Prop: TRttiProperty;
-    Field: TRttiField;
-    TargetKind: TTypeKind;
-    TargetTypeInfo: PTypeInfo;
-  end;
-
-  /// <summary>
   ///   Lightweight, high-performance RTTI hydrator for arbitrary DTO and POCO classes.
   /// </summary>
   TDextDtoHydrator = class
@@ -142,6 +145,25 @@ type
       const APath: TArray<TRttiProperty>;
       out AMapping: TDtoColumnMapping): Boolean; static;
   public
+    /// <summary>
+    ///   Routes a column named Prefix_Column or Prefix.Column into the
+    ///   [Nested] property of AType named by the prefix, at any depth.
+    ///   Shared by SqlQuery&lt;T&gt; (DTOs) and FromSql (entities).
+    /// </summary>
+    class function ResolveNested(const AType: TRttiType;
+      const AColName: string; AColIndex: Integer;
+      const APath: TArray<TRttiProperty>;
+      out AMapping: TDtoColumnMapping): Boolean; static;
+    /// <summary>Converts a raw column value to the target property type.</summary>
+    class function ConvertValue(const AMapping: TDtoColumnMapping;
+      const ARaw: TValue): TValue; static;
+    /// <summary>
+    ///   Stores the value, creating the nested objects along the path. The
+    ///   caller only stores non-null values, so a nested object whose columns
+    ///   are all NULL (a LEFT JOIN without a match) stays nil.
+    /// </summary>
+    class procedure Store(const ATarget: TObject;
+      const AMapping: TDtoColumnMapping; const AValue: TValue); static;
     constructor Create(ATypeInfo: PTypeInfo; const Reader: IDbReader);
     procedure Hydrate(const Target: TObject; const Reader: IDbReader);
   end;
@@ -627,9 +649,26 @@ begin
     end;
   end;
 
-  // 3. [Nested]: the part before a '_' or '.' names a [Nested] property and
-  //    the rest names a column of its class (tried at every separator, so
-  //    prefixes such as Data_Pagamento also work)
+  Result := ResolveNested(AType, AColName, AColIndex, APath, AMapping);
+end;
+
+/// <summary>
+///   Shared by SqlQuery<T> and FromSql: see the declaration.
+/// </summary>
+class function TDextDtoHydrator.ResolveNested(const AType: TRttiType;
+  const AColName: string; AColIndex: Integer;
+  const APath: TArray<TRttiProperty>;
+  out AMapping: TDtoColumnMapping): Boolean;
+var
+  Props: TArray<TRttiProperty>;
+  Prefix: string;
+  j, p: Integer;
+begin
+  Result := False;
+  Props := AType.GetProperties;
+  // The part before a '_' or '.' names a [Nested] property and the rest
+  // names a column of its class (tried at every separator, so prefixes such
+  // as Data_Pagamento also work)
   for p := 1 to Length(AColName) - 2 do
   begin
     if not CharInSet(AColName.Chars[p], ['_', '.']) then Continue;
@@ -670,13 +709,79 @@ begin
   end;
 end;
 
+class function TDextDtoHydrator.ConvertValue(
+  const AMapping: TDtoColumnMapping; const ARaw: TValue): TValue;
+begin
+  case AMapping.TargetKind of
+    tkInteger:
+      Result := TValue.From<Integer>(ARaw.AsInteger);
+    tkInt64:
+      Result := TValue.From<Int64>(ARaw.AsInt64);
+    tkFloat:
+      begin
+        if AMapping.TargetTypeInfo = TypeInfo(Currency) then
+          Result := TValue.From<Currency>(Currency(ARaw.AsExtended))
+        else if (AMapping.TargetTypeInfo = TypeInfo(TDateTime)) or
+                (AMapping.TargetTypeInfo = TypeInfo(TDate)) or
+                (AMapping.TargetTypeInfo = TypeInfo(TTime)) then
+          Result := TValue.From<TDateTime>(TDateTime(ARaw.AsExtended))
+        else
+          Result := TValue.From<Double>(ARaw.AsExtended);
+      end;
+    tkUString, tkString, tkWString, tkLString:
+      Result := TValue.From<string>(ARaw.AsString);
+    tkEnumeration:
+      begin
+        if AMapping.TargetTypeInfo = TypeInfo(Boolean) then
+          Result := TValue.From<Boolean>(ARaw.AsBoolean)
+        else
+          Result := ARaw;
+      end;
+  else
+    Result := ARaw;
+  end;
+end;
+
+class procedure TDextDtoHydrator.Store(const ATarget: TObject;
+  const AMapping: TDtoColumnMapping; const AValue: TValue);
+var
+  Owner, Child: TObject;
+  NestedProp: TRttiProperty;
+begin
+  Owner := ATarget;
+  for NestedProp in AMapping.Path do
+  begin
+    Child := NestedProp.GetValue(Owner).AsObject;
+    if Child = nil then
+    begin
+      Child := TActivator.CreateInstance(
+        NestedProp.PropertyType.AsInstance.MetaclassType, []);
+      NestedProp.SetValue(Owner, Child);
+    end;
+    Owner := Child;
+  end;
+
+  if AMapping.Prop <> nil then
+  begin
+    try
+      AMapping.Prop.SetValue(Owner, AValue);
+    except
+    end;
+  end
+  else if AMapping.Field <> nil then
+  begin
+    try
+      AMapping.Field.SetValue(Owner, AValue);
+    except
+    end;
+  end;
+end;
+
 procedure TDextDtoHydrator.Hydrate(const Target: TObject; const Reader: IDbReader);
 var
   i: Integer;
   Mapping: TDtoColumnMapping;
-  RawVal, Val: TValue;
-  Owner, Child: TObject;
-  NestedProp: TRttiProperty;
+  RawVal: TValue;
 begin
   for i := 0 to Length(FMappings) - 1 do
   begin
@@ -688,64 +793,7 @@ begin
     if RawVal.IsEmpty then
       Continue;
 
-    case Mapping.TargetKind of
-      tkInteger:
-        Val := TValue.From<Integer>(RawVal.AsInteger);
-      tkInt64:
-        Val := TValue.From<Int64>(RawVal.AsInt64);
-      tkFloat:
-        begin
-          if Mapping.TargetTypeInfo = TypeInfo(Currency) then
-            Val := TValue.From<Currency>(Currency(RawVal.AsExtended))
-          else if (Mapping.TargetTypeInfo = TypeInfo(TDateTime)) or
-                  (Mapping.TargetTypeInfo = TypeInfo(TDate)) or
-                  (Mapping.TargetTypeInfo = TypeInfo(TTime)) then
-            Val := TValue.From<TDateTime>(TDateTime(RawVal.AsExtended))
-          else
-            Val := TValue.From<Double>(RawVal.AsExtended);
-        end;
-      tkUString, tkString, tkWString, tkLString:
-        Val := TValue.From<string>(RawVal.AsString);
-      tkEnumeration:
-        begin
-          if Mapping.TargetTypeInfo = TypeInfo(Boolean) then
-            Val := TValue.From<Boolean>(RawVal.AsBoolean)
-          else
-            Val := RawVal;
-        end;
-    else
-      Val := RawVal;
-    end;
-
-    // A nested object is created only when one of its columns has a value,
-    // so a LEFT JOIN without a match leaves it nil.
-    Owner := Target;
-    for NestedProp in Mapping.Path do
-    begin
-      Child := NestedProp.GetValue(Owner).AsObject;
-      if Child = nil then
-      begin
-        Child := TActivator.CreateInstance(
-          NestedProp.PropertyType.AsInstance.MetaclassType, []);
-        NestedProp.SetValue(Owner, Child);
-      end;
-      Owner := Child;
-    end;
-
-    if Mapping.Prop <> nil then
-    begin
-      try
-        Mapping.Prop.SetValue(Owner, Val);
-      except
-      end;
-    end
-    else if Mapping.Field <> nil then
-    begin
-      try
-        Mapping.Field.SetValue(Owner, Val);
-      except
-      end;
-    end;
+    Store(Target, Mapping, ConvertValue(Mapping, RawVal));
   end;
 end;
 
@@ -1158,7 +1206,12 @@ var
   Signature: string;
   SignatureBuilder: TStringBuilder;
   OwnerCls: TClass;
+  NestedMap: TDtoColumnMapping;
+  RttiCtx: TRttiContext;
+  EntityRtti: TRttiType;
 begin
+  RttiCtx := TRttiContext.Create;
+  EntityRtti := RttiCtx.GetType(TypeInfo(T));
   ColCount := Reader.GetColumnCount;
   SignatureBuilder := TStringBuilder.Create(ColCount * 24);
   try
@@ -1254,33 +1307,26 @@ begin
     end
     else
     begin
-      // Multi-Mapping check
-      SeparatorIdx := ColName.IndexOf('_');
-      if SeparatorIdx < 0 then 
-        SeparatorIdx := ColName.IndexOf('.');
-
-      if SeparatorIdx > 0 then
+      // Multi-Mapping: Prefix_Column or Prefix.Column goes into the
+      // [Nested] property named by the prefix (same rule as SqlQuery<T>)
+      if (EntityRtti <> nil) and
+         TDextDtoHydrator.ResolveNested(EntityRtti, ColName, i, nil, NestedMap) then
       begin
         Item.ColumnIndex := i;
-        Item.Prop := nil;
+        Item.Prop := NestedMap.Path[0];
         Item.Field := nil;
         Item.Converter := nil;
         Item.DefaultValue := Null;
         Item.IsMultiMap := True;
-        Item.MultiMapPrefix := ColName.Substring(0, SeparatorIdx);
+        Item.MultiMapPrefix := Item.Prop.Name;
         Item.ColumnName := ColName;
         Item.DirectOffset := -1;
         Item.DirectKind := nkUnknown;
         Item.UseDirect := False;
         Item.OwnerClass := nil;
-        
-        // Let's resolve the target class property to make sure it exists
-        if FProps.TryGetValue(Item.MultiMapPrefix.ToLower, Prop) and (Prop.PropertyType.TypeKind = tkClass) then
-        begin
-          Item.Prop := Prop;
-          Result.Items[ItemIdx] := Item;
-          Inc(ItemIdx);
-        end;
+        Item.Nested := NestedMap;
+        Result.Items[ItemIdx] := Item;
+        Inc(ItemIdx);
       end;
     end;
   end;
@@ -1524,8 +1570,15 @@ begin
     end
     else
     begin
-      // Multi-Mapping
-      TReflection.SetValueByPath(TObject(Target), Item.ColumnName, Val);
+      // Multi-Mapping ([Nested]): only a column with a value creates the
+      // nested object
+      if not Reader.IsNull(Item.ColumnIndex) then
+      begin
+        Val := Reader.GetValue(Item.ColumnIndex);
+        if not Val.IsEmpty then
+          TDextDtoHydrator.Store(TObject(Target), Item.Nested,
+            TDextDtoHydrator.ConvertValue(Item.Nested, Val));
+      end;
     end;
   end;
 end;
