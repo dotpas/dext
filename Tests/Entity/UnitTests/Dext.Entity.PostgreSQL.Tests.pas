@@ -59,10 +59,12 @@ type
   private
     FId: Integer;
     FIdent: TGUID;
+    FTags: TArray<string>;
   public
     [PrimaryKey]
     property Id: Integer read FId write FId;
     property Ident: TGUID read FIdent write FIdent;
+    property Tags: TArray<string> read FTags write FTags;
   end;
 
   TPgGuidBatchDb = class(TDbContext)
@@ -105,6 +107,9 @@ type
     [Test]
     [Description('Several entities with a TGUID are inserted in one SaveChanges')]
     procedure Guids_Of_Several_Entities_Are_Inserted_Together;
+    [Test]
+    [Description('Several entities with a TArray (jsonb) are inserted in one SaveChanges')]
+    procedure Arrays_Of_Several_Entities_Are_Inserted_Together;
   end;
 
 implementation
@@ -286,6 +291,41 @@ begin
     Should(Reader.Next).BeTrue;
     Should(Reader.GetString(0)).Be('ab8cb5ac-0b92-4dfb-a328-bd55f8dc31a7');
     Db.Connection.CreateCommand('DROP SCHEMA dext_ut_e CASCADE').Execute;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TPostgreSQLSchemaTests.Arrays_Of_Several_Entities_Are_Inserted_Together;
+var
+  Db: TPgGuidBatchDb;
+  First, Second: TPgGuidBatch;
+begin
+  if Connection = '' then
+    Exit; // no server configured
+
+  if GLink = nil then
+    NewDb.Free;
+  Db := TPgGuidBatchDb.Create(DbContextOptions.UsePostgreSQL(Connection));
+  try
+    Db.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_f CASCADE').Execute;
+    Db.Connection.CreateCommand('CREATE SCHEMA dext_ut_f').Execute;
+    Db.Connection.CreateCommand('SET search_path TO dext_ut_f').Execute;
+    Db.EnsureCreated;
+
+    First := TPgGuidBatch.Create;
+    First.Id := 1;
+    First.Tags := ['a'];
+    Second := TPgGuidBatch.Create;
+    Second.Id := 2;
+    Second.Tags := ['b', 'c'];
+    Db.Items.Add(First);
+    Db.Items.Add(Second);
+    Should(Db.SaveChanges).Be(2);
+    Db.Clear;
+
+    Should(Length(Db.Items.ToList[1].Tags)).Be(2);
+    Db.Connection.CreateCommand('DROP SCHEMA dext_ut_f CASCADE').Execute;
   finally
     Db.Free;
   end;

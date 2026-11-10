@@ -1740,6 +1740,8 @@ var
   PropMap: TPropertyMap;
   Meta: TTypeMetadata;
   Handler: IPropertyHandler;
+  Converter: ITypeConverter;
+  ValueSQL: string;
 begin
   SBCols := TStringBuilder.Create;
   SBVals := TStringBuilder.Create;
@@ -1783,8 +1785,19 @@ begin
       First := False;
       
       SBCols.Append(FDialect.QuoteIdentifier(ColName));
-      // Use Column Name as Parameter Name for Array DML
-      SBVals.Append(':').Append(ColName); 
+      // Use Column Name as Parameter Name for Array DML. A column whose converter
+      // needs a cast (jsonb, uuid on PostgreSQL) gets it, as in the single-row INSERT.
+      ValueSQL := ':' + ColName;
+      Converter := nil;
+      if PropMap <> nil then Converter := PropMap.Converter;
+      if (Converter = nil) and (Handler.GetMember() is TRttiProperty) then
+        Converter := TTypeConverterRegistry.Instance.GetConverter(
+          TRttiProperty(Handler.GetMember()).PropertyType.Handle);
+      if (Converter = nil) and (PropMap <> nil) and PropMap.IsJsonColumn then
+        Converter := TJsonConverter.Create(PropMap.UseJsonB);
+      if Converter <> nil then
+        ValueSQL := Converter.GetSQLCast(ValueSQL, GetDialectEnum);
+      SBVals.Append(ValueSQL);
     end;
     
     Result := Format('INSERT INTO %s (%s) VALUES (%s)', 
