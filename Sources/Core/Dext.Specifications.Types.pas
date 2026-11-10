@@ -100,10 +100,16 @@ type
   TPropertyExpression = class(TAbstractExpression)
   private
     FPropertyName: string;
+    FOwner: string;
   public
-    constructor Create(const APropertyName: string);
+    constructor Create(const APropertyName: string); overload;
+    /// <param name="AOwner">The table of the entity that declares the property
+    ///   (a prototype property knows it). A query with joins uses it to qualify
+    ///   the column with the right table or alias.</param>
+    constructor Create(const APropertyName, AOwner: string); overload;
     destructor Destroy; override;
     property PropertyName: string read FPropertyName;
+    property Owner: string read FOwner;
     function ToString: string; override;
   end;
 
@@ -412,9 +418,17 @@ begin
   FPropertyName := APropertyName;
 end;
 
+constructor TPropertyExpression.Create(const APropertyName, AOwner: string);
+begin
+  inherited Create;
+  FPropertyName := APropertyName;
+  FOwner := AOwner;
+end;
+
 destructor TPropertyExpression.Destroy;
 begin
   FPropertyName := '';
+  FOwner := '';
   inherited;
 end;
 

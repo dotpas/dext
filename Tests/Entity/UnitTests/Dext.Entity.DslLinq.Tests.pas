@@ -89,6 +89,12 @@ type
     procedure GroupBy_Integer_Prototype_Groups_By_The_Column;
     [Test]
     procedure GroupBy_Column_Name_Still_Works;
+    [Test]
+    procedure Join_With_Prototype_On_Condition_Filters_By_The_Joined_Table;
+    [Test]
+    procedure Join_With_Prototype_Condition_Without_Filter;
+    [Test]
+    procedure Join_With_String_Condition_Still_Works;
   end;
 
 implementation
@@ -245,6 +251,48 @@ begin
   O := Prototype.Entity<TDlOrder>;
   Rows := FDb.Orders.Where(O.Id > 0).GroupBy('Status').ToList;
   Should(Rows.Count).Be(2);
+end;
+
+procedure TDslLinqTests.Join_With_Prototype_On_Condition_Filters_By_The_Joined_Table;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // Customers 1 and 2 are in SP: orders 1,2,4,5
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .Where(C.City = 'SP')
+    .ToList;
+  Should(Rows.Count).Be(4);
+end;
+
+procedure TDslLinqTests.Join_With_Prototype_Condition_Without_Filter;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .ToList;
+  Should(Rows.Count).Be(6);
+end;
+
+procedure TDslLinqTests.Join_With_String_Condition_Still_Works;
+var
+  O: TDlOrder;
+  Rows: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .Join('dl_customers', 'c', 'dl_orders.CustomerId = c.Id')
+    .ToList;
+  Should(Rows.Count).Be(6);
 end;
 
 end.

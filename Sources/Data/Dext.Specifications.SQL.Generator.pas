@@ -71,6 +71,8 @@ type
     FColumnMapper: ISQLColumnMapper;
     FQualifyUnaliasedColumns: Boolean;
     FBaseTableName: string;
+    FBaseOwner: string;
+    FJoins: TArray<IJoin>;
 
     procedure ProcessBinary(const C: TBinaryExpression);
     procedure ProcessArithmetic(const C: TArithmeticExpression);
@@ -91,6 +93,7 @@ type
 
     function MapColumn(const AName: string): string;
     function QuoteColumnOrAlias(const AName: string): string;
+    function QualifierOf(const AOwner: string; out AIsBase: Boolean): string;
   public
     constructor Create(ADialect: ISQLDialect; AMapper: ISQLColumnMapper = nil;
       AQualifyUnaliasedColumns: Boolean = False; const ABaseTableName: string = '');
@@ -100,6 +103,13 @@ type
     
     property Params: IDictionary<string, TValue> read FParams;
     property ParamCount: Integer read FParamCount write FParamCount;
+    /// <summary>The joins of the query. With them, a property that knows the
+    ///   table of its entity (a prototype property) is qualified with the
+    ///   alias of that table.</summary>
+    property Joins: TArray<IJoin> read FJoins write FJoins;
+    /// <summary>The table of the entity the query reads from, as the
+    ///   prototype properties name it.</summary>
+    property BaseOwner: string read FBaseOwner write FBaseOwner;
   end;
 
   TSQLColumnMapper<T: class> = class(TInterfacedObject, ISQLColumnMapper)
@@ -849,9 +859,43 @@ begin
   end;
 end;
 
-procedure TSQLWhereGenerator.ProcessProperty(const C: TPropertyExpression);
+function TSQLWhereGenerator.QualifierOf(const AOwner: string; out AIsBase: Boolean): string;
+var
+  J: IJoin;
 begin
-  FSQL.Append(QuoteColumnOrAlias(MapColumn(C.PropertyName)));
+  Result := '';
+  AIsBase := False;
+  if (AOwner = '') or (Length(FJoins) = 0) then
+    Exit;
+  // The base table wins when a join reads the same table
+  if (FBaseOwner <> '') and (FBaseTableName <> '') and SameText(AOwner, FBaseOwner) then
+  begin
+    AIsBase := True;
+    Exit(FBaseTableName);
+  end;
+  for J in FJoins do
+    if SameText(J.GetTableName, AOwner) then
+    begin
+      if J.GetAlias <> '' then
+        Exit(FDialect.QuoteIdentifier(J.GetAlias));
+      Exit(FDialect.QuoteIdentifier(J.GetTableName));
+    end;
+end;
+
+procedure TSQLWhereGenerator.ProcessProperty(const C: TPropertyExpression);
+var
+  Qualifier: string;
+  IsBase: Boolean;
+begin
+  Qualifier := QualifierOf(C.Owner, IsBase);
+  if Qualifier = '' then
+    FSQL.Append(QuoteColumnOrAlias(MapColumn(C.PropertyName)))
+  else if IsBase then
+    FSQL.Append(Qualifier).Append('.').Append(FDialect.QuoteIdentifier(MapColumn(C.PropertyName)))
+  else
+    // A joined table: the name is already the column of that entity, which the
+    // mapper of the base entity must not translate
+    FSQL.Append(Qualifier).Append('.').Append(FDialect.QuoteIdentifier(C.PropertyName));
 end;
 
 procedure TSQLWhereGenerator.ProcessJsonProperty(const C: TJsonPropertyExpression);
@@ -2406,6 +2450,9 @@ begin
     BaseTableName
   );
   try
+    WhereGen.Joins := ASpec.GetJoins;
+    if FMap <> nil then
+      WhereGen.BaseOwner := FMap.TableName;
     WhereSQL := WhereGen.Generate(ASpec.GetExpression);
     FParamCount := WhereGen.ParamCount;
     
@@ -2786,6 +2833,9 @@ begin
     BaseTableName
   );
   try
+    WhereGen.Joins := ASpec.GetJoins;
+    if FMap <> nil then
+      WhereGen.BaseOwner := FMap.TableName;
     WhereSQL := WhereGen.Generate(ASpec.GetExpression);
     FParamCount := WhereGen.ParamCount;
     
@@ -3304,8 +3354,11 @@ begin
          
        if JoinObj.GetJoinType <> jtCross then
        begin
-         WhereGen := TSQLWhereGenerator.Create(FDialect, nil);
+         WhereGen := TSQLWhereGenerator.Create(FDialect, nil, False, GetTableName);
          try
+           WhereGen.Joins := AJoins;
+           if FMap <> nil then
+             WhereGen.BaseOwner := FMap.TableName;
            SB.Append(' ON ')
              .Append(WhereGen.Generate(JoinObj.GetCondition));
              

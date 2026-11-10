@@ -93,7 +93,8 @@ begin
         ColumnName := PropMap.ColumnName;
         if ColumnName = '' then ColumnName := PropMap.PropertyName;
 
-        PropInfo := TPropInfo.Create(PropMap.ColumnName, PropMap.PropertyName);
+        PropInfo := TPropInfo.Create(PropMap.ColumnName, PropMap.PropertyName,
+          EntityMap.TableName);
         // Manually AddRef since we're storing it in raw memory as a raw pointer
         // This prevents the interface from being freed when this scope ends.
         PropInfo._AddRef;

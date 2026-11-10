@@ -65,8 +65,12 @@ type
     ['{6DCBC43A-0D70-40BA-ADEE-BC450A69F296}']
     function GetColumnName: string;
     function GetPropertyName: string;
+    function GetOwner: string;
     property ColumnName: string read GetColumnName;
     property PropertyName: string read GetPropertyName;
+    /// <summary>The table of the entity that declares the property ('' when
+    ///   unknown).</summary>
+    property Owner: string read GetOwner;
   end;
 
   /// <summary>
@@ -121,10 +125,12 @@ type
     class function CompareExpr(const ALeft, ARight: IExpression; AOp: TBinaryOperator): IExpression; static;
     class function CompareExprLit(const ALeft: IExpression; const ARight: TValue; AOp: TBinaryOperator): IExpression; static;
     class function CompareExprProp(const ALeftName: string; AOp: TBinaryOperator; const ARight: TValue): IExpression; static;
+    class function CompareExprPropOwned(const AOwner, ALeftName: string; AOp: TBinaryOperator; const ARight: TValue): IExpression; static;
 
     // Unary & Logical
     class function UnaryExpr(const AExpr: IExpression; AOp: TUnaryOperator): IExpression; static;
     class function UnaryExprProp(const APropertyName: string; AOp: TUnaryOperator): IExpression; static;
+    class function UnaryExprPropOwned(const AOwner, APropertyName: string; AOp: TUnaryOperator): IExpression; static;
     class function LogicalExpr(const ALeft, ARight: IExpression; AOp: TLogicalOperator): IExpression; static;
   end;
 
@@ -141,6 +147,7 @@ type
     FExpression: IExpression;
     function GetColumnName: string; inline;
     function GetPropertyName: string; inline;
+    function GetOwner: string; inline;
     function GetExpression: IExpression;
   public
     function IsQueryMode: Boolean; inline;
@@ -261,10 +268,13 @@ type
   private
     FColumnName: string;
     FPropertyName: string;
+    FOwner: string;
   public
-    constructor Create(const AColumnName: string; const APropertyName: string = '');
+    constructor Create(const AColumnName: string; const APropertyName: string = '';
+      const AOwner: string = '');
     function GetColumnName: string;
     function GetPropertyName: string;
+    function GetOwner: string;
   end;
 
   // ---------------------------------------------------------------------------
@@ -475,9 +485,11 @@ end;
 
 { TPropInfo }
 
-constructor TPropInfo.Create(const AColumnName: string; const APropertyName: string = '');
+constructor TPropInfo.Create(const AColumnName: string; const APropertyName: string = '';
+  const AOwner: string = '');
 begin
   FColumnName := AColumnName;
+  FOwner := AOwner;
   if APropertyName <> '' then
     FPropertyName := APropertyName
   else
@@ -492,6 +504,11 @@ end;
 function TPropInfo.GetPropertyName: string;
 begin
   Result := FPropertyName;
+end;
+
+function TPropInfo.GetOwner: string;
+begin
+  Result := FOwner;
 end;
 
 { GetSmartValue }
@@ -678,6 +695,14 @@ begin
     Result := '';
 end;
 
+function Prop<T>.GetOwner: string;
+begin
+  if FInfo <> nil then
+    Result := FInfo.Owner
+  else
+    Result := '';
+end;
+
 function Prop<T>.GetColumnName: string;
 begin
   if FInfo <> nil then
@@ -691,7 +716,7 @@ begin
   if FExpression <> nil then
     Result := FExpression
   else if FInfo <> nil then
-    Result := TPropertyExpression.Create(FInfo.ColumnName)
+    Result := TPropertyExpression.Create(FInfo.ColumnName, FInfo.Owner)
   else
     Result := TLiteralExpression.Create(TValue.From<T>(FValue));
 end;
@@ -1091,6 +1116,26 @@ begin
   Result := TUnaryExpression.Create(AExpr, AOp);
 end;
 
+class function TPropExpressionBuilder.CompareExprPropOwned(const AOwner, ALeftName: string;
+  AOp: TBinaryOperator; const ARight: TValue): IExpression;
+begin
+  if AOwner = '' then
+    Result := TBinaryExpression.Create(ALeftName, AOp, ARight)
+  else
+    Result := TBinaryExpression.Create(
+      TPropertyExpression.Create(ALeftName, AOwner),
+      TLiteralExpression.Create(ARight), AOp);
+end;
+
+class function TPropExpressionBuilder.UnaryExprPropOwned(const AOwner, APropertyName: string;
+  AOp: TUnaryOperator): IExpression;
+begin
+  if AOwner = '' then
+    Result := TUnaryExpression.Create(APropertyName, AOp)
+  else
+    Result := TUnaryExpression.Create(TPropertyExpression.Create(APropertyName, AOwner), AOp);
+end;
+
 class function TPropExpressionBuilder.UnaryExprProp(const APropertyName: string; AOp: TUnaryOperator): IExpression;
 begin
   Result := TUnaryExpression.Create(APropertyName, AOp);
@@ -1367,7 +1412,7 @@ var
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boLike, TValue.From<string>(Pattern)))
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boLike, TValue.From<string>(Pattern)))
   else
   begin
     StrVal := TValue.From<T>(FValue).ToString;
@@ -1380,7 +1425,7 @@ function Prop<T>.StartsWith(const Value: string): BooleanExpression;
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boStartsWith, TValue.From<string>(Value)))
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boStartsWith, TValue.From<string>(Value)))
   else
     Result := BooleanExpression.FromRuntime(TValue.From<T>(FValue).ToString.StartsWith(Value));
 end;
@@ -1389,7 +1434,7 @@ function Prop<T>.EndsWith(const Value: string): BooleanExpression;
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boEndsWith, TValue.From<string>(Value)))
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boEndsWith, TValue.From<string>(Value)))
   else
     Result := BooleanExpression.FromRuntime(TValue.From<T>(FValue).ToString.EndsWith(Value));
 end;
@@ -1398,7 +1443,7 @@ function Prop<T>.Contains(const Value: string): BooleanExpression;
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boContains, TValue.From<string>(Value)))
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boContains, TValue.From<string>(Value)))
   else
     Result := BooleanExpression.FromRuntime(TValue.From<T>(FValue).ToString.Contains(Value));
 end;
@@ -1413,7 +1458,7 @@ begin
   begin
     V := TValue.From<TArray<T>>(Values);
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boIn, V));
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boIn, V));
   end
   else
   begin
@@ -1432,7 +1477,7 @@ begin
   Check := &In(Values);
   if Check.FExpression <> nil then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.CompareExprProp(GetColumnName, boNotIn, TValue.From<TArray<T>>(Values)))
+      TPropExpressionBuilder.CompareExprPropOwned(GetOwner, GetColumnName, boNotIn, TValue.From<TArray<T>>(Values)))
   else
     Result := BooleanExpression.FromRuntime(not Check.FRuntimeValue);
 end;
@@ -1443,7 +1488,7 @@ var
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.UnaryExprProp(GetColumnName, uoIsNull))
+      TPropExpressionBuilder.UnaryExprPropOwned(GetOwner, GetColumnName, uoIsNull))
   else if TReflection.GetMetadata(TypeInfo(T)).IsNullable then
   begin
     Meta := TReflection.GetMetadata(TypeInfo(T));
@@ -1462,7 +1507,7 @@ var
 begin
   if IsQueryMode then
     Result := BooleanExpression.FromQuery(
-      TPropExpressionBuilder.UnaryExprProp(GetColumnName, uoIsNotNull))
+      TPropExpressionBuilder.UnaryExprPropOwned(GetOwner, GetColumnName, uoIsNotNull))
   else if TReflection.GetMetadata(TypeInfo(T)).IsNullable then
   begin
     Meta := TReflection.GetMetadata(TypeInfo(T));
