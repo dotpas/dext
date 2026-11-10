@@ -110,7 +110,9 @@ begin
   begin
     if not FClassProxies.TryGetValue(Info, CProxy) then
     begin
-      CProxy := TClassProxy.Create(Info.TypeData.ClassType, [Interceptor], False);
+      // Owns the instance; if the SUT frees it first, the proxy notices
+      // (BeforeDestruction) and does not free it again.
+      CProxy := TClassProxy.Create(Info.TypeData.ClassType, [Interceptor], True);
       FClassProxies.Add(Info, CProxy);
     end;
     Result := Mock<T>.FromInterface(TMock<T>.Create(TMockInterceptor(Interceptor), TClassProxy(CProxy), False));
@@ -167,7 +169,7 @@ begin
        begin
          if not FClassProxies.TryGetValue(ParamInfo, CProxy) then
          begin
-           CProxy := TClassProxy.Create(ParamInfo.TypeData.ClassType, [Interceptor], False);
+           CProxy := TClassProxy.Create(ParamInfo.TypeData.ClassType, [Interceptor], True);
            FClassProxies.Add(ParamInfo, CProxy);
          end;
           // Fix: Use TValue.Make with correct TypeInfo to avoid RTTI typecast errors

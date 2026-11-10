@@ -78,6 +78,9 @@ type
   ///   Non-generic base interface for DbSets.
   ///   Allows access to DbSet operations without knowing the generic type at compile time.
   /// </summary>
+  // RTTI for the IDbSet interfaces lets Mock<IDbSet<T>> intercept them
+  // (see Dext.Testing.Entity). Turned off again after IDbSet<T>.
+  {$M+}
   IDbSet = interface
     ['{CC8B4D83-96E0-42F7-9B33-D8DD06919316}']
     function FindObject(const AId: Variant): TObject; overload;
@@ -234,6 +237,7 @@ type
     /// </summary>
     function RequestStreamingIterator(const ASpec: ISpecification<T>): IEnumerator<T>;
   end;
+  {$M-}
 
   /// <summary>
   ///   Provides access to a collection navigation property for an entity.

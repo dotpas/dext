@@ -46,6 +46,13 @@ type
     ['{9E3B7D24-1F6A-4C8B-B4E7-5D2A3C1F8B63}']
     function Cobrar(const Documento: string; Valor: Integer): string;
   end;
+
+  // Same name, same arity, different parameter types.
+  IBusca = interface
+    ['{6A2C9E41-3B7D-4F15-8C2A-9D4E1F7B3A86}']
+    function Buscar(const Documento: string): Integer; overload;
+    function Buscar(Numero: Integer): Integer; overload;
+  end;
   {$M-}
 
   ISemRtti = interface
@@ -407,6 +414,113 @@ begin
     end, 'DispatchBackground was received');
 end;
 
+var
+  DependenciasLiberadas: Integer = 0;
+
+type
+  TDependenciaContada = class
+  public
+    destructor Destroy; override;
+    function Valor: Integer; virtual;
+  end;
+
+  TUsaDependencia = class
+  private
+    FDep: TDependenciaContada;
+  public
+    constructor Create(Dep: TDependenciaContada);
+    property Dep: TDependenciaContada read FDep;
+  end;
+
+  TDonoDaDependencia = class
+  private
+    FDep: TDependenciaContada;
+  public
+    constructor Create(Dep: TDependenciaContada);
+    destructor Destroy; override;
+  end;
+
+destructor TDependenciaContada.Destroy;
+begin
+  Inc(DependenciasLiberadas);
+  inherited;
+end;
+
+function TDependenciaContada.Valor: Integer;
+begin
+  Result := 1;
+end;
+
+constructor TUsaDependencia.Create(Dep: TDependenciaContada);
+begin
+  inherited Create;
+  FDep := Dep;
+end;
+
+constructor TDonoDaDependencia.Create(Dep: TDependenciaContada);
+begin
+  inherited Create;
+  FDep := Dep;
+end;
+
+destructor TDonoDaDependencia.Destroy;
+begin
+  FDep.Free;
+  inherited;
+end;
+
+procedure TestAutoMockerFreesClassDependency;
+var
+  Mocker: TAutoMocker;
+  Sut: TUsaDependencia;
+begin
+  DependenciasLiberadas := 0;
+  Mocker := TAutoMocker.Create;
+  Sut := Mocker.CreateInstance<TUsaDependencia>;
+  Mocker.GetMock<TDependenciaContada>.Setup.Returns(7).When.Valor;
+  Check(Sut.Dep.Valor = 7, 'class dependency is a mock');
+  Sut.Free;
+  Mocker.Free;
+  Check(DependenciasLiberadas = 1, 'the mocker frees the class dependency',
+    IntToStr(DependenciasLiberadas));
+end;
+
+procedure TestSutMayFreeItsMockedDependency;
+var
+  Mocker: TAutoMocker;
+  Sut: TDonoDaDependencia;
+begin
+  DependenciasLiberadas := 0;
+  Mocker := TAutoMocker.Create;
+  Sut := Mocker.CreateInstance<TDonoDaDependencia>;
+  Sut.Free;
+  Check(DependenciasLiberadas = 1, 'Free on a mocked class runs its destructor',
+    IntToStr(DependenciasLiberadas));
+  CheckNoRaise(
+    procedure
+    begin
+      Mocker.Free;
+    end, 'the mocker does not free it a second time');
+  Check(DependenciasLiberadas = 1, 'freed exactly once', IntToStr(DependenciasLiberadas));
+end;
+
+procedure TestOverloadsWithSameArityKeepTheirSetups;
+var
+  Busca: Mock<IBusca>;
+begin
+  Busca := Mock<IBusca>.Create;
+  Busca.Setup.Returns(1).When.Buscar(Arg.Any<string>);
+  Busca.Setup.Returns(2).When.Buscar(Arg.Any<Integer>);
+  Check(Busca.Instance.Buscar('105') = 1, 'string overload keeps its setup');
+  Check(Busca.Instance.Buscar(105) = 2, 'Integer overload keeps its setup');
+  CheckNoRaise(
+    procedure
+    begin
+      Busca.Received(Times.Once).Buscar(Arg.Any<string>);
+      Busca.Received(Times.Once).Buscar(Arg.Any<Integer>);
+    end, 'Received counts each overload separately');
+end;
+
 procedure Run(const Test: TProc; const Name: string);
 begin
   try
@@ -434,6 +548,9 @@ begin
   Run(TestAutoMockerWithoutRtti, 'TestAutoMockerWithoutRtti');
   Run(TestAutoMockerNonOrdinalParameters, 'TestAutoMockerNonOrdinalParameters');
   Run(TestEventBusCanBeMocked, 'TestEventBusCanBeMocked');
+  Run(TestOverloadsWithSameArityKeepTheirSetups, 'TestOverloadsWithSameArityKeepTheirSetups');
+  Run(TestAutoMockerFreesClassDependency, 'TestAutoMockerFreesClassDependency');
+  Run(TestSutMayFreeItsMockedDependency, 'TestSutMayFreeItsMockedDependency');
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

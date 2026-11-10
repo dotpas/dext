@@ -46,12 +46,15 @@ type
     FArgumentMatchers: TArray<TPredicate<TValue>>;
     FSetupArguments: TArray<TValue>;
     FDescription: string;
+    FSignature: string;
   public
     constructor Create(const AName: string);
     function MatchesArguments(const Args: TArray<TValue>): Boolean;
     function GetNextReturnValue: TValue;
     property Name: string read FName;
     property Description: string read FDescription;
+    /// <summary>Name and parameter types: tells overloads with the same name and arity apart.</summary>
+    property Signature: string read FSignature;
     property ReturnValues: TArray<TValue> read FReturnValues write FReturnValues;
     property ExceptionClass: ExceptClass read FExceptionClass write FExceptionClass;
     property ExceptionMessage: string read FExceptionMessage write FExceptionMessage;
@@ -62,11 +65,13 @@ type
   TMethodCall = class
   private
     FName: string;
+    FSignature: string;
     FArguments: TArray<TValue>;
     FVerified: Boolean;
   public
     constructor Create(const AName: string; const AArguments: TArray<TValue>);
     property Name: string read FName;
+    property Signature: string read FSignature write FSignature;
     property Arguments: TArray<TValue> read FArguments;
     property Verified: Boolean read FVerified write FVerified;
   end;
@@ -438,9 +443,36 @@ begin
   inherited;
 end;
 
+// Name plus parameter types. Two overloads with the same name and arity
+// (Where(IExpression) and Where(BooleanExpression)) must not share setups.
+function MethodSignature(const Method: TRttiMethod): string;
+var
+  Param: TRttiParameter;
+begin
+  if Method = nil then
+    Exit('');
+  Result := Method.Name + '(';
+  for Param in Method.GetParameters do
+  begin
+    if Param.ParamType <> nil then
+      Result := Result + Param.ParamType.Name;
+    Result := Result + ';';
+  end;
+  Result := Result + ')';
+end;
+
+function SameMethod(const AName, ASignature, BName, BSignature: string): Boolean;
+begin
+  if (ASignature <> '') and (BSignature <> '') then
+    Result := SameText(ASignature, BSignature)
+  else
+    Result := SameText(AName, BName);
+end;
+
 procedure TMockInterceptor.Intercept(const Invocation: IInvocation);
 var
-  MethodName, Description: string;
+  MethodName, Signature, Description: string;
+  Call: TMethodCall;
   Setup: TMethodSetup;
   I: Integer;
   MatchingCall: TMethodCall;
@@ -449,6 +481,7 @@ var
   CallBase: IInvocationCallBase;
 begin
   MethodName := Invocation.Method.Name;
+  Signature := MethodSignature(Invocation.Method);
   case FState of
     TMockState.Arranging:
     begin
@@ -459,6 +492,7 @@ begin
       begin
         try
           Setup.FName := MethodName;
+          Setup.FSignature := Signature;
           Setup.FSetupArguments := Copy(Invocation.Arguments);
           Setup.FArgumentMatchers := ResolveArgumentMatchers(Invocation.Method,
             Invocation.Arguments, TMatcherFactory.GetMatcherEntries, Setup.FDescription);
@@ -471,11 +505,14 @@ begin
     end;
     TMockState.Acting:
     begin
-      FReceivedCalls.Add(TMethodCall.Create(MethodName, Copy(Invocation.Arguments)));
+      Call := TMethodCall.Create(MethodName, Copy(Invocation.Arguments));
+      Call.Signature := Signature;
+      FReceivedCalls.Add(Call);
       for I := FSetups.Count - 1 downto 0 do
       begin
         Setup := FSetups[I];
-        if SameText(Setup.Name, MethodName) and Setup.MatchesArguments(Invocation.Arguments) then
+        if SameMethod(Setup.Name, Setup.Signature, MethodName, Signature) and
+          Setup.MatchesArguments(Invocation.Arguments) then
         begin
           if Assigned(Setup.Action) then Setup.Action(Invocation);
           if Setup.ExceptionClass <> nil then raise Setup.ExceptionClass.Create(Setup.ExceptionMessage);
@@ -503,7 +540,8 @@ begin
       CallCount := 0;
       for MatchingCall in FReceivedCalls do
       begin
-        if SameText(MatchingCall.Name, MethodName) and MatchesAll(Matchers, MatchingCall.Arguments) then
+        if SameMethod(MatchingCall.Name, MatchingCall.Signature, MethodName, Signature) and
+          MatchesAll(Matchers, MatchingCall.Arguments) then
         begin
           Inc(CallCount);
           MatchingCall.Verified := True;
@@ -542,7 +580,8 @@ begin
   begin
     Exercised := False;
     for Call in FReceivedCalls do
-      if SameText(Call.Name, Setup.Name) and Setup.MatchesArguments(Call.Arguments) then
+      if SameMethod(Call.Name, Call.Signature, Setup.Name, Setup.Signature) and
+        Setup.MatchesArguments(Call.Arguments) then
       begin
         Exercised := True;
         Break;

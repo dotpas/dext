@@ -132,6 +132,8 @@
         <DCCReference Include="Dext.Entity.SaveChanges.Tests.pas"/>
         <DCCReference Include="Dext.Entity.PersistOwnership.Tests.pas"/>
         <DCCReference Include="Dext.Grpc.Tests.pas"/>
+        <DCCReference Include="..\..\..\Sources\Testing\Dext.Testing.Entity.pas"/>
+        <DCCReference Include="..\..\Testing\Dext.Testing.Entity.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

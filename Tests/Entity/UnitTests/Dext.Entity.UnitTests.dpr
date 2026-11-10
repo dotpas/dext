@@ -37,7 +37,9 @@ uses
   Dext.Entity.Sequences.Tests in 'Dext.Entity.Sequences.Tests.pas',
   Dext.Entity.SaveChanges.Tests in 'Dext.Entity.SaveChanges.Tests.pas',
   Dext.Entity.PersistOwnership.Tests in 'Dext.Entity.PersistOwnership.Tests.pas',
-  Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas';
+  Dext.Grpc.Tests in 'Dext.Grpc.Tests.pas',
+  Dext.Testing.Entity in '..\..\..\Sources\Testing\Dext.Testing.Entity.pas',
+  Dext.Testing.Entity.Tests in '..\..\Testing\Dext.Testing.Entity.Tests.pas';
 
 begin
   SetConsoleCharSet();
@@ -88,7 +90,8 @@ begin
         TEntitySequencesTests,
         TSaveChangesTests,
         TPersistUpdateOwnershipTests,
-        TGrpcTests
+        TGrpcTests,
+        TMockDbSetTests
       ]));
   except
     on E: Exception do
