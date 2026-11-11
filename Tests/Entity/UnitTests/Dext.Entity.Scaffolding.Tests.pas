@@ -50,6 +50,9 @@ type
 
     [Test]
     procedure Test_Generated_Entity_Has_Required_And_AutoInc;
+
+    [Test]
+    procedure Test_Nullable_Decimal_Keeps_Precision_Attribute;
   end;
 
 implementation
@@ -216,6 +219,33 @@ begin
   Should(Code).Contain('[Required]' + sLineBreak + '    property Nome: string');
   Should(Code).Contain('    property Nota: string');
   Should(Code).NotContain('[Required]' + sLineBreak + '    property Nota');
+end;
+
+procedure TScaffoldingTests.Test_Nullable_Decimal_Keeps_Precision_Attribute;
+var
+  Generator: TDelphiEntityGenerator;
+  Metas: TArray<TMetaTable>;
+  Code: string;
+begin
+  FConn.ExecSQL('CREATE TABLE ScPrecos (Id INTEGER PRIMARY KEY, ' +
+    'Obrigatorio NUMERIC(10,2) NOT NULL, Opcional NUMERIC(12,3))');
+  FSchema := TFireDACSchemaProvider.Create(FDbConn);
+  Metas := [FSchema.GetTableMetadata('ScPrecos')];
+
+  Generator := TDelphiEntityGenerator.Create;
+  try
+    Code := Generator.GenerateUnit('Gerado', Metas, msAttributes, psPOCO, False);
+    Should(Code).Contain('Precision(10, 2)');
+    // The column that accepts NULL is wrapped in Nullable<>; its precision
+    // must not be lost on the way.
+    Should(Code).Contain('Precision(12, 3)');
+
+    Code := Generator.GenerateUnit('Gerado', Metas, msAttributes, psSmart, False);
+    Should(Code).Contain('Precision(10, 2)');
+    Should(Code).Contain('Precision(12, 3)');
+  finally
+    Generator.Free;
+  end;
 end;
 
 end.

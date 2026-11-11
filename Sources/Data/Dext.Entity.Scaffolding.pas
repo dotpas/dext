@@ -1016,6 +1016,7 @@ var
   SB: TStringBuilder;
   LActualUnitName, PropName, FieldName, DelphiType, ClassName: string;
   RefClass, NavPropName, FinalNavName: string;
+  IsDecimalType: Boolean;
 begin
   LActualUnitName := ExtractFileName(AUnitName);
   if SameText(ExtractFileExt(LActualUnitName), '.pas') then LActualUnitName := ChangeFileExt(LActualUnitName, '');
@@ -1117,6 +1118,9 @@ begin
           EscapedPropName := EscapeIdentifier(PropName);
           FieldName := 'F' + PropName;
           DelphiType := SQLTypeToDelphiType(Col.DataType, Col.Precision, Col.Scale, APropertyStyle);
+          // Decided before the Nullable<> wrapper hides the base type.
+          IsDecimalType := SameText(DelphiType, 'Double') or SameText(DelphiType, 'Currency') or
+            SameText(DelphiType, 'FloatType') or SameText(DelphiType, 'CurrencyType');
           if (APropertyStyle = psPOCO) and Col.IsNullable and (DelphiType <> 'string') and (DelphiType <> 'TBytes') then DelphiType := 'Nullable<' + DelphiType + '>';
           if AMappingStyle = msAttributes then
           begin
@@ -1127,7 +1131,7 @@ begin
               if (Col.Length > 0) and
                  (SameText(DelphiType, 'string') or SameText(DelphiType, 'StringType')) then
                 Attrs.Add('MaxLength(' + Col.Length.ToString + ')');
-              if (Col.Precision > 0) and ((DelphiType = 'Double') or (DelphiType = 'Currency')) then Attrs.Add(Format('Precision(%d, %d)', [Col.Precision, Col.Scale]));
+              if (Col.Precision > 0) and IsDecimalType then Attrs.Add(Format('Precision(%d, %d)', [Col.Precision, Col.Scale]));
               if Col.Name <> PropName then Attrs.Add('Column(''' + Col.Name + ''')');
               if Attrs.Count > 0 then SB.AppendLine('    [' + string.Join(', ', Attrs.ToArray) + ']');
           end;
