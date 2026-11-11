@@ -162,6 +162,7 @@ type
     procedure SetCurrentValue(const AValue: TValue);
     function GetIsModified: Boolean;
     procedure SetIsModified(const AValue: Boolean);
+    function GetOriginalValue: TValue;
   end;
 
   /// <summary>
@@ -202,6 +203,8 @@ type
     function Collection(const APropName: string): ICollectionEntry;
     function Reference(const APropName: string): IReferenceEntry;
     function Member(const APropName: string): IPropertyEntry;
+    function GetState: TEntityState;
+    function GetModifiedMembers: TArray<string>;
   end;
 
   /// <summary>
@@ -225,6 +228,8 @@ type
     FCache: IDictionary<PTypeInfo, IInterface>; // Cache for DbSets
     FChangeTracker: IChangeTracker;
     FTenantProvider: ITenantProvider;
+    FInterceptors: IList<ISaveChangesInterceptor>;
+    FInterceptorRunning: Boolean;
     FTenantConfigApplied: Boolean;
     FLastAppliedTenantId: string;
     FOnLog: TProc<string>;
@@ -238,6 +243,7 @@ type
     function FluentDependencies(const AType: PTypeInfo): TArray<PTypeInfo>;
     function HasManyToManyChanges: Boolean;
     function GetSortedTypes(const ATypes: TArray<PTypeInfo>): IList<PTypeInfo>;
+    function SaveChangesCore: Integer;
   protected
     // IDbContext Implementation
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
@@ -349,6 +355,12 @@ type
     /// </summary>
     /// <returns>The number of affected rows in the database.</returns>
     function SaveChanges: Integer;
+    /// <summary>
+    ///   Registers an interceptor that observes every SaveChanges of this context
+    ///   (see ISaveChangesInterceptor).
+    /// </summary>
+    procedure AddInterceptor(const AInterceptor: ISaveChangesInterceptor);
+    procedure RemoveInterceptor(const AInterceptor: ISaveChangesInterceptor);
     /// <summary>
     ///   Asynchronous version of SaveChanges for non-blocking operations.
     /// </summary>
@@ -1371,7 +1383,64 @@ begin
       Exit(True);
 end;
 
+procedure TDbContext.AddInterceptor(const AInterceptor: ISaveChangesInterceptor);
+begin
+  if FInterceptors = nil then
+    FInterceptors := TCollections.CreateList<ISaveChangesInterceptor>;
+  FInterceptors.Add(AInterceptor);
+end;
+
+procedure TDbContext.RemoveInterceptor(const AInterceptor: ISaveChangesInterceptor);
+begin
+  if FInterceptors <> nil then
+    FInterceptors.Remove(AInterceptor);
+end;
+
 function TDbContext.SaveChanges: Integer;
+var
+  Ctx: IDbContext;
+  Snapshot: TArray<ISaveChangesInterceptor>;
+  Item: ISaveChangesInterceptor;
+begin
+  if (FInterceptors = nil) or (FInterceptors.Count = 0) or FInterceptorRunning then
+    Exit(SaveChangesCore);
+
+  Supports(Self, IDbContext, Ctx);
+  Snapshot := FInterceptors.ToArray;
+  FInterceptorRunning := True;
+  try
+    for Item in Snapshot do
+      Item.SavingChanges(Ctx);
+  finally
+    FInterceptorRunning := False;
+  end;
+
+  try
+    Result := SaveChangesCore;
+  except
+    on E: Exception do
+    begin
+      FInterceptorRunning := True;
+      try
+        for Item in Snapshot do
+          Item.SaveChangesFailed(Ctx, E);
+      finally
+        FInterceptorRunning := False;
+      end;
+      raise;
+    end;
+  end;
+
+  FInterceptorRunning := True;
+  try
+    for Item in Snapshot do
+      Item.SavedChanges(Ctx, Result);
+  finally
+    FInterceptorRunning := False;
+  end;
+end;
+
+function TDbContext.SaveChangesCore: Integer;
 var
   AddedGroups: IDictionary<PTypeInfo, IList<TObject>>;
   DbSet: IDbSet;
@@ -2231,6 +2300,20 @@ begin
   end;
 end;
 
+function TPropertyEntry.GetOriginalValue: TValue;
+var
+  Tracker: TChangeTracker;
+  State: TEntityShadowState;
+begin
+  Result := TValue.Empty;
+  if FIsShadow then
+    Exit;
+  Tracker := TChangeTracker(FContext.ChangeTracker);
+  State := Tracker.GetShadowState(FEntity);
+  if not State.ShadowValues.TryGetValue(FPropName, Result) then
+    Result := TValue.Empty;
+end;
+
 function TPropertyEntry.GetIsModified: Boolean;
 var
   Tracker: TChangeTracker;
@@ -2518,6 +2601,42 @@ end;
 function TEntityEntry.Reference(const APropName: string): IReferenceEntry;
 begin
   Result := TReferenceEntry.Create(FContext, FEntity, APropName);
+end;
+
+function TEntityEntry.GetState: TEntityState;
+var
+  Tracker: TChangeTracker;
+begin
+  Tracker := TChangeTracker(FContext.ChangeTracker);
+  Tracker.DetectChanges;
+  Result := Tracker.GetState(FEntity);
+end;
+
+function TEntityEntry.GetModifiedMembers: TArray<string>;
+var
+  Tracker: TChangeTracker;
+  Names: IList<string>;
+  Name: string;
+  i, j: Integer;
+begin
+  Tracker := TChangeTracker(FContext.ChangeTracker);
+  Tracker.DetectChanges;
+  Names := TCollections.CreateList<string>;
+  for Name in Tracker.GetShadowState(FEntity).ModifiedProperties.Keys do
+    Names.Add(Name);
+  Result := Names.ToArray;
+  // Alphabetical, so the order does not depend on the dictionary
+  for i := 1 to High(Result) do
+  begin
+    Name := Result[i];
+    j := i - 1;
+    while (j >= 0) and (CompareText(Result[j], Name) > 0) do
+    begin
+      Result[j + 1] := Result[j];
+      Dec(j);
+    end;
+    Result[j + 1] := Name;
+  end;
 end;
 
 function TEntityEntry.Member(const APropName: string): IPropertyEntry;

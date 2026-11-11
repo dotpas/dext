@@ -91,6 +91,7 @@ begin
         TEntityFormatSettingsTests,
         TSoftDeleteUnitTests,
         TSoftDeleteIntegrationTests,
+        TAuditInterceptorTests,
         TEntityValidationTests,
         TFluentQueryTests,
         TDynamicQueryFilterUnitTests,

@@ -284,8 +284,15 @@ type
     procedure SetCurrentValue(const AValue: TValue);
     function GetIsModified: Boolean;
     procedure SetIsModified(const AValue: Boolean);
+    function GetOriginalValue: TValue;
     property CurrentValue: TValue read GetCurrentValue write SetCurrentValue;
     property IsModified: Boolean read GetIsModified write SetIsModified;
+    /// <summary>
+    ///   The value the property had when the entity was loaded or last saved.
+    ///   Empty for an entity that was never persisted (Added) and for shadow
+    ///   properties, which keep no separate original.
+    /// </summary>
+    property OriginalValue: TValue read GetOriginalValue;
   end;
 
   /// <summary>
@@ -296,6 +303,17 @@ type
     function Collection(const APropName: string): ICollectionEntry;
     function Reference(const APropName: string): IReferenceEntry;
     function Member(const APropName: string): IPropertyEntry;
+    function GetState: TEntityState;
+    function GetModifiedMembers: TArray<string>;
+    /// <summary>
+    ///   The tracking state, after detecting the changes made to the properties.
+    /// </summary>
+    property State: TEntityState read GetState;
+    /// <summary>
+    ///   The names of the properties whose value differs from the original, in
+    ///   alphabetical order.
+    /// </summary>
+    property ModifiedMembers: TArray<string> read GetModifiedMembers;
   end;
 
   /// <summary>
@@ -536,12 +554,54 @@ type
     property OnLog: TProc<string> read GetOnLog write SetOnLog;
   end;
 
+  /// <summary>
+  ///   Observes SaveChanges, in the spirit of the EF Core SaveChanges interceptors.
+  ///   SavingChanges runs before the transaction starts, so the entities it adds
+  ///   to the context (an audit row, say) are written in the same SaveChanges and
+  ///   the same transaction as the changes that caused them. An exception raised
+  ///   there cancels the save. SavedChanges runs after the commit, and
+  ///   SaveChangesFailed after the rollback, before the exception reaches the caller.
+  ///   A SaveChanges called from inside an interceptor does not trigger it again.
+  /// </summary>
+  ISaveChangesInterceptor = interface
+    ['{3F6B1D52-8A47-4C9E-B0D3-5E71A92C4F18}']
+    procedure SavingChanges(const Context: IDbContext);
+    procedure SavedChanges(const Context: IDbContext; AffectedRows: Integer);
+    procedure SaveChangesFailed(const Context: IDbContext; const Error: Exception);
+  end;
+
+  /// <summary>
+  ///   Base class with empty methods: override only what the interceptor needs.
+  /// </summary>
+  TSaveChangesInterceptor = class(TInterfacedObject, ISaveChangesInterceptor)
+  public
+    procedure SavingChanges(const Context: IDbContext); virtual;
+    procedure SavedChanges(const Context: IDbContext; AffectedRows: Integer); virtual;
+    procedure SaveChangesFailed(const Context: IDbContext; const Error: Exception); virtual;
+  end;
+
 /// <summary>
 ///   Unwraps Nullable&lt;T&gt; values and validates if FK is valid (non-zero for integers, non-empty for strings)
 /// </summary>
 function TryUnwrapAndValidateFK(var AValue: TValue): Boolean;
 
 implementation
+
+{ TSaveChangesInterceptor }
+
+procedure TSaveChangesInterceptor.SavingChanges(const Context: IDbContext);
+begin
+end;
+
+procedure TSaveChangesInterceptor.SavedChanges(const Context: IDbContext;
+  AffectedRows: Integer);
+begin
+end;
+
+procedure TSaveChangesInterceptor.SaveChangesFailed(const Context: IDbContext;
+  const Error: Exception);
+begin
+end;
 
 function TryUnwrapAndValidateFK(var AValue: TValue): Boolean;
 var
