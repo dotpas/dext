@@ -256,6 +256,9 @@ type
     function Desc: IOrderBy;
 
     property Name: string read GetPropertyName;
+    /// <summary>The table of the entity that declares the property ('' for a
+    ///   value or an expression).</summary>
+    property Owner: string read GetOwner;
     property Value: T read FValue write FValue;
     property Expression: IExpression read GetExpression;
   end;
@@ -1533,7 +1536,7 @@ end;
 function Prop<T>.Asc: IOrderBy;
 begin
   if IsQueryMode then
-    Result := TOrderBy.Create(GetColumnName, True)
+    Result := TOrderBy.Create(GetColumnName, True, GetOwner)
   else
     Result := nil; // Runtime sorting not supported via this method yet
 end;
@@ -1541,7 +1544,7 @@ end;
 function Prop<T>.Desc: IOrderBy;
 begin
   if IsQueryMode then
-    Result := TOrderBy.Create(GetColumnName, False)
+    Result := TOrderBy.Create(GetColumnName, False, GetOwner)
   else
     Result := nil;
 end;

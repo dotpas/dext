@@ -1194,18 +1194,19 @@ begin
   // IOrderBy implementation already has Ascending/Descending flag, 
   // but if we want to force descending on an existing one:
   if FSpecification <> nil then
-    FSpecification.OrderBy(TOrderBy.Create(AOrderBy.GetPropertyName, False));
+    FSpecification.OrderBy(TOrderBy.Create(AOrderBy.GetPropertyName, False,
+      AOrderBy.GetOwner));
   Result := Self;
 end;
 
 function TFluentQuery<T>.OrderBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
 begin
-  Result := OrderBy(TOrderBy.Create(AProp.Name, True));
+  Result := OrderBy(TOrderBy.Create(AProp.Name, True, AProp.Owner));
 end;
 
 function TFluentQuery<T>.OrderByDescending<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
 begin
-  Result := OrderBy(TOrderBy.Create(AProp.Name, False));
+  Result := OrderBy(TOrderBy.Create(AProp.Name, False, AProp.Owner));
 end;
 
 function TFluentQuery<T>.ThenBy(const AOrderBy: IOrderBy): TFluentQuery<T>;

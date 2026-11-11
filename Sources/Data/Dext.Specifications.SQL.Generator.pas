@@ -189,6 +189,10 @@ type
     function GetDialectEnum: TDatabaseDialect;
     function GetJoinTypeSQL(AType: TJoinType): string;
     function GenerateJoins(const AJoins: TArray<IJoin>): string;
+    /// <summary>The qualifier (table or alias) of the columns of the entity whose
+    ///   table is AOwner, in a query with joins; '' when AOwner is unknown.</summary>
+    function QualifierForOwner(const AOwner, ABaseTableName: string;
+      const AJoins: TArray<IJoin>; out AIsBase: Boolean): string;
     function GenerateGroupBy(const AGroupBy: TArray<string>): string;
     function QuoteColumnOrAlias(const AName: string): string;
     function QualifyBaseColumn(const AColumnName, ABaseTableName: string; AHasJoins: Boolean): string;
@@ -2400,6 +2404,8 @@ var
   IsMapped: Boolean;
   PropMap: TPropertyMap;
   SoftDeleteFilter, DiscriminatorFilter: string;
+  OwnerQualifier: string;
+  OwnerIsBase: Boolean;
   SortCol: string;
   P: TRttiProperty;
   Sig: string;
@@ -2625,10 +2631,13 @@ begin
         if i > 0 then SB.Append(', ');
         
         SortCol := OrderBy[i].GetPropertyName;
+        OwnerQualifier := QualifierForOwner(OrderBy[i].GetOwner, BaseTableName,
+          ASpec.GetJoins, OwnerIsBase);
         // Lookup column name (simplified)
         Typ := TReflection.Context.GetType(T);
         P := Typ.GetProperty(SortCol);
-        if P <> nil then
+        // The column of a joined table is not a property of T
+        if (P <> nil) and ((OwnerQualifier = '') or OwnerIsBase) then
         begin
            for Attr in P.GetAttributes do
            begin
@@ -2637,7 +2646,9 @@ begin
            end;
         end;
         
-        if SortCol.Contains('.') then
+        if OwnerQualifier <> '' then
+          SB.Append(OwnerQualifier).Append('.').Append(FDialect.QuoteIdentifier(SortCol))
+        else if SortCol.Contains('.') then
           SB.Append(QuoteColumnOrAlias(SortCol))
         else if HasJoins then
           SB.Append(BaseTableName).Append('.').Append(FDialect.QuoteIdentifier(SortCol))
@@ -3375,6 +3386,29 @@ begin
   finally
     SB.Free;
   end;
+end;
+
+function TSQLGenerator<T>.QualifierForOwner(const AOwner, ABaseTableName: string;
+  const AJoins: TArray<IJoin>; out AIsBase: Boolean): string;
+var
+  J: IJoin;
+begin
+  Result := '';
+  AIsBase := False;
+  if (AOwner = '') or (Length(AJoins) = 0) then
+    Exit;
+  if (FMap <> nil) and SameText(AOwner, FMap.TableName) then
+  begin
+    AIsBase := True;
+    Exit(ABaseTableName);
+  end;
+  for J in AJoins do
+    if SameText(J.GetTableName, AOwner) then
+    begin
+      if J.GetAlias <> '' then
+        Exit(FDialect.QuoteIdentifier(J.GetAlias));
+      Exit(FDialect.QuoteIdentifier(J.GetTableName));
+    end;
 end;
 
 function TSQLGenerator<T>.GenerateGroupBy(const AGroupBy: TArray<string>): string;

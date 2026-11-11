@@ -38,22 +38,32 @@ type
   private
     FPropertyName: string;
     FAscending: Boolean;
+    FOwner: string;
   public
-    constructor Create(const APropertyName: string; AAscending: Boolean);
+    constructor Create(const APropertyName: string; AAscending: Boolean;
+      const AOwner: string = '');
     
     function GetPropertyName: string;
     function GetAscending: Boolean;
+    function GetOwner: string;
   end;
 
 implementation
 
 { TOrderBy }
 
-constructor TOrderBy.Create(const APropertyName: string; AAscending: Boolean);
+constructor TOrderBy.Create(const APropertyName: string; AAscending: Boolean;
+  const AOwner: string);
 begin
   inherited Create;
   FPropertyName := APropertyName;
   FAscending := AAscending;
+  FOwner := AOwner;
+end;
+
+function TOrderBy.GetOwner: string;
+begin
+  Result := FOwner;
 end;
 
 function TOrderBy.GetPropertyName: string;

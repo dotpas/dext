@@ -54,6 +54,9 @@ type
     ['{52493B12-2C04-4274-B07A-90074FED13B0}']
     function GetPropertyName: string;
     function GetAscending: Boolean;
+    /// <summary>The table of the entity that declares the property ('' when
+    ///   unknown): a query with joins orders by the column of that table.</summary>
+    function GetOwner: string;
   end;
 
   /// <summary>

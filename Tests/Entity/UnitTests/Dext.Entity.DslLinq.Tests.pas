@@ -143,6 +143,12 @@ type
     procedure ToDictionary_Raises_On_A_Repeated_Key;
     [Test]
     procedure ThenBy_Accepts_An_Order_Expression;
+    [Test]
+    procedure OrderBy_Column_Of_The_Joined_Table;
+    [Test]
+    procedure OrderBy_Prop_Of_The_Joined_Table;
+    [Test]
+    procedure OrderBy_Base_Column_Still_Works_With_A_Join;
   end;
 
 implementation
@@ -689,6 +695,61 @@ begin
     .ThenByDescending(O.Id.Asc).ToList;
   Should(Items[0].Id).Be(5);
   Should(Items[5].Id).Be(2);
+end;
+
+procedure TDslLinqTests.OrderBy_Column_Of_The_Joined_Table;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // Customer 3 first (orders 3, 6), then 2 (2, 5), then 1 (1, 4)
+  Items := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .OrderBy(C.Name.Desc)
+    .ThenBy(O.Id.Asc)
+    .ToList;
+  Should(Items.Count).Be(6);
+  Should(Items[0].Id).Be(3);
+  Should(Items[1].Id).Be(6);
+  Should(Items[2].Id).Be(2);
+  Should(Items[5].Id).Be(4);
+end;
+
+procedure TDslLinqTests.OrderBy_Prop_Of_The_Joined_Table;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Items := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .OrderBy<string>(C.Name)
+    .ThenByDescending<Integer>(O.Id)
+    .ToList;
+  // Customer 1: orders 4 then 1 (id descending)
+  Should(Items[0].Id).Be(4);
+  Should(Items[1].Id).Be(1);
+end;
+
+procedure TDslLinqTests.OrderBy_Base_Column_Still_Works_With_A_Join;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Items := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .OrderBy(O.Id.Desc)
+    .ToList;
+  Should(Items[0].Id).Be(6);
+  Should(Items[5].Id).Be(1);
 end;
 
 end.
