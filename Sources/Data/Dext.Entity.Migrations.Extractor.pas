@@ -28,6 +28,7 @@ unit Dext.Entity.Migrations.Extractor;
 interface
 
 uses
+  Data.DB,
   System.SysUtils,
   System.Classes,
   System.Rtti,
@@ -168,8 +169,18 @@ begin
           PropType := ValueField.FieldType.Handle;
       end;
 
-      Col.ColumnType := AContext.Dialect.GetColumnType(PropType,
-        Col.IsIdentity, Col.Precision, Col.Scale);
+      // EnsureCreated asks the dialect by the field type of the mapping, and
+      // by the Delphi type only for an identity column or an unmapped type.
+      // The two answers differ (Currency is DECIMAL(p,s) by field type, but
+      // REAL on SQLite and MONEY on PostgreSQL by Delphi type), so the
+      // snapshot must ask the same way or a migration builds another schema.
+      if (PropMap <> nil) and (PropMap.DataType <> ftUnknown) and
+         (not Col.IsIdentity) then
+        Col.ColumnType := AContext.Dialect.GetColumnTypeForField(
+          PropMap.DataType, False, Col.Precision, Col.Scale)
+      else
+        Col.ColumnType := AContext.Dialect.GetColumnType(PropType,
+          Col.IsIdentity, Col.Precision, Col.Scale);
 
       // The size lives in Length/Precision, and the DDL appends it to the type.
       // A text column with a MaxLength is a bare VARCHAR; a type that already

@@ -57,6 +57,8 @@ type
     FTitle: StringType;
     FNote: string;
     FQty: IntType;
+    FPrice: Currency;
+    FPaid: Boolean;
   public
     [PK]
     property Id: Integer read FId write FId;
@@ -66,6 +68,9 @@ type
     property Title: StringType read FTitle write FTitle;
     property Note: string read FNote write FNote;
     property Qty: IntType read FQty write FQty;
+    [Precision(12, 2)]
+    property Price: Currency read FPrice write FPrice;
+    property Paid: Boolean read FPaid write FPaid;
   end;
   {$M-}
 
@@ -91,6 +96,8 @@ type
     procedure Test_Extractor_Uses_Bare_Varchar_With_The_Length;
     [Test]
     procedure Test_Extractor_Unwraps_Smart_Types;
+    [Test]
+    procedure Test_Extractor_Types_Columns_Like_EnsureCreated;
     [Test]
     procedure Test_Seed_Inserts_Every_Row;
     [Test]
@@ -342,8 +349,8 @@ begin
       // such as TEXT or VARCHAR(255) here would produce invalid SQL.
       Should(Table.FindColumn('Code').ColumnType).Be('VARCHAR');
       Should(Table.FindColumn('Code').Length).Be(40);
-      // Without MaxLength the dialect's own mapping stays.
-      Should(Table.FindColumn('Note').ColumnType).Be('TEXT');
+      // Without MaxLength the column keeps what EnsureCreated writes for it.
+      Should(Table.FindColumn('Note').ColumnType).Be('VARCHAR(255)');
       Should(Table.FindColumn('Note').Length).Be(0);
     finally
       Model.Free;
@@ -370,6 +377,42 @@ begin
       Should(Table.FindColumn('Title').ColumnType).Be('VARCHAR');
       Should(Table.FindColumn('Title').Length).Be(30);
       Should(Table.FindColumn('Qty').ColumnType).Be('INTEGER');
+    finally
+      Model.Free;
+    end;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Extractor_Types_Columns_Like_EnsureCreated;
+var
+  Db: TTypedModelContext;
+  Model: TSnapshotModel;
+  Table: TSnapshotTable;
+  Reader: IDbReader;
+  Declared: string;
+begin
+  Db := TTypedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.EnsureCreated;
+    // What EnsureCreated wrote for the same columns.
+    Reader := Db.Connection.CreateCommand(
+      'SELECT type FROM pragma_table_info(''Typed'') WHERE name = ''Price''')
+      .ExecuteQuery;
+    Reader.Next;
+    Declared := Reader.GetValue(0).ToString;
+    Should(Declared).Be('DECIMAL(12,2)');
+
+    Model := TDbContextModelExtractor.Extract(Db);
+    try
+      Table := Model.FindTable('Typed');
+      // A Currency with Precision is a DECIMAL(12,2) for the migration as
+      // well (the size lives in Precision/Scale), not a floating REAL.
+      Should(Table.FindColumn('Price').ColumnType).Be('DECIMAL');
+      Should(Table.FindColumn('Price').Precision).Be(12);
+      Should(Table.FindColumn('Price').Scale).Be(2);
+      Should(Table.FindColumn('Paid').ColumnType).Be('BOOLEAN');
     finally
       Model.Free;
     end;
