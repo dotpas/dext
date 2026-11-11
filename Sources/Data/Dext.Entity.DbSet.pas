@@ -4058,7 +4058,13 @@ begin
     
   L := ToList(ASpec);
   if L.Count > 0 then
-    Result := L[0]
+  begin
+    Result := L[0];
+    // Untracked: the list owns the entities and would free this one with
+    // itself, so it leaves the list and belongs to the caller.
+    if (ASpec <> nil) and not ASpec.IsTrackingEnabled then
+      L.Extract(Result);
+  end
   else
     Result := nil;
 end;

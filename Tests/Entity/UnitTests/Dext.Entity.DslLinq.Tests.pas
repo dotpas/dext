@@ -255,6 +255,20 @@ type
     procedure Function_Result_Can_Be_Combined_With_Other_Conditions;
     [Test]
     procedure Hydrator_Converts_A_Numeric_Delivered_As_Bcd;
+    [Test]
+    procedure Untracked_First_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_FirstOrDefault_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_First_With_Predicate_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_FirstOrDefault_With_Predicate_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_Single_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_Last_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure Untracked_ElementAt_Hands_The_Object_To_The_Caller;
   end;
 
 implementation
@@ -1297,6 +1311,186 @@ begin
   M.TargetTypeInfo := TypeInfo(Int64);
   V := TDextDtoHydrator.ConvertValue(M, TValue.From<TBcd>(DoubleToBcd(6)));
   Should(V.AsInt64 = 6).BeTrue;
+end;
+
+// An untracked query has no context to own the entity: the single element
+// an operator returns belongs to the caller, who frees it. Each test reads
+// the object after the query is gone and frees it, so a use-after-free or a
+// double free (FastMM) fails here.
+procedure TDslLinqTests.Untracked_First_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  R := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).AsNoTracking.First;
+  try
+    Should(R.Id).Be(1);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_FirstOrDefault_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  R := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).AsNoTracking
+    .FirstOrDefault;
+  try
+    Should(R.Id).Be(1);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_First_With_Predicate_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.First(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id = 4;
+    end);
+  try
+    Should(R.Id).Be(4);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_FirstOrDefault_With_Predicate_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.FirstOrDefault(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id = 5;
+    end);
+  try
+    Should(R.Id).Be(5);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_Single_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+
+  R := FDb.Orders.Where(O.Id = 3).AsNoTracking.Single;
+  try
+    Should(R.Id).Be(3);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.Where(O.Id = 3).AsNoTracking.SingleOrDefault;
+  try
+    Should(R.Id).Be(3);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.AsNoTracking.Single(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id = 2;
+    end);
+  try
+    Should(R.Id).Be(2);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.AsNoTracking.SingleOrDefault(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id = 6;
+    end);
+  try
+    Should(R.Id).Be(6);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_Last_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.Last;
+  try
+    Should(R.Id).Be(6);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.LastOrDefault;
+  try
+    Should(R.Id).Be(6);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.Last(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id < 4;
+    end);
+  try
+    Should(R.Id).Be(3);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.LastOrDefault(
+    function(X: TDlOrder): Boolean
+    begin
+      Result := X.Id < 3;
+    end);
+  try
+    Should(R.Id).Be(2);
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Untracked_ElementAt_Hands_The_Object_To_The_Caller;
+var
+  O: TDlOrder;
+  R: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking.ElementAt(2);
+  try
+    Should(R.Id).Be(3);
+  finally
+    R.Free;
+  end;
+
+  R := FDb.Orders.QueryAll.OrderBy(O.Id.Asc).AsNoTracking
+    .ElementAtOrDefault(4);
+  try
+    Should(R.Id).Be(5);
+  finally
+    R.Free;
+  end;
 end;
 
 end.

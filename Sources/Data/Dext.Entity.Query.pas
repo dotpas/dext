@@ -182,6 +182,7 @@ type
     class function JoinStringToEqualsExpression(const ACondition: string): IExpression; static;
     function InMemory(const AWork: TFunc<IList<T>>): TFluentQuery<T>;
     procedure RequireTracked(const AOperator: string);
+    procedure GiveToCaller(const AEnumerator: IEnumerator<T>; const AItem: T);
     /// <summary>Computes the aggregate in the database when the query comes
     ///   from a DbSet and is a plain filter (no paging, ordering, grouping or
     ///   projection). False means "do it in memory".</summary>
@@ -1965,7 +1966,10 @@ begin
   Enumerator := GetEnumerator;
   try
     if Enumerator.MoveNext then
-      Result := Enumerator.Current
+    begin
+      Result := Enumerator.Current;
+      GiveToCaller(Enumerator, Result);
+    end
     else
       raise Exception.Create('Sequence contains no elements');
   finally
@@ -1981,7 +1985,11 @@ begin
   try
     while Enumerator.MoveNext do
       if APredicate(Enumerator.Current) then
-        Exit(Enumerator.Current);
+      begin
+        Result := Enumerator.Current;
+        GiveToCaller(Enumerator, Result);
+        Exit;
+      end;
   finally
     Enumerator := nil;
   end;
@@ -1998,7 +2006,10 @@ begin
   Enumerator := GetEnumerator;
   try
     if Enumerator.MoveNext then
-      Result := Enumerator.Current
+    begin
+      Result := Enumerator.Current;
+      GiveToCaller(Enumerator, Result);
+    end
     else
       Result := Default(T);
   finally
@@ -2014,7 +2025,11 @@ begin
   try
     while Enumerator.MoveNext do
       if APredicate(Enumerator.Current) then
-        Exit(Enumerator.Current);
+      begin
+        Result := Enumerator.Current;
+        GiveToCaller(Enumerator, Result);
+        Exit;
+      end;
   finally
     Enumerator := nil;
   end;
@@ -2035,6 +2050,29 @@ begin
   Result := TFluentQuery<T>.Create(LFactory, ISpecification(nil), LConn);
 end;
 
+// An untracked query has no context to own what it reads: the list the
+// iterator built owns the entities and frees them with the enumerator. The
+// single element an operator hands back must outlive that, so it leaves the
+// list and belongs to the caller. Tracked queries are owned by the IdentityMap.
+procedure TFluentQuery<T>.GiveToCaller(const AEnumerator: IEnumerator<T>;
+  const AItem: T);
+var
+  LList: IList<T>;
+begin
+  if PTypeInfo(TypeInfo(T)).Kind <> tkClass then
+    Exit;
+  if TValue.From<T>(AItem).AsObject = nil then
+    Exit;
+  if not (FNoTracking or ((FSpecification <> nil) and
+    not FSpecification.IsTrackingEnabled)) then
+    Exit;
+  if not (TObject(AEnumerator) is TSpecificationQueryIterator<T>) then
+    Exit;
+  LList := TSpecificationQueryIterator<T>(TObject(AEnumerator)).GetList;
+  if LList <> nil then
+    LList.Extract(AItem);
+end;
+
 procedure TFluentQuery<T>.RequireTracked(const AOperator: string);
 begin
   if FNoTracking or ((FSpecification <> nil) and not FSpecification.IsTrackingEnabled) then
@@ -2052,6 +2090,7 @@ begin
   Result := Enumerator.Current;
   if Enumerator.MoveNext then
     raise Exception.Create('Sequence contains more than one element');
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.Single(const APredicate: TPredicate<T>): T;
@@ -2071,6 +2110,7 @@ begin
     end;
   if not Found then
     raise Exception.Create('Sequence contains no matching element');
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.SingleOrDefault: T;
@@ -2083,6 +2123,7 @@ begin
   Result := Enumerator.Current;
   if Enumerator.MoveNext then
     raise Exception.Create('Sequence contains more than one element');
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.SingleOrDefault(const APredicate: TPredicate<T>): T;
@@ -2101,6 +2142,7 @@ begin
       Result := Enumerator.Current;
       Found := True;
     end;
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.Last: T;
@@ -2117,6 +2159,7 @@ begin
   end;
   if not Found then
     raise Exception.Create('Sequence contains no elements');
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.Last(const APredicate: TPredicate<T>): T;
@@ -2134,6 +2177,7 @@ begin
     end;
   if not Found then
     raise Exception.Create('Sequence contains no matching element');
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.LastOrDefault: T;
@@ -2144,6 +2188,7 @@ begin
   Enumerator := GetEnumerator;
   while Enumerator.MoveNext do
     Result := Enumerator.Current;
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.LastOrDefault(const APredicate: TPredicate<T>): T;
@@ -2155,6 +2200,7 @@ begin
   while Enumerator.MoveNext do
     if APredicate(Enumerator.Current) then
       Result := Enumerator.Current;
+  GiveToCaller(Enumerator, Result);
 end;
 
 function TFluentQuery<T>.ElementAt(const AIndex: Integer): T;
@@ -2169,7 +2215,11 @@ begin
   while Enumerator.MoveNext do
   begin
     if I = AIndex then
-      Exit(Enumerator.Current);
+    begin
+      Result := Enumerator.Current;
+      GiveToCaller(Enumerator, Result);
+      Exit;
+    end;
     Inc(I);
   end;
   raise Exception.Create('Index was out of range');
@@ -2188,7 +2238,11 @@ begin
   while Enumerator.MoveNext do
   begin
     if I = AIndex then
-      Exit(Enumerator.Current);
+    begin
+      Result := Enumerator.Current;
+      GiveToCaller(Enumerator, Result);
+      Exit;
+    end;
     Inc(I);
   end;
 end;
