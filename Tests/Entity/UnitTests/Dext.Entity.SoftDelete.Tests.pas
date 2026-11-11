@@ -66,10 +66,28 @@ type
     [DeletedAt]
     property DeletedAt: Nullable<TDateTime> read FDeletedAt write FDeletedAt;
   end;
+  // Scenario 4: stamps and required name configured only through the fluent API
+  [Table('stamps_fluent')]
+  TStampFluent = class
+  private
+    FId: Integer;
+    FName: string;
+    FCreatedOn: TDateTime;
+    FChangedOn: TDateTime;
+  public
+    [PK]
+    property Id: Integer read FId write FId;
+    property Name: string read FName write FName;
+    property CreatedOn: TDateTime read FCreatedOn write FCreatedOn;
+    property ChangedOn: TDateTime read FChangedOn write FChangedOn;
+  end;
   {$M-}
 
   TSoftDeleteTestContext = class(TDbContext)
+  protected
+    procedure OnModelCreating(Builder: TModelBuilder); override;
   public
+    function Stamps: IDbSet<TStampFluent>;
     function TasksBool: IDbSet<TTaskBool>;
     function TasksTimestamp: IDbSet<TTaskTimestamp>;
     function TasksHybrid: IDbSet<TTaskHybrid>;
@@ -94,6 +112,10 @@ type
     procedure Test_FullCycle_Timestamp_ShouldUpdateDateAndHide;
     [Test]
     procedure Test_FullCycle_Hybrid_ShouldUpdateBothAndHide;
+    [Test]
+    procedure Test_FluentTimestamps_ShouldBeStampedOnInsertAndUpdate;
+    [Test]
+    procedure Test_HardDelete_ThenSaveChanges_ShouldNotRevalidateDeletedEntity;
   end;
 
   [Fixture]
@@ -141,6 +163,19 @@ end;
 
 { TSoftDeleteTestContext }
 
+procedure TSoftDeleteTestContext.OnModelCreating(Builder: TModelBuilder);
+begin
+  Builder.Entity<TStampFluent>
+    .Prop('Name').IsRequired
+    .Prop('CreatedOn').IsCreatedAt
+    .Prop('ChangedOn').IsUpdatedAt;
+end;
+
+function TSoftDeleteTestContext.Stamps: IDbSet<TStampFluent>;
+begin
+  Result := Entities<TStampFluent>;
+end;
+
 function TSoftDeleteTestContext.TasksBool: IDbSet<TTaskBool>;
 begin
   Result := Entities<TTaskBool>;
@@ -161,6 +196,50 @@ begin
   FConn.ExecSQL('CREATE TABLE tasks_bool (Id INTEGER PRIMARY KEY, IsDeleted BOOLEAN)');
   FConn.ExecSQL('CREATE TABLE tasks_ts (Id INTEGER PRIMARY KEY, DeletedAt DATETIME)');
   FConn.ExecSQL('CREATE TABLE tasks_hybrid (Id INTEGER PRIMARY KEY, IsDeleted BOOLEAN, DeletedAt DATETIME)');
+  FConn.ExecSQL('CREATE TABLE stamps_fluent (Id INTEGER PRIMARY KEY, Name TEXT, CreatedOn DATETIME, ChangedOn DATETIME)');
+end;
+
+procedure TSoftDeleteIntegrationTests.Test_FluentTimestamps_ShouldBeStampedOnInsertAndUpdate;
+var
+  Item: TStampFluent;
+begin
+  Item := TStampFluent.Create;
+  Item.Id := 401;
+  Item.Name := 'a';
+  FContext.Stamps.Add(Item);
+  FContext.SaveChanges;
+
+  // Both stamps are filled on insert (an update stamp starts at creation)
+  FContext.Clear;
+  Item := FContext.Stamps.Find(401);
+  Dext.Assertions.Should(Item.CreatedOn > EncodeDate(2020, 1, 1)).BeTrue;
+  Dext.Assertions.Should(Item.ChangedOn > EncodeDate(2020, 1, 1)).BeTrue;
+
+  // The update stamp overrides whatever the code assigned
+  Item.ChangedOn := EncodeDate(2000, 1, 1);
+  Item.Name := 'b';
+  FContext.SaveChanges;
+  FContext.Clear;
+  Item := FContext.Stamps.Find(401);
+  Dext.Assertions.Should(Item.ChangedOn > EncodeDate(2020, 1, 1)).BeTrue;
+end;
+
+procedure TSoftDeleteIntegrationTests.Test_HardDelete_ThenSaveChanges_ShouldNotRevalidateDeletedEntity;
+var
+  Item: TStampFluent;
+begin
+  Item := TStampFluent.Create;
+  Item.Id := 402;
+  Item.Name := 'x';
+  FContext.Stamps.Add(Item);
+  FContext.SaveChanges;
+  FContext.Clear;
+
+  FContext.Stamps.HardDelete(FContext.Stamps.Find(402));
+  FContext.SaveChanges;
+
+  Dext.Assertions.Should(Double(FConn.ExecSQLScalar(
+    'SELECT COUNT(*) FROM stamps_fluent'))).Be(0);
 end;
 
 procedure TSoftDeleteIntegrationTests.Test_FullCycle_Boolean_ShouldUpdateFlagAndHide;

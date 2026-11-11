@@ -2200,6 +2200,7 @@ var
   Attr: TCustomAttribute;
   NowVal: TDateTime;
   Prop: TRttiProperty;
+  PropMap: TPropertyMap;
   Typ: TRttiType;
 begin
   NowVal := Now;
@@ -2218,6 +2219,20 @@ begin
       end;
     end;
   end;
+
+  // The fluent flags (IsCreatedAt/IsUpdatedAt) mean the same as the attributes.
+  // Setting the same value twice is harmless, so no bookkeeping is needed.
+  if FMap <> nil then
+    for PropMap in FMap.Properties.Values do
+    begin
+      if not (PropMap.IsCreatedAt or PropMap.IsUpdatedAt) then
+        Continue;
+      if PropMap.IsCreatedAt and not AIsInsert and not PropMap.IsUpdatedAt then
+        Continue;
+      Prop := Typ.GetProperty(PropMap.PropertyName);
+      if Prop <> nil then
+        TReflection.SetValue(Pointer(AEntity), Prop, NowVal);
+    end;
 end;
 
 procedure TDbSet<T>.PersistAdd(const AEntity: TObject);
@@ -4649,6 +4664,10 @@ begin
         Cmd.AddParam(Pair.Key, Pair.Value);
     end;
     Cmd.ExecuteNonQuery;
+    // Untrack before the identity map frees the instance, or the next
+    // SaveChanges would inspect a dead object.
+    if (FContext <> nil) and (FContext.ChangeTracker <> nil) then
+      FContext.ChangeTracker.Remove(AEntity);
     FIdentityMap.Remove(GetEntityId(AEntity));
   finally
     Generator.Free;
