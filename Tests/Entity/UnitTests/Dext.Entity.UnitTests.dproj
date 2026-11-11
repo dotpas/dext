@@ -138,6 +138,7 @@
         <DCCReference Include="Dext.Entity.PostgreSQL.Tests.pas"/>
         <DCCReference Include="Dext.Entity.ConverterAttribute.Tests.pas"/>
         <DCCReference Include="Dext.Entity.JsonColumn.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.TestPostgres.pas"/>
         <DCCReference Include="Dext.Entity.DslLinq.Tests.pas"/>
         <DCCReference Include="Dext.Entity.NestedDto.Tests.pas"/>
         <DCCReference Include="Dext.Grpc.Tests.pas"/>

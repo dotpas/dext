@@ -29,6 +29,7 @@ interface
 
 uses
   Data.DB,
+  Data.FmtBcd,
   System.Classes,
   System.DateUtils,
   System.Rtti,
@@ -774,7 +775,28 @@ end;
 
 class function TDextDtoHydrator.ConvertValue(
   const AMapping: TDtoColumnMapping; const ARaw: TValue): TValue;
+var
+  Bcd: TBcd;
 begin
+  // A numeric column (PostgreSQL: SUM, AVG, numeric(p,s)) arrives as TBcd
+  if ARaw.TypeInfo = TypeInfo(TBcd) then
+  begin
+    Bcd := ARaw.AsType<TBcd>;
+    case AMapping.TargetKind of
+      tkInteger:
+        Exit(TValue.From<Integer>(Round(BcdToDouble(Bcd))));
+      tkInt64:
+        Exit(TValue.From<Int64>(Round(BcdToDouble(Bcd))));
+      tkFloat:
+        if AMapping.TargetTypeInfo = TypeInfo(Currency) then
+          Exit(TValue.From<Currency>(BcdToCurrency(Bcd)))
+        else
+          Exit(TValue.From<Double>(BcdToDouble(Bcd)));
+      tkUString, tkString, tkWString, tkLString:
+        Exit(TValue.From<string>(BcdToStr(Bcd)));
+    end;
+  end;
+
   case AMapping.TargetKind of
     tkInteger:
       Result := TValue.From<Integer>(ARaw.AsInteger);

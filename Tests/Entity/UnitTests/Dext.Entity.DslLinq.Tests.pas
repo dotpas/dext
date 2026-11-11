@@ -11,6 +11,9 @@ interface
 
 uses
   System.SysUtils,
+  System.Rtti,
+  System.TypInfo,
+  Data.FmtBcd,
   Dext.Testing.Attributes,
   Dext.Assertions,
   Dext.Collections,
@@ -20,7 +23,9 @@ uses
   Dext.Entity.Attributes,
   Dext.Entity.Core,
   Dext.Entity.Query,
+  Dext.Entity.DbSet,
   Dext.Entity.Setup,
+  Dext.Entity.TestPostgres,
   FireDAC.Phys.SQLite;
 
 type
@@ -92,6 +97,15 @@ type
   public
     property City: string read FCity write FCity;
     property Total: Currency read FTotal write FTotal;
+  end;
+
+  TDlCustomerCount = class
+  private
+    FCustomerId: Integer;
+    FCnt: Integer;
+  public
+    property CustomerId: Integer read FCustomerId write FCustomerId;
+    property Cnt: Integer read FCnt write FCnt;
   end;
 
   TDlDistinct = class
@@ -239,6 +253,8 @@ type
     procedure Year_Month_Day_Extract_The_Parts_Of_The_Date;
     [Test]
     procedure Function_Result_Can_Be_Combined_With_Other_Conditions;
+    [Test]
+    procedure Hydrator_Converts_A_Numeric_Delivered_As_Bcd;
   end;
 
 implementation
@@ -259,7 +275,17 @@ end;
 
 procedure TDslLinqTests.Setup;
 begin
-  FDb := TDlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  if TestPgConnection <> '' then
+  begin
+    // A real PostgreSQL server: its own schema, dropped after each test
+    TestPgEnsureDriver;
+    FDb := TDlDb.Create(DbContextOptions.UsePostgreSQL(TestPgConnection));
+    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_dsl CASCADE').Execute;
+    FDb.Connection.CreateCommand('CREATE SCHEMA dext_ut_dsl').Execute;
+    FDb.Connection.CreateCommand('SET search_path TO dext_ut_dsl').Execute;
+  end
+  else
+    FDb := TDlDb.Create(DbContextOptions.UseSQLite(':memory:'));
   FDb.Customers;
   FDb.Orders;
   FDb.EnsureCreated;
@@ -268,6 +294,8 @@ end;
 
 procedure TDslLinqTests.TearDown;
 begin
+  if (FDb <> nil) and (TestPgConnection <> '') then
+    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_dsl CASCADE').Execute;
   FreeAndNil(FDb);
 end;
 
@@ -370,32 +398,41 @@ end;
 procedure TDslLinqTests.GroupBy_String_Prototype_Groups_By_The_Column;
 var
   O: TDlOrder;
-  Rows: IList<TDlOrder>;
+  Rows: IList<TDlStatusTotal>;
 begin
   O := Prototype.Entity<TDlOrder>;
-  // Two statuses (Open, Paid) -> two groups
-  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.Status).ToList;
+  // Two statuses (Open, Paid) -> two groups. The key and an aggregate are
+  // selected: the other columns would not be valid with GROUP BY
+  // (PostgreSQL rejects them; SQLite lets them through).
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.Status)
+    .Select<TDlStatusTotal>([O.Status.&As('Status'), Agg.Count.&As('Cnt')])
+    .ToList;
   Should(Rows.Count).Be(2);
 end;
 
 procedure TDslLinqTests.GroupBy_Integer_Prototype_Groups_By_The_Column;
 var
   O: TDlOrder;
-  Rows: IList<TDlOrder>;
+  Rows: IList<TDlCustomerCount>;
 begin
   O := Prototype.Entity<TDlOrder>;
   // Three customers -> three groups
-  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.CustomerId).ToList;
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy(O.CustomerId)
+    .Select<TDlCustomerCount>([O.CustomerId.&As('CustomerId'),
+      Agg.Count.&As('Cnt')])
+    .ToList;
   Should(Rows.Count).Be(3);
 end;
 
 procedure TDslLinqTests.GroupBy_Column_Name_Still_Works;
 var
   O: TDlOrder;
-  Rows: IList<TDlOrder>;
+  Rows: IList<TDlStatusTotal>;
 begin
   O := Prototype.Entity<TDlOrder>;
-  Rows := FDb.Orders.Where(O.Id > 0).GroupBy('Status').ToList;
+  Rows := FDb.Orders.Where(O.Id > 0).GroupBy('Status')
+    .Select<TDlStatusTotal>([O.Status.&As('Status'), Agg.Count.&As('Cnt')])
+    .ToList;
   Should(Rows.Count).Be(2);
 end;
 
@@ -1232,6 +1269,34 @@ begin
     (O.CustomerId = C.Id) and (O.CreatedAt.Year = 2025)).Exists).Count).Be(3);
   Should(FDb.Customers.Where(FDb.Orders.Where(
     (O.CustomerId = C.Id) and (O.CreatedAt.Month = 6)).Exists).Count).Be(1);
+end;
+
+procedure TDslLinqTests.Hydrator_Converts_A_Numeric_Delivered_As_Bcd;
+var
+  M: TDtoColumnMapping;
+  V: TValue;
+begin
+  // PostgreSQL hands SUM/AVG and numeric columns over as TBcd; the DTO
+  // property can be Currency, Double, Integer or Int64.
+  M := Default(TDtoColumnMapping);
+  M.TargetKind := tkFloat;
+  M.TargetTypeInfo := TypeInfo(Currency);
+  V := TDextDtoHydrator.ConvertValue(M, TValue.From<TBcd>(DoubleToBcd(600.5)));
+  Should(V.AsType<Currency> = 600.5).BeTrue;
+
+  M.TargetTypeInfo := TypeInfo(Double);
+  V := TDextDtoHydrator.ConvertValue(M, TValue.From<TBcd>(DoubleToBcd(175.25)));
+  Should(V.AsType<Double> = 175.25).BeTrue;
+
+  M.TargetKind := tkInteger;
+  M.TargetTypeInfo := TypeInfo(Integer);
+  V := TDextDtoHydrator.ConvertValue(M, TValue.From<TBcd>(DoubleToBcd(6)));
+  Should(V.AsInteger).Be(6);
+
+  M.TargetKind := tkInt64;
+  M.TargetTypeInfo := TypeInfo(Int64);
+  V := TDextDtoHydrator.ConvertValue(M, TValue.From<TBcd>(DoubleToBcd(6)));
+  Should(V.AsInt64 = 6).BeTrue;
 end;
 
 end.
