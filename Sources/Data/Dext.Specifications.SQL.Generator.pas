@@ -2562,6 +2562,9 @@ end;
 
 function TSQLGenerator<T>.GenerateDelete(const AEntity: T): string;
 var
+  IsVer, HasVer: Boolean;
+  VerCol: string;
+  VerVal: TValue;
   Typ: TRttiType;
   Prop: TRttiProperty;
   Attr: TCustomAttribute;
@@ -2581,6 +2584,7 @@ begin
   SBWhere := TStringBuilder.Create;
   try
     FirstWhere := True;
+    HasVer := False;
     
     for Prop in Typ.GetProperties do
     begin
@@ -2609,6 +2613,24 @@ begin
       if (ColName = Prop.Name) and (FNamingStrategy <> nil) then
          ColName := FNamingStrategy.GetColumnName(Prop);
       
+      // The version column joins the WHERE: a stale row is not deleted
+      IsVer := Prop.HasAttribute<VersionAttribute> or
+        ((PropMap <> nil) and PropMap.IsVersion);
+      if IsVer and (not IsPK) then
+      begin
+        VerVal := Prop.GetValue(Pointer(AEntity));
+        if IsNullable(VerVal.TypeInfo) then
+        begin
+          NullableHlp := TNullableHelper.Create(VerVal.TypeInfo);
+          if NullableHlp.HasValue(VerVal.GetReferenceToRawData) then
+            VerVal := NullableHlp.GetValue(VerVal.GetReferenceToRawData);
+        end;
+        TryUnwrapSmartValue(VerVal);
+        VerCol := ColName;
+        HasVer := True;
+        Continue;
+      end;
+
       if not IsPK then Continue;
       
       Val := Prop.GetValue(Pointer(AEntity));
@@ -2645,6 +2667,14 @@ begin
     
     if SBWhere.Length = 0 then
       raise Exception.Create('Cannot generate DELETE: No Primary Key defined.');
+
+    if HasVer then
+    begin
+      ParamName := GetNextParamName;
+      FParams.Add(ParamName, VerVal);
+      SBWhere.Append(' AND ').Append(FDialect.QuoteIdentifier(VerCol))
+        .Append(' = :').Append(ParamName);
+    end;
 
     AppendTenantWhereParams(SBWhere, FirstWhere);
       

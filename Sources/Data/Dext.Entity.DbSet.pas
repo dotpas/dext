@@ -284,6 +284,7 @@ type
     function IsBulkInsertSafe: Boolean;
     function IsBulkUpdateSafe: Boolean;
     function IsBulkDeleteSafe: Boolean;
+    function HasVersionColumn: Boolean;
     function GenerateCreateTableScript: string;
     procedure Clear;
     procedure DetachAll;
@@ -2643,6 +2644,25 @@ begin
   end;
 end;
 
+function TDbSet<T>.HasVersionColumn: Boolean;
+var
+  Handler: IPropertyHandler;
+  Meta: TTypeMetadata;
+  PropMap: TPropertyMap;
+begin
+  // The version column comes from [Version] or from the fluent IsVersion
+  if FMap <> nil then
+    for PropMap in FMap.Properties.Values do
+      if PropMap.IsVersion then
+        Exit(True);
+
+  Meta := TReflection.GetMetadata(TypeInfo(T));
+  for Handler in Meta.GetPropertyHandlers() do
+    if Handler.GetMember().HasAttribute(VersionAttribute) then
+      Exit(True);
+  Result := False;
+end;
+
 function TDbSet<T>.IsBulkDeleteSafe: Boolean;
 var
   Attr: TCustomAttribute;
@@ -2650,6 +2670,10 @@ var
   PropMap: TPropertyMap;
 begin
   Result := True;
+
+  // A versioned row is deleted one by one: each DELETE checks its version
+  if HasVersionColumn then
+    Exit(False);
   
   // 1. Check Fluent Mapping for soft delete
   if (FMap <> nil) and FMap.IsSoftDelete then
@@ -2690,6 +2714,7 @@ var
   Prop: TRttiProperty;
   PropMap: TPropertyMap;
   IsVersionProp: Boolean;
+  Unwrapped: TValue;
   RowsAffected: Integer;
   Sql, Id: string;
   Val: TValue;
@@ -2745,6 +2770,9 @@ begin
       begin
         Prop := TRttiProperty(Handler.GetMember());
         Val := Prop.GetValue(Pointer(AEntity));
+        // The version may be a Smart Property (IntType): read the integer inside
+        if TReflection.TryUnwrapProp(Val, Unwrapped) then
+          Val := Unwrapped;
         if Val.IsEmpty then NewVer := 1 else NewVer := Val.AsInteger + 1;
         TReflection.SetValue(Pointer(AEntity), Prop, NewVer);
         Break;
@@ -2909,6 +2937,9 @@ begin
         raise;
       end;
     end;
+    // The DELETE of a versioned row also compares the version
+    if (RowsAffected = 0) and HasVersionColumn then
+      raise EOptimisticConcurrencyException.Create('Concurrency violation: The record has been modified or deleted by another user.');
     FIdentityMap.Remove(GetEntityId(T(AEntity)));
   finally
     Generator.Free;

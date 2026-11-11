@@ -142,6 +142,18 @@ type
     property Versao: Integer read FVersao write FVersao;
   end;
 
+  // The same, with a Smart Property as the version
+  TFlContaS = class
+  private
+    FId: IntType;
+    FSaldo: IntType;
+    FVersao: IntType;
+  public
+    property Id: IntType read FId write FId;
+    property Saldo: IntType read FSaldo write FSaldo;
+    property Versao: IntType read FVersao write FVersao;
+  end;
+
   TFlContaDb = class(TDbContext)
   protected
     procedure OnModelCreating(Builder: TModelBuilder); override;
@@ -260,6 +272,10 @@ type
     procedure Many_To_Many_Changes_On_A_Plain_List_Are_Saved;
     [Test]
     procedure Fluent_Version_Detects_A_Concurrent_Update;
+    [Test]
+    procedure Version_Delete_Of_A_Stale_Row_Is_Refused;
+    [Test]
+    procedure Smart_Property_Version_Is_Incremented;
     [Test]
     procedure Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
 
@@ -1958,6 +1974,11 @@ begin
     .HasKey('Id')
     .Prop('Id').IsAutoInc
     .Prop('Versao').IsVersion;
+  Builder.Entity<TFlContaS>
+    .Table('fl_contas_s')
+    .HasKey('Id')
+    .Prop('Id').IsAutoInc
+    .Prop('Versao').IsVersion;
 end;
 
 procedure TDslLinqTests.Fluent_Version_Detects_A_Concurrent_Update;
@@ -2003,6 +2024,79 @@ begin
     D1.Free;
     if TFile.Exists(Path) then
       TFile.Delete(Path);
+  end;
+end;
+
+procedure TDslLinqTests.Version_Delete_Of_A_Stale_Row_Is_Refused;
+var
+  Path: string;
+  D1, D2: TFlContaDb;
+  C1, C2: TFlConta;
+begin
+  Path := TPath.Combine(TPath.GetTempPath, 'dext_fl_version_del.db');
+  if TFile.Exists(Path) then
+    TFile.Delete(Path);
+  D1 := TFlContaDb.Create(DbContextOptions.UseSQLite(Path));
+  D2 := TFlContaDb.Create(DbContextOptions.UseSQLite(Path));
+  try
+    D1.Entities<TFlConta>;
+    D2.Entities<TFlConta>;
+    D1.EnsureCreated;
+    C1 := TFlConta.Create;
+    C1.Saldo := 100;
+    D1.Entities<TFlConta>.Add(C1);
+    D1.SaveChanges;
+    D1.Clear;
+
+    C1 := D1.Entities<TFlConta>.Find(1);
+    C2 := D2.Entities<TFlConta>.Find(1);
+    C1.Saldo := 80;
+    D1.Entities<TFlConta>.Update(C1);
+    D1.SaveChanges;
+
+    // The second session removes a row it read at version 0
+    D2.Entities<TFlConta>.Remove(C2);
+    Should(
+      procedure
+      begin
+        D2.SaveChanges;
+      end).Throw<EOptimisticConcurrencyException>;
+    Should(FlCount(D1, 'SELECT COUNT(*) FROM "fl_contas"')).Be(1);
+
+    // Read again, the version matches and the row goes away
+    D2.Clear;
+    C2 := D2.Entities<TFlConta>.Find(1);
+    D2.Entities<TFlConta>.Remove(C2);
+    D2.SaveChanges;
+    Should(FlCount(D1, 'SELECT COUNT(*) FROM "fl_contas"')).Be(0);
+  finally
+    D2.Free;
+    D1.Free;
+    if TFile.Exists(Path) then
+      TFile.Delete(Path);
+  end;
+end;
+
+procedure TDslLinqTests.Smart_Property_Version_Is_Incremented;
+var
+  Db: TFlContaDb;
+  C: TFlContaS;
+begin
+  Db := TFlContaDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlContaS>;
+    Db.EnsureCreated;
+    C := TFlContaS.Create;
+    C.Saldo := 100;
+    Db.Entities<TFlContaS>.Add(C);
+    Db.SaveChanges;
+    C.Saldo := 90;
+    Db.Entities<TFlContaS>.Update(C);
+    Db.SaveChanges;
+    Should(Integer(C.Versao)).Be(1);
+    Should(FlCount(Db, 'SELECT "Versao" FROM "fl_contas_s"')).Be(1);
+  finally
+    Db.Free;
   end;
 end;
 
