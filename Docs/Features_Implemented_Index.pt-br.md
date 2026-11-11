@@ -495,10 +495,10 @@ O framework inclui suporte nativo à especificação **HTTP/2 (RFC 9113)** e ao 
 
 ### 4.9 Operações em Lote Conscientes do Dialeto (`Dext.Entity.BatchStrategy`) — Spec S59
 - **TDextBatchStrategyFactory** — Seleção dinâmica de estratégias de batch `UPDATE` e `DELETE` baseadas em `TDatabaseDialect`.
-- **Estratégia PostgreSQL** (`TDextPostgresBatchStrategy`) — Reescreve lotes de `UPDATE` em instrução única `UPDATE table AS t SET ... FROM (VALUES (...), (...)) AS v(...) WHERE t.pk = v.pk` e deleções em `WHERE (pk1, pk2) IN (...)`.
+- **Estratégia PostgreSQL** (`TDextPostgresBatchStrategy`) — Reescreve lotes de `UPDATE` em instrução única `UPDATE table AS t SET ... FROM (VALUES (...), (...)) AS v(...) WHERE t.pk = v.pk` e deleções em `WHERE (pk1, pk2) IN (...)`. Implementada, mas não selecionada pela `TDextBatchStrategyFactory` para o PostgreSQL hoje (o PostgreSQL usa a `TDextNativeArrayDmlStrategy`); a estratégia do MySQL reutiliza o `DELETE` em lote dela.
 - **Estratégia MySQL / MariaDB** (`TDextMySqlBatchStrategy`) — Reescreve lotes de `UPDATE` em instrução única `UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)`.
 - **Estratégia Array DML Nativo** (`TDextNativeArrayDmlStrategy`) — Mantém binding de arrays nativo para Oracle OCI e Firebird 4+.
-- **Desempenho** — Elimina a emulação iterativa do Array DML do FireDAC em PostgreSQL e MySQL, reduzindo o tempo de latência de ~650 µs para ~118 µs por registro.
+- **Desempenho** — A estratégia do MySQL / MariaDB evita a emulação sequencial do Array DML do FireDAC; Oracle e Firebird mantêm o Array DML nativo do protocolo. Os números de latência citados antes aqui (~650 para ~118 microssegundos por registro) não foram reproduzidos e não são afirmados.
 - **Cross-Database** — PostgreSQL (`#>>` / JSONB indexado), MySQL (`JSON_EXTRACT` / `JSON_UNQUOTE`), SQLite (`json_extract` + JSON1), SQL Server (`JSON_VALUE`).
 
 ### 4.10 EntityDataSet (`Dext.Data.EntityDataSet`)

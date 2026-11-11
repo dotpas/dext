@@ -1,18 +1,34 @@
 # Operações em Lote Conscientes do Dialeto (Spec S59)
 
-O `Dext.Entity` oferece execução de operações em lote (`UpdateRange` e `RemoveRange`) com suporte nativo a estratégias otimizadas por dialeto de banco de dados (`TDextBatchStrategyFactory`).
+O `Dext.Entity` envia `INSERT`, `UPDATE` e `DELETE` em lote quando o `SaveChanges` encontra várias entidades do mesmo tipo no mesmo estado. `AddRange`, `UpdateRange` e `RemoveRange` são apenas laços sobre `Add`, `Update` e `Remove`: nada chega ao banco antes do `SaveChanges`, e o lote é decidido ali.
 
-## Motivação e Performance
+## O Que o `SaveChanges` Envia
 
-Em drivers como FireDAC, o Array DML tradicional emula a execução de `UPDATE` e `DELETE` realizando $N$ chamadas sequenciais na rede em bancos como PostgreSQL e MySQL/MariaDB.
+| Entidades na unidade de trabalho | Comando enviado |
+| :--- | :--- |
+| Novas, chave informada pelo programa (atribuída, GUID, sequence) | Um `INSERT` com Array DML do FireDAC, todas as linhas de uma vez. O `BulkBatchSize` não o divide. |
+| Novas, chave `[AutoInc]` | Um `INSERT` por linha (o novo Id é lido de volta para cada uma). |
+| Modificadas | Em blocos de `BulkBatchSize` linhas (padrão 100), um comando por bloco. |
+| Modificadas, com coluna `[Version]` | Um `UPDATE ... WHERE pk AND versao` por linha. |
+| Removidas | Em blocos de `BulkBatchSize` linhas, um comando por bloco. |
+| Removidas, com exclusão lógica ou com coluna `[Version]` | Um comando por linha (`UPDATE` na exclusão lógica, `DELETE ... AND versao` nas demais). |
+| Novas ou modificadas, com propriedades de sombra | Um comando por linha. |
+: {tbl-colwidths="[40, 60]"}
 
-O Spec S59 introduz reescrita de query única (*single-statement rewrite*):
-- **PostgreSQL**: Reescreve `UPDATE` como `UPDATE table AS t SET col = v.col FROM (VALUES (...), (...)) AS v(...) WHERE t.pk = v.pk`.
-- **MySQL / MariaDB**: Reescreve `UPDATE` como `UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)`.
-- **Deleção em Lote**: Suporte a cláusula `WHERE (pk1, pk2) IN (...)` em uma única instrução SQL.
-- **Oracle / Firebird**: Mantém o Array DML nativo do protocolo do driver.
+As linhas das entidades removidas com coluna `[Version]` e das propriedades de sombra vêm da leitura das verificações `IsBulk*Safe` do `TDbSet`; as demais foram executadas no SQLite e no PostgreSQL 18.
 
-Com essa otimização, a latência de execução em lote cai de **~650 µs** para **~118 µs** por registro.
+O `SaveChanges` inteiro roda numa transação: se um comando de um lote falha, nada daquele `SaveChanges` é mantido.
+
+## Estratégias por Dialeto
+
+O `TDextBatchStrategyFactory` escolhe como um `UPDATE` ou `DELETE` em lote é enviado:
+
+- **MySQL / MariaDB**: `TDextMySqlBatchStrategy` reescreve o lote num único comando (`UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)`).
+- **PostgreSQL, SQLite, Oracle, Firebird e os demais**: `TDextNativeArrayDmlStrategy`, Array DML do FireDAC com o mesmo comando parametrizado e um jogo de parâmetros por linha. Verificado no SQLite e no PostgreSQL 18: o comando registrado é `UPDATE "t" SET ... WHERE "Id" = :w_0 (Batch size: N, Offset: 0)`.
+
+A `TDextPostgresBatchStrategy`, que reescreve o `UPDATE` em lote como `UPDATE ... FROM (VALUES ...)`, existe em `Dext.Entity.BatchStrategy`, mas a fábrica não a seleciona para o PostgreSQL hoje; a estratégia do MySQL a reutiliza no `DELETE` em lote.
+
+Nenhum número de latência é publicado aqui: o tempo por linha depende do driver, da rede e do servidor, e precisa ser medido no seu ambiente (conte os comandos enviados com `Db.OnLog` e cronometre o `SaveChanges`).
 
 ## Uso Prático
 
@@ -28,10 +44,12 @@ begin
     Users[i].Status := 'Active';
   end;
 
-  // Executa single-statement batch UPDATE consciente do dialeto
+  // Marca as 500 como modificadas; no SaveChanges sai um UPDATE a cada 100
   Ctx.Users.UpdateRange(Users);
+  Ctx.SaveChanges;
 
-  // Executa single-statement batch DELETE
+  // Marca as 500 como removidas; no SaveChanges sai um DELETE a cada 100
   Ctx.Users.RemoveRange(Users);
+  Ctx.SaveChanges;
 end;
 ```

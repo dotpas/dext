@@ -740,11 +740,16 @@ Dext ORM optimizes bulk updates and deletions (`UpdateRange` / `RemoveRange`) us
 uses
   Dext.Entity, Dext.Entity.BatchStrategy;
 
-// PostgreSQL: Single-statement UPDATE table SET ... FROM (VALUES (...), (...)) AS v(...)
-// MySQL: Single-statement UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)
-// Oracle/Firebird: Native Protocol Array DML
+// MySQL/MariaDB: single-statement UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)
+// PostgreSQL, SQLite, Oracle, Firebird and others: FireDAC Array DML (one parameter set per row),
+//   verified on SQLite and PostgreSQL 18. TDextPostgresBatchStrategy (UPDATE ... FROM (VALUES ...))
+//   exists but the factory does not select it for PostgreSQL.
+// UpdateRange/RemoveRange only mark the entities; the batch is sent by SaveChanges, in blocks of
+// BulkBatchSize (default 100). A new [AutoInc] key, a [Version] column and soft delete are sent
+// row by row. Batch INSERT is not split by BulkBatchSize.
 Db.Users.UpdateRange(UserArray);
 Db.Users.RemoveRange(UserArray);
+Db.SaveChanges;
 ```
 
 

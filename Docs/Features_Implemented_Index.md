@@ -485,10 +485,10 @@ One of Dext's most powerful features: **automatic generation of full REST APIs f
 
 ### 4.9 Dialect-Aware Batch Operations (`Dext.Entity.BatchStrategy`) — Spec S59
 - **TDextBatchStrategyFactory** — Dynamic selection of batch `UPDATE` and `DELETE` strategies based on `TDatabaseDialect`.
-- **PostgreSQL Strategy** (`TDextPostgresBatchStrategy`) — Rewrites batch `UPDATE` into a single-statement `UPDATE table AS t SET ... FROM (VALUES (...), (...)) AS v(...) WHERE t.pk = v.pk` and batch deletes into `WHERE (pk1, pk2) IN (...)`.
+- **PostgreSQL Strategy** (`TDextPostgresBatchStrategy`) — Rewrites batch `UPDATE` into a single-statement `UPDATE table AS t SET ... FROM (VALUES (...), (...)) AS v(...) WHERE t.pk = v.pk` and batch deletes into `WHERE (pk1, pk2) IN (...)`. Implemented but not selected by `TDextBatchStrategyFactory` for PostgreSQL today (PostgreSQL uses `TDextNativeArrayDmlStrategy`); the MySQL strategy reuses its batch `DELETE`.
 - **MySQL / MariaDB Strategy** (`TDextMySqlBatchStrategy`) — Rewrites batch `UPDATE` into a single-statement `UPDATE table SET col = CASE WHEN pk = x THEN y END WHERE pk IN (...)`.
 - **Native Array DML Strategy** (`TDextNativeArrayDmlStrategy`) — Preserves native protocol array binding for Oracle OCI (`OCIStmtExecute` delivering 17x bulk performance gain) and Firebird 4+.
-- **Performance** — Eliminates FireDAC sequential Array DML emulation bottleneck on PostgreSQL and MySQL, reducing per-record latency from ~650 µs to ~118 µs, while unlocking true native vector execution on Oracle.
+- **Performance** — The MySQL / MariaDB strategy avoids FireDAC sequential Array DML emulation; Oracle and Firebird keep native protocol Array DML. The latency figures once quoted here (~650 to ~118 microseconds per record) were not reproduced and are not claimed.
 
 ### 4.10 EntityDataSet (`Dext.Data.EntityDataSet`)
 - **ORM ↔ VCL/FMX Bridge** — Connects components (DBGrid, FastReport) to `TList<T>` POCO collections while preserving a clean architecture.
