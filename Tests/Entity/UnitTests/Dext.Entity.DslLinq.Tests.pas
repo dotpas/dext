@@ -153,6 +153,13 @@ type
     property Note: StringType read FNote write FNote;
   end;
 
+  TFlReceipt2 = class
+  private
+    FId: IntType;
+  public
+    property Id: IntType read FId write FId;
+  end;
+
   TFlKeysDb = class(TDbContext)
   protected
     procedure OnModelCreating(Builder: TModelBuilder); override;
@@ -227,6 +234,8 @@ type
     procedure EnsureCreated_Declares_The_Fluent_Foreign_Key;
     [Test]
     procedure Fluent_Sequence_Fills_The_Key_And_AutoInc_Returns_It;
+    [Test]
+    procedure Sequence_Table_Is_Created_In_Every_SQLite_Database;
     [Test]
     procedure EnsureCreated_Creates_The_Many_To_Many_Join_Table;
     [Test]
@@ -1850,6 +1859,10 @@ begin
     .Table('fl_receipts')
     .HasKey('Id')
     .Prop('Id').UseSequence('seq_fl_receipt', 5);
+  Builder.Entity<TFlReceipt2>
+    .Table('fl_receipts2')
+    .HasKey('Id')
+    .Prop('Id').UseSequence('seq_fl_receipt2', 5);
 end;
 
 procedure TDslLinqTests.Fluent_Sequence_Fills_The_Key_And_AutoInc_Returns_It;
@@ -1882,6 +1895,39 @@ begin
     Should(Integer(R2.Id)).Be(Integer(R1.Id) + 1);
   finally
     Db.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Sequence_Table_Is_Created_In_Every_SQLite_Database;
+var
+  First, Second: TFlKeysDb;
+  R1: TFlReceipt;
+  R2: TFlReceipt2;
+begin
+  First := TFlKeysDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    First.Entities<TFlReceipt>;
+    First.EnsureCreated;
+    R1 := TFlReceipt.Create;
+    First.Entities<TFlReceipt>.Add(R1);
+    First.SaveChanges;
+    Should(Integer(R1.Id) > 0).BeTrue;
+
+    // Another database of the same process has its own table of sequences
+    Second := TFlKeysDb.Create(DbContextOptions.UseSQLite(':memory:'));
+    try
+      Second.Entities<TFlReceipt2>;
+      Second.EnsureCreated;
+      R2 := TFlReceipt2.Create;
+      Second.Entities<TFlReceipt2>.Add(R2);
+      Second.SaveChanges;
+      Should(Integer(R2.Id) > 0).BeTrue;
+      Should(Second.Connection.TableExists('dext_sequences')).BeTrue;
+    finally
+      Second.Free;
+    end;
+  finally
+    First.Free;
   end;
 end;
 

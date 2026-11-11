@@ -63,7 +63,6 @@ type
   private
     FCurrentRanges: TArray<TSequenceRangeRecord>;
     FLock: TCriticalSection;
-    FInitializedSQLite: Boolean;
     procedure EnsureSQLiteTable(const AConnection: IDbConnection);
     function FetchNextRangeFromDb(const ASeqName: string; AAllocSize: Integer; const AConnection: IDbConnection; const ADialect: ISQLDialect): TSequenceRange;
     function FindRangeIndex(const ASeqName: string): Integer;
@@ -110,7 +109,6 @@ begin
   inherited Create;
   FCurrentRanges := nil;
   FLock := TCriticalSection.Create;
-  FInitializedSQLite := False;
 end;
 
 destructor TSequenceManager.Destroy;
@@ -143,9 +141,8 @@ procedure TSequenceManager.EnsureSQLiteTable(const AConnection: IDbConnection);
 var
   Cmd: IDbCommand;
 begin
-  if FInitializedSQLite then Exit;
-
-  // Emulate sequence table for SQLite
+  // Emulate sequence table for SQLite. The table belongs to the connection
+  // (a new in-memory database has none), so it is created on every fetch.
   Cmd := AConnection.CreateCommand(
     'CREATE TABLE IF NOT EXISTS dext_sequences (name VARCHAR(255) PRIMARY KEY, nextval BIGINT);'
   );
@@ -154,7 +151,6 @@ begin
   finally
     Cmd := nil;
   end;
-  FInitializedSQLite := True;
 end;
 
 function TSequenceManager.FetchNextRangeFromDb(const ASeqName: string; AAllocSize: Integer;
