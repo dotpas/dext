@@ -169,7 +169,9 @@ type
     FHeaders: TDictionary<string, string>;
     FHeaderBuffer: TBytes;
     FBuffer: TBytes;
+    FSkip: Boolean;    // the socket completes immediate successes inline (no IOCP packet)
     procedure InternalSend(const AData: TBytes);
+    procedure InternalSendParts(AHeaderLen: Integer);
   public
     /// <summary>Initializes a new IOCP response wrapper.</summary>
     /// <param name="ASocket">The raw socket descriptor.</param>
@@ -231,6 +233,7 @@ type
     Connection: Pointer;
     Data: PByte;       // Heap send buffer, owned by this overlapped, freed on ioWrite
     DataLen: Integer;
+    BodyRef: Pointer;  // A TBytes held by reference until the write completes (body sent without a copy)
   end;
 
   /// <summary>
@@ -245,8 +248,23 @@ type
     FLocalPort: Word;
     FOverlapped: PIocpOverlapped;
     FAccum: TBytes;
+    FAccumLen: Integer;  // bytes of FAccum in use
+    FSkip: Boolean;      // FILE_SKIP_COMPLETION_PORT_ON_SUCCESS set on the socket
+    // The request and response objects are kept for reuse by the next request
+    // on this connection, and the body of a request points into FAccum. A
+    // handler must not keep the request (or its body stream) after it
+    // returns: the next request on the connection overwrites them.
+    FReqObj: TDextIocpRequest;
+    FReqIntf: IDextRawRequest;
+    FRespObj: TDextIocpResponse;
+    FRespIntf: IDextRawResponse;
     FConnIntf: IDextServerConnection;
     FClosed: Boolean;
+    FClosing: Boolean;       // FIN sent after the last response: the rest is discarded
+    FContinueSent: Boolean;  // 100 Continue already sent for the current request
+    procedure SendRaw(const AText: string);
+    procedure Reject(AResult: TDextHttpParseResult; AStatus: Integer = 0);
+    procedure BeginClose;
   public
     constructor Create(
       AEngine: TDextIocpEngine;
@@ -358,6 +376,79 @@ const
   WSAID_ACCEPTEX: TGUID = '{b5367df1-cbac-11cf-95ca-00805f48a192}';
   WSAID_GETACCEPTEXSOCKADDRS: TGUID = '{b5367df2-cbac-11cf-95ca-00805f48a192}';
   SIO_GET_EXTENSION_FUNCTION_POINTER = $C8000006;
+
+threadvar
+  GDateSecond: Int64;
+  GDateText: string;
+
+/// <summary>
+///   The HTTP Date header value (RFC 9110 IMF-fixdate, e.g.
+///   'Wed, 05 Nov 2026 08:00:00 GMT'), built once per second per thread.
+/// </summary>
+function HttpDateNow: string;
+const
+  Days: array[0..6] of string = ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
+  Months: array[1..12] of string = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
+var
+  FT: TFileTime;
+  ST: TSystemTime;
+  Second: Int64;
+begin
+  GetSystemTimeAsFileTime(FT);
+  Second := ((Int64(FT.dwHighDateTime) shl 32) or FT.dwLowDateTime) div 10000000;
+  if (Second <> GDateSecond) or (GDateText = '') then
+  begin
+    FileTimeToSystemTime(FT, ST);
+    GDateText := Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT',
+      [Days[ST.wDayOfWeek], ST.wDay, Months[ST.wMonth], ST.wYear,
+       ST.wHour, ST.wMinute, ST.wSecond]);
+    GDateSecond := Second;
+  end;
+  Result := GDateText;
+end;
+
+const
+  // mswsock.h: an AcceptEx socket inherits the listening socket's properties
+  // only with this option; without it shutdown, getpeername and getsockname
+  // fail with WSAENOTCONN.
+  SO_UPDATE_ACCEPT_CONTEXT = $700B;
+  FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = $1;
+  FILE_SKIP_SET_EVENT_ON_HANDLE = $2;
+
+function SetFileCompletionNotificationModes(FileHandle: THandle; Flags: UCHAR): BOOL; stdcall;
+  external kernel32 name 'SetFileCompletionNotificationModes';
+
+function SetSkipCompletionPortOnSuccess(ASocket: TSocket): Boolean;
+var
+  Info: WSAPROTOCOL_INFOW;
+  Len: Integer;
+begin
+  // Only on a socket of an IFS provider: with a layered (non-IFS) service
+  // provider a completion packet is still queued for an immediate success,
+  // and the inline finish would then run twice for the same operation.
+  Result := False;
+  Len := SizeOf(Info);
+  FillChar(Info, SizeOf(Info), 0);
+  if getsockopt(ASocket, SOL_SOCKET, SO_PROTOCOL_INFOW, PAnsiChar(@Info), Len) <> 0 then
+    Exit;
+  if (Info.dwServiceFlags1 and XP1_IFS_HANDLES) = 0 then
+    Exit;
+  Result := SetFileCompletionNotificationModes(THandle(ASocket),
+    FILE_SKIP_COMPLETION_PORT_ON_SUCCESS or FILE_SKIP_SET_EVENT_ON_HANDLE);
+end;
+
+procedure FreeWriteOverlapped(O: PIocpOverlapped);
+begin
+  if Assigned(O^.Data) then
+  begin
+    FreeMem(O^.Data);
+    O^.Data := nil;
+  end;
+  if O^.BodyRef <> nil then
+    TBytes(O^.BodyRef) := nil;
+  Dispose(O);
+end;
 
 { TDextIocpConnection }
 
@@ -692,10 +783,71 @@ begin
   Ret := WSASend(FSocket, @WsaBuf, 1, Bytes, 0, LPWSAOVERLAPPED(@O^.Overlapped), nil);
   {$IFEND}
 
-  if (Ret <> 0) and (WSAGetLastError <> WSA_IO_PENDING) then
+  if Ret = 0 then
   begin
-    FreeMem(O^.Data);
-    Dispose(O);
+    // Completed at once: with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS no packet
+    // will be queued, so the buffer is released here.
+    if FSkip then
+      FreeWriteOverlapped(O);
+  end
+  else if WSAGetLastError <> WSA_IO_PENDING then
+  begin
+    FreeWriteOverlapped(O);
+    FFailed := True;
+  end;
+end;
+
+procedure TDextIocpResponse.InternalSendParts(AHeaderLen: Integer);
+var
+  O: PIocpOverlapped;
+  WsaBufs: array[0..1] of TWsaBuf;
+  Count: DWORD;
+  Bytes: DWORD;
+  Ret: Integer;
+begin
+  if FFailed or (AHeaderLen = 0) then Exit;
+  if FSocket = INVALID_SOCKET then
+  begin
+    FFailed := True;
+    Exit;
+  end;
+
+  New(O);
+  FillChar(O^, SizeOf(TIocpOverlapped), 0);
+  // The headers are small: copied. The body is held by reference until done.
+  GetMem(O^.Data, AHeaderLen);
+  Move(FHeaderBuffer[0], O^.Data^, AHeaderLen);
+  O^.DataLen := AHeaderLen;
+  O^.OpType := ioWrite;
+  O^.Socket := FSocket;
+  O^.Connection := nil;
+
+  WsaBufs[0].buf := PAnsiChar(O^.Data);
+  WsaBufs[0].len := AHeaderLen;
+  Count := 1;
+  if Length(FBuffer) > 0 then
+  begin
+    TBytes(O^.BodyRef) := FBuffer;
+    WsaBufs[1].buf := PAnsiChar(@FBuffer[0]);
+    WsaBufs[1].len := Length(FBuffer);
+    Count := 2;
+  end;
+  Bytes := 0;
+
+  {$IF CompilerVersion > 35.0}
+  Ret := WSASend(FSocket, @WsaBufs[0], Count, @Bytes, 0, LPWSAOVERLAPPED(@O^.Overlapped), nil);
+  {$ELSE}
+  Ret := WSASend(FSocket, @WsaBufs[0], Count, Bytes, 0, LPWSAOVERLAPPED(@O^.Overlapped), nil);
+  {$IFEND}
+
+  if Ret = 0 then
+  begin
+    if FSkip then
+      FreeWriteOverlapped(O);
+  end
+  else if WSAGetLastError <> WSA_IO_PENDING then
+  begin
+    FreeWriteOverlapped(O);
     FFailed := True;
   end;
 end;
@@ -704,8 +856,7 @@ procedure TDextIocpResponse.Close;
 var
   Pair: TPair<string, string>;
   BufferOffset: Integer;
-  FullBuffer: TBytes;
-  HeaderLen, BodyLen: Integer;
+  HeaderLen: Integer;
 
   procedure EnsureCapacity(ARequired: Integer);
   var
@@ -745,6 +896,9 @@ begin
     FHeaders.Add('Content-Type', 'text/plain');
   if not FHeaders.ContainsKey('Content-Length') then
     FHeaders.AddOrSetValue('Content-Length', IntToStr(Length(FBuffer)));
+  // HTTP/1.1 requires an origin server with a clock to send Date (RFC 9110 6.6.1).
+  if not FHeaders.ContainsKey('Date') then
+    FHeaders.Add('Date', HttpDateNow);
 
   BufferOffset := 0;
   EnsureCapacity(512);
@@ -765,14 +919,9 @@ begin
   AppendStr(#13#10, BufferOffset);
 
   HeaderLen := BufferOffset;
-  BodyLen := Length(FBuffer);
-  SetLength(FullBuffer, HeaderLen + BodyLen);
-  if HeaderLen > 0 then
-    Move(FHeaderBuffer[0], FullBuffer[0], HeaderLen);
-  if BodyLen > 0 then
-    Move(FBuffer[0], FullBuffer[HeaderLen], BodyLen);
-
-  InternalSend(FullBuffer);
+  // Headers and body go out as two buffers; the body is held by reference
+  // until the send completes (no copies).
+  InternalSendParts(HeaderLen);
   FBuffer := nil;
   FHeaderBuffer := nil;
   // Connection remains open for HTTP/1.1 keep-alive
@@ -867,6 +1016,8 @@ end;
 destructor TDextIocpSession.Destroy;
 begin
   CloseSession;
+  FReqIntf := nil;
+  FRespIntf := nil;
   FConnIntf := nil;
   FAccum := nil;
   inherited;
@@ -921,13 +1072,75 @@ begin
   Flags := 0;
 
   Ret := WSARecv(FSocket, @WsaBuf, 1, Bytes, Flags, LPWSAOVERLAPPED(@FOverlapped^.Overlapped), nil);
-  if (Ret <> 0) and (WSAGetLastError <> WSA_IO_PENDING) then
+  if (Ret = 0) and FSkip then
+  begin
+    // Data already there: with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS no packet is
+    // queued, so it is queued here and handled by the usual read path.
+    Result := PostQueuedCompletionStatus(FEngine.FIocp, Bytes, 0, POverlapped(FOverlapped));
+    if not Result then
+      CloseSession;
+  end
+  else if (Ret <> 0) and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
     CloseSession;
     Result := False;
   end
   else
     Result := True;
+end;
+
+procedure TDextIocpSession.SendRaw(const AText: string);
+var
+  Resp: TDextIocpResponse;
+begin
+  Resp := TDextIocpResponse.Create(FSocket);
+  try
+    Resp.FSkip := FSkip;
+    Resp.InternalSend(TEncoding.ASCII.GetBytes(AText));
+  finally
+    Resp.Free;
+  end;
+end;
+
+procedure TDextIocpSession.BeginClose;
+begin
+  // FIN after the data already queued; the socket is closed when the peer
+  // closes its side (the read completes with 0 bytes).
+  FClosing := True;
+  FAccumLen := 0;
+  if FSocket <> INVALID_SOCKET then
+    shutdown(FSocket, SD_SEND);
+end;
+
+procedure TDextIocpSession.Reject(AResult: TDextHttpParseResult; AStatus: Integer);
+var
+  Resp: TDextIocpResponse;
+begin
+  if AStatus = 0 then
+    case AResult of
+      hprHeadersTooLarge: AStatus := 431;
+      hprVersionNotSupported: AStatus := 505;
+      hprNotImplemented: AStatus := 501;
+    else
+      AStatus := 400;
+    end;
+  Resp := TDextIocpResponse.Create(FSocket);
+  try
+    Resp.FSkip := FSkip;
+    case AStatus of
+      413: Resp.SetStatus(413, 'Content Too Large');
+      431: Resp.SetStatus(431, 'Request Header Fields Too Large');
+      501: Resp.SetStatus(501, 'Not Implemented');
+      505: Resp.SetStatus(505, 'HTTP Version Not Supported');
+    else
+      Resp.SetStatus(400, 'Bad Request');
+    end;
+    Resp.SetHeader('Connection', 'close');
+    Resp.Close;
+  finally
+    Resp.Free;
+  end;
+  BeginClose;
 end;
 
 { TDextIocpWorker }
@@ -960,7 +1173,6 @@ var
   RawRequest: IDextRawRequest;
   RawResponse: IDextRawResponse;
   Session: TDextIocpSession;
-  Acc: TBytes;
   OldLen: Integer;
   DataLen: Integer;
   // The idle hook (DextWorkerIdle), read once: nil = wait as before.
@@ -968,6 +1180,13 @@ var
   WaitMs: Cardinal;
   // Work handled since the last call of the idle hook.
   Worked: Boolean;
+  ReqObj: TDextIocpRequest;
+  RespObj: TDextIocpResponse;
+  Parse: TDextHttpParseResult;
+  Info: TDextHttpRequestInfo;
+  CloseAfter: Boolean;
+  MaxHeader: Integer;
+  MaxBody: Int64;
 begin
   ApplyGroupAffinityToThread(GetCurrentThread, FAffinity);
   Idle := DextWorkerIdle;
@@ -975,6 +1194,10 @@ begin
   if Assigned(Idle) and (DextWorkerIdleMs > 0) then
     WaitMs := DextWorkerIdleMs;
   Worked := False;
+
+  // The limits of the engine options (0 = none).
+  MaxHeader := FEngine.FOptions.MaxRequestHeaderSize;
+  MaxBody := FEngine.FOptions.MaxRequestBodySize;
 
   IocpOverlapped := nil;
 
@@ -1022,14 +1245,7 @@ begin
           Dispose(IocpOverlapped);
         end;
         ioWrite:
-        begin
-          if Assigned(IocpOverlapped.Data) then
-          begin
-            FreeMem(IocpOverlapped.Data);
-            IocpOverlapped.Data := nil;
-          end;
-          Dispose(IocpOverlapped);
-        end;
+          FreeWriteOverlapped(IocpOverlapped);
         ioRead:
         begin
           Session := TDextIocpSession(IocpOverlapped.Connection);
@@ -1071,6 +1287,9 @@ begin
         RemotePort := ntohs(PSockAddrIn(RemoteAddr).sin_port);
         LocalPort := ntohs(PSockAddrIn(LocalAddr).sin_port);
 
+        setsockopt(IocpOverlapped.Socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+          PAnsiChar(@FEngine.FListenSocket), SizeOf(FEngine.FListenSocket));
+
         // Associate accepted client socket with IOCP port
         if CreateIoCompletionPort(IocpOverlapped.Socket, FIocp, 0, 0) = 0 then
         begin
@@ -1093,6 +1312,9 @@ begin
           LocalPort,
           IocpOverlapped
         );
+        // A send that completes at once queues no packet: it is finished
+        // inline instead of waking a worker for it (IFS providers only).
+        Session.FSkip := SetSkipCompletionPortOnSuccess(Session.Socket);
 
         if Assigned(FEngine.FOnConnection) then
         begin
@@ -1128,11 +1350,18 @@ begin
         end;
 
         DataLen := Integer(BytesTransferred);
-        Acc := Session.Accum;
-        OldLen := Length(Acc);
-        SetLength(Acc, OldLen + DataLen);
-        Move(IocpOverlapped.Buffer[0], Acc[OldLen], DataLen);
-        Session.Accum := Acc;
+        // The accumulator stays with the connection: it grows when needed.
+        if Session.FAccumLen + DataLen > Length(Session.FAccum) then
+        begin
+          OldLen := Length(Session.FAccum) * 2;
+          if OldLen < SizeOf(IocpOverlapped.Buffer) then
+            OldLen := SizeOf(IocpOverlapped.Buffer);
+          while OldLen < Session.FAccumLen + DataLen do
+            OldLen := OldLen * 2;
+          SetLength(Session.FAccum, OldLen);
+        end;
+        Move(IocpOverlapped.Buffer[0], Session.FAccum[Session.FAccumLen], DataLen);
+        Inc(Session.FAccumLen, DataLen);
 
         if Assigned(FEngine.FConnectionHandler) then
         begin
@@ -1149,34 +1378,100 @@ begin
         else
         begin
           // HTTP handling loop for pipelining or partial requests
-          while (Session.Accum <> nil) and (Length(Session.Accum) > 0) do
+          while Session.FAccumLen > 0 do
           begin
-            if not TDextIocpHttpParser.TryParseRequest(
+            if Session.FClosing then
+            begin
+              // The connection is closing: what the peer still sends is dropped.
+              Session.FAccumLen := 0;
+              Break;
+            end;
+
+            Parse := TDextIocpHttpParser.TryParseRequestEx(
               Session.Accum,
-              Length(Session.Accum),
+              Session.FAccumLen,
+              MaxHeader,
               Method,
               Path,
               Query,
               HeaderSegments,
               BodyOffset,
-              ContentLength
-            ) then
+              ContentLength,
+              Info
+            );
+            if Parse = hprIncomplete then
               Break; // Need more data to complete HTTP headers
+            if Parse <> hprOk then
+            begin
+              Session.Reject(Parse);
+              Break;
+            end;
+            if (MaxBody > 0) and (ContentLength > MaxBody) then
+            begin
+              Session.Reject(hprOk, 413);
+              Break;
+            end;
 
-            if (ContentLength > 0) and ((Length(Session.Accum) - BodyOffset) < ContentLength) then
-              Break; // Need more data for request body
+            if (ContentLength > 0) and ((Session.FAccumLen - BodyOffset) < ContentLength) then
+            begin
+              // Need more data for the body; a client that asked for it waits
+              // for 100 Continue before sending it (RFC 9110 10.1.1).
+              if Info.ExpectContinue and not Session.FContinueSent then
+              begin
+                Session.SendRaw('HTTP/1.1 100 Continue'#13#10#13#10);
+                Session.FContinueSent := True;
+              end;
+              Break;
+            end;
+            Session.FContinueSent := False;
+            // Close after this response: asked by the client, HTTP/1.0 without
+            // keep-alive, or keep-alive turned off in the options.
+            CloseAfter := Info.ConnectionClose or (Info.Http10 and not Info.ConnectionKeepAlive) or
+              not FEngine.FOptions.KeepAlive;
 
-            ReqBodyLen := Length(Session.Accum) - BodyOffset;
+            ReqBodyLen := Session.FAccumLen - BodyOffset;
             if (ContentLength >= 0) and (ReqBodyLen > ContentLength) then
               ReqBodyLen := ContentLength;
 
             TInterlocked.Increment(FEngine.FTotalRequests);
 
-            RawRequest := TDextIocpRequest.Create(
-              Method, Path, Query, HeaderSegments,
-              Session.Accum, BodyOffset, ReqBodyLen, ContentLength
-            );
-            RawResponse := TDextIocpResponse.Create(Session.Socket);
+            // The request and response objects of the connection are reused
+            // (their Init methods) when only the session still holds them.
+            if (Session.FReqObj <> nil) and (Session.FReqObj.RefCount = 1) then
+            begin
+              // Only the session holds it: the previous request is over.
+              Session.FReqObj.Init(Method, Path, Query, HeaderSegments,
+                Session.Accum, BodyOffset, ReqBodyLen, ContentLength);
+              RawRequest := Session.FReqIntf;
+            end
+            else
+            begin
+              ReqObj := TDextIocpRequest.Create(
+                Method, Path, Query, HeaderSegments,
+                Session.Accum, BodyOffset, ReqBodyLen, ContentLength
+              );
+              RawRequest := ReqObj;
+              Session.FReqObj := ReqObj;
+              Session.FReqIntf := RawRequest;
+            end;
+            if (Session.FRespObj <> nil) and (Session.FRespObj.RefCount = 1) then
+            begin
+              Session.FRespObj.Init(Session.Socket);
+              RespObj := Session.FRespObj;
+              RawResponse := Session.FRespIntf;
+            end
+            else
+            begin
+              RespObj := TDextIocpResponse.Create(Session.Socket);
+              RawResponse := RespObj;
+              Session.FRespObj := RespObj;
+              Session.FRespIntf := RawResponse;
+            end;
+            RespObj.FSkip := Session.FSkip;
+            if CloseAfter then
+              RespObj.SetHeader('Connection', 'close')
+            else if Info.Http10 then
+              RespObj.SetHeader('Connection', 'keep-alive');
             try
               if Assigned(FEngine.FOnRequest) then
                 FEngine.FOnRequest(Session.ConnIntf, RawRequest, RawResponse);
@@ -1186,18 +1481,28 @@ begin
               RawRequest := nil;
             end;
 
+            if CloseAfter then
+            begin
+              Session.BeginClose;
+              Break;
+            end;
+
             ConsumeLen := BodyOffset;
             if ContentLength > 0 then
               Inc(ConsumeLen, Integer(ContentLength));
 
-            if ConsumeLen >= Length(Session.Accum) then
+            if ConsumeLen >= Session.FAccumLen then
             begin
-              Session.Accum := nil;
+              Session.FAccumLen := 0;
+              // Kept for the next request, unless a large body made it grow.
+              if Length(Session.FAccum) > 65536 then
+                Session.Accum := nil;
               Break;
             end
             else
             begin
-              Session.Accum := Copy(Session.Accum, ConsumeLen, Length(Session.Accum) - ConsumeLen);
+              Move(Session.FAccum[ConsumeLen], Session.FAccum[0], Session.FAccumLen - ConsumeLen);
+              Dec(Session.FAccumLen, ConsumeLen);
             end;
           end;
         end;
@@ -1212,12 +1517,7 @@ begin
 
       ioWrite:
       begin
-        if Assigned(IocpOverlapped.Data) then
-        begin
-          FreeMem(IocpOverlapped.Data);
-          IocpOverlapped.Data := nil;
-        end;
-        Dispose(IocpOverlapped);
+        FreeWriteOverlapped(IocpOverlapped);
         Continue;
       end;
     end;
