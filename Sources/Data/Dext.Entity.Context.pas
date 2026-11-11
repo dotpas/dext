@@ -58,7 +58,8 @@ uses
   Dext.Threading.Sync,
   Dext.Threading.Async,
   Dext.Logging.Tracing,
-  Dext.Entity.FastQuery;
+  Dext.Entity.FastQuery,
+  Dext.Entity.Migrations.Runner;
 
 type
   TFluentExpression = Dext.Specifications.Types.TFluentExpression;
@@ -235,6 +236,7 @@ type
     FOnLog: TProc<string>;
     FProxies: IList<TObject>;
     FBulkBatchSize: Integer;
+    FMigrator: TMigrator;
     procedure SetOnLog(const AValue: TProc<string>);
     function GetOnLog: TProc<string>;
     procedure ApplyTenantConfig(ACreateSchema: Boolean = False);
@@ -289,6 +291,12 @@ type
     ///   Returns the configured SQL dialect (PostgreSQL, SQL Server, etc.).
     /// </summary>
     function Dialect: ISQLDialect;
+
+    /// <summary>
+    ///   The schema migrator of this context (Migrate, Rollback,
+    ///   ValidateSchemaCompatibility). Created on first use and owned by the context.
+    /// </summary>
+    function Migrator: TMigrator;
     function NamingStrategy: INamingStrategy;
     function ModelBuilder: TModelBuilder; // Expose ModelBuilder
     function GetTenantProvider: ITenantProvider;
@@ -635,6 +643,7 @@ end;
 
 destructor TDbContext.Destroy;
 begin
+  FMigrator.Free;
   // Clear ChangeTracker before freeing DbSets (which free entities).
   // This prevents ChangeTracker from holding dangling pointers during its destruction.
   if FChangeTracker <> nil then
@@ -697,6 +706,13 @@ end;
 function TDbContext.Dialect: ISQLDialect;
 begin
   Result := FDialect;
+end;
+
+function TDbContext.Migrator: TMigrator;
+begin
+  if FMigrator = nil then
+    FMigrator := TMigrator.Create(Self);
+  Result := FMigrator;
 end;
 
 function TDbContext.NamingStrategy: INamingStrategy;

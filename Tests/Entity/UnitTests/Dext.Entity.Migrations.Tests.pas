@@ -20,6 +20,7 @@ uses
   Dext.Entity.Migrations.Operations,
   Dext.Core.SmartTypes,
   Dext.Entity.Migrations.Builder,
+  Dext.Entity.Migrations.Runner,
   Dext.Entity.Migrations.Generator,
   Dext.Entity.Migrations.Serializers.Json,
   System.SysUtils;
@@ -89,6 +90,8 @@ type
     procedure Test_Extractor_Uses_Bare_Varchar_With_The_Length;
     [Test]
     procedure Test_Extractor_Unwraps_Smart_Types;
+    [Test]
+    procedure Test_Context_Exposes_The_Migrator;
     [Test]
     procedure Test_TableBuilder_ForeignKey_Becomes_An_Operation;
     [Test]
@@ -359,6 +362,21 @@ begin
     finally
       Model.Free;
     end;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Context_Exposes_The_Migrator;
+var
+  Db: TRenamedModelContext;
+begin
+  Db := TRenamedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    // One migrator per context, created on first use and owned by it.
+    Should(Db.Migrator <> nil).BeTrue;
+    Should(Db.Migrator = Db.Migrator).BeTrue;
+    Should(Db.Migrator.GetAppliedMigrations.Count).Be(0);
   finally
     Db.Free;
   end;
