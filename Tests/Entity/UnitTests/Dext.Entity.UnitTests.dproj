@@ -124,6 +124,7 @@
         <DCCReference Include="Dext.Entity.SnakeCaseFk.Tests.pas"/>
         <DCCReference Include="Dext.Entity.FormatSettings.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SoftDelete.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.Tenancy.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Validation.Tests.pas"/>
         <DCCReference Include="Dext.Entity.BulkBatchSize.Tests.pas"/>
         <DCCReference Include="Dext.Entity.DynamicQueryFilter.Tests.pas"/>

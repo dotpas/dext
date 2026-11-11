@@ -688,6 +688,9 @@ end;
 
 function TDbContext.Connection: IDbConnection;
 begin
+  // Queries reach the database through here: a tenant switch (schema or
+  // database per tenant) must be applied before them, not only before writes.
+  ApplyTenantConfig(False);
   Result := FConnection;
 end;
 
