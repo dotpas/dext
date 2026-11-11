@@ -18,6 +18,7 @@ uses
   Dext.Entity.Migrations.Model,
   Dext.Entity.Migrations.Differ,
   Dext.Entity.Migrations.Operations,
+  Dext.Core.SmartTypes,
   Dext.Entity.Migrations.Builder,
   Dext.Entity.Migrations.Generator,
   Dext.Entity.Migrations.Serializers.Json,
@@ -45,6 +46,32 @@ type
     function Users: IDbSet<TRenamedUser>;
   end;
 
+  {$M+}
+  [Table('Typed')]
+  TTypedColumns = class
+  private
+    FId: Integer;
+    FCode: string;
+    FTitle: StringType;
+    FNote: string;
+    FQty: IntType;
+  public
+    [PK]
+    property Id: Integer read FId write FId;
+    [MaxLength(40)]
+    property Code: string read FCode write FCode;
+    [MaxLength(30)]
+    property Title: StringType read FTitle write FTitle;
+    property Note: string read FNote write FNote;
+    property Qty: IntType read FQty write FQty;
+  end;
+  {$M-}
+
+  TTypedModelContext = class(TDbContext)
+  public
+    function Typed: IDbSet<TTypedColumns>;
+  end;
+
   [TestFixture]
   TMigrationTests = class
   public
@@ -58,6 +85,10 @@ type
     procedure Test_Rename_Column_Emits_Only_The_Rename;
     [Test]
     procedure Test_Leftover_RenamedFrom_Emits_Nothing;
+    [Test]
+    procedure Test_Extractor_Uses_Bare_Varchar_With_The_Length;
+    [Test]
+    procedure Test_Extractor_Unwraps_Smart_Types;
     [Test]
     procedure Test_Builder_Rename_Operations;
     [Test]
@@ -271,6 +302,63 @@ begin
   finally
     NewModel.Free;
     OldModel.Free;
+  end;
+end;
+
+function TTypedModelContext.Typed: IDbSet<TTypedColumns>;
+begin
+  Result := Entities<TTypedColumns>;
+end;
+
+procedure TMigrationTests.Test_Extractor_Uses_Bare_Varchar_With_The_Length;
+var
+  Db: TTypedModelContext;
+  Model: TSnapshotModel;
+  Table: TSnapshotTable;
+begin
+  Db := TTypedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Typed;
+    Model := TDbContextModelExtractor.Extract(Db);
+    try
+      Table := Model.FindTable('Typed');
+      // The size lives in Length: the DDL appends "(40)" itself, so a type
+      // such as TEXT or VARCHAR(255) here would produce invalid SQL.
+      Should(Table.FindColumn('Code').ColumnType).Be('VARCHAR');
+      Should(Table.FindColumn('Code').Length).Be(40);
+      // Without MaxLength the dialect's own mapping stays.
+      Should(Table.FindColumn('Note').ColumnType).Be('TEXT');
+      Should(Table.FindColumn('Note').Length).Be(0);
+    finally
+      Model.Free;
+    end;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Extractor_Unwraps_Smart_Types;
+var
+  Db: TTypedModelContext;
+  Model: TSnapshotModel;
+  Table: TSnapshotTable;
+begin
+  Db := TTypedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Typed;
+    Model := TDbContextModelExtractor.Extract(Db);
+    try
+      Table := Model.FindTable('Typed');
+      // StringType and IntType are records around the value; the column is
+      // the type of the value, as in EnsureCreated.
+      Should(Table.FindColumn('Title').ColumnType).Be('VARCHAR');
+      Should(Table.FindColumn('Title').Length).Be(30);
+      Should(Table.FindColumn('Qty').ColumnType).Be('INTEGER');
+    finally
+      Model.Free;
+    end;
+  finally
+    Db.Free;
   end;
 end;
 

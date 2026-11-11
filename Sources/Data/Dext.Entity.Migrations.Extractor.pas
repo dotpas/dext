@@ -38,6 +38,8 @@ uses
   Dext.Entity.Mapping,
   Dext.Entity.Attributes,
   Dext.Entity.Migrations.Model,
+  Dext.Entity.Dialects,
+  Dext.Types.Nullable,
   Dext.Core.Reflection;
 
 type
@@ -67,6 +69,8 @@ var
   Maps: TArray<TEntityMap>; 
   RenamedAttr: RenamedFromAttribute;
   RField: TRttiField;
+  PropType, Underlying: PTypeInfo;
+  ValueField: TRttiField;
 begin
   Result := TSnapshotModel.Create;
   
@@ -145,11 +149,45 @@ begin
       // but if it doesn't, we check here.
       // Let's assume TEntityMap is the source of truth.
       
-      // Determine Type
-      // Use Dialect to map Delphi Type to SQL Type
-      // Note: We need PTypeInfo.
-      // TRttiProperty.PropertyType.Handle gives PTypeInfo.
-      Col.ColumnType := AContext.Dialect.GetColumnType(RProp.PropertyType.Handle, Col.IsIdentity);
+      // Determine the type the way EnsureCreated does: unwrap Nullable<T> and
+      // Smart Properties (Prop<T> is a record around the value), and pass the
+      // precision on to the dialect.
+      PropType := RProp.PropertyType.Handle;
+      if IsNullable(PropType) then
+      begin
+        Underlying := GetUnderlyingType(PropType);
+        if Underlying <> nil then
+          PropType := Underlying;
+      end
+      else if RProp.PropertyType.TypeKind = tkRecord then
+      begin
+        ValueField := RProp.PropertyType.GetField('FValue');
+        if (ValueField <> nil) and
+           (RProp.PropertyType.Name.Contains('Prop<') or
+            (RProp.PropertyType.GetProperty('Value') <> nil)) then
+          PropType := ValueField.FieldType.Handle;
+      end;
+
+      Col.ColumnType := AContext.Dialect.GetColumnType(PropType,
+        Col.IsIdentity, Col.Precision, Col.Scale);
+
+      // The size lives in Length/Precision, and the DDL appends it to the type.
+      // A text column with a MaxLength is a bare VARCHAR; a type that already
+      // carries its size ("VARCHAR(255)", "NUMERIC(18,2)") loses it when the
+      // column has its own.
+      if (Col.Length > 0) and
+         (PropType.Kind in [tkString, tkUString, tkWString, tkChar, tkWChar]) then
+      begin
+        case AContext.Dialect.GetDialect of
+          ddSQLServer: Col.ColumnType := 'NVARCHAR';
+          ddOracle: Col.ColumnType := 'VARCHAR2';
+        else
+          Col.ColumnType := 'VARCHAR';
+        end;
+      end
+      else if (Pos('(', Col.ColumnType) > 0) and
+              ((Col.Length > 0) or (Col.Precision > 0)) then
+        Col.ColumnType := Copy(Col.ColumnType, 1, Pos('(', Col.ColumnType) - 1);
 
       // [RenamedFrom] on the property, or on its backing field FName
       RenamedAttr := RProp.GetAttribute<RenamedFromAttribute>;
