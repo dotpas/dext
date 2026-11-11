@@ -75,6 +75,11 @@ type
     function GetCascadeActionSQL(AAction: TCascadeAction): string;
     function GetLastInsertIdSQL: string;
     function GetCreateTableSQL(const ATableName, ABody: string): string;
+    /// <summary>
+    ///   INSERT for a row that has no column to write (an entity whose only
+    ///   mapped column is the auto-increment key). The table arrives quoted.
+    /// </summary>
+    function GetInsertDefaultValuesSQL(const ATableName: string): string;
     
     // New methods for RETURNING clause support
     function SupportsInsertReturning: Boolean;
@@ -162,6 +167,7 @@ type
     function GetCascadeActionSQL(AAction: TCascadeAction): string; virtual;
     function GetLastInsertIdSQL: string; virtual; abstract;
     function GetCreateTableSQL(const ATableName, ABody: string): string; virtual;
+    function GetInsertDefaultValuesSQL(const ATableName: string): string; virtual;
     
     function SupportsInsertReturning: Boolean; virtual;
     function GetReturningSQL(const AColumnName: string): string; virtual;
@@ -293,6 +299,7 @@ type
     function GetColumnType(ATypeInfo: PTypeInfo; AIsAutoInc: Boolean = False; APrecision: Integer = 0; AScale: Integer = 0): string; override;
     function GetLastInsertIdSQL: string; override;
     function GetCreateTableSQL(const ATableName, ABody: string): string; override;
+    function GetInsertDefaultValuesSQL(const ATableName: string): string; override;
     
     
     function GenerateAlterColumn(AOp: TAlterColumnOperation): string; override;
@@ -324,6 +331,7 @@ type
     function GetColumnType(ATypeInfo: PTypeInfo; AIsAutoInc: Boolean = False; APrecision: Integer = 0; AScale: Integer = 0): string; override;
     function GetLastInsertIdSQL: string; override;
     function GetCreateTableSQL(const ATableName, ABody: string): string; override;
+    function GetInsertDefaultValuesSQL(const ATableName: string): string; override;
     
     function SupportsInsertReturning: Boolean; override;
     function GetReturningSQL(const AColumnName: string): string; override;
@@ -556,6 +564,12 @@ begin
   else
     Result := 'NO ACTION';
   end;
+end;
+
+function TBaseDialect.GetInsertDefaultValuesSQL(const ATableName: string): string;
+begin
+  // SQLite, PostgreSQL, SQL Server and Firebird accept this form.
+  Result := 'INSERT INTO ' + ATableName + ' DEFAULT VALUES';
 end;
 
 function TBaseDialect.GetCreateTableSQL(const ATableName, ABody: string): string;
@@ -1522,6 +1536,12 @@ begin
   Result := 'SELECT LAST_INSERT_ID()';
 end;
 
+function TMySQLDialect.GetInsertDefaultValuesSQL(const ATableName: string): string;
+begin
+  // MySQL and MariaDB have no DEFAULT VALUES: an empty column list does it.
+  Result := 'INSERT INTO ' + ATableName + ' () VALUES ()';
+end;
+
 function TMySQLDialect.GetCreateTableSQL(const ATableName, ABody: string): string;
 begin
   Result := Format('CREATE TABLE IF NOT EXISTS %s (%s)', [ATableName, ABody]);
@@ -1658,6 +1678,12 @@ begin
   else
     Result := 'VARCHAR2(255)';
   end;
+end;
+
+function TOracleDialect.GetInsertDefaultValuesSQL(const ATableName: string): string;
+begin
+  // Oracle has no DEFAULT VALUES: the DEFAULT keyword takes the key's place.
+  Result := 'INSERT INTO ' + ATableName + ' VALUES (DEFAULT)';
 end;
 
 function TOracleDialect.GetLastInsertIdSQL: string;

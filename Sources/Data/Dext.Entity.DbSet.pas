@@ -2298,6 +2298,9 @@ begin
       if FContext.Dialect.GetReturningPosition = rpBeforeValues then
       begin
         ValuesPos := Pos(' VALUES ', UpperCase(Sql));
+        // INSERT ... DEFAULT VALUES has nothing after VALUES.
+        if ValuesPos = 0 then
+          ValuesPos := Pos(' DEFAULT VALUES', UpperCase(Sql));
         if ValuesPos > 0 then
           Insert(' ' + ReturningClause + ' ', Sql, ValuesPos)
         else

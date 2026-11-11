@@ -6,6 +6,9 @@ uses
   System.SysUtils,
   System.Rtti,
   System.TypInfo,
+  Dext.Collections,
+  Dext.Collections.Dict,
+  Dext.Specifications.SQL.Generator,
   Dext.Testing.Attributes,
   Dext.Assertions,
   Dext.Mocks,
@@ -130,6 +133,45 @@ type
 
     [Test]
     procedure Test_Integer_Id_With_NamingStrategy;
+  end;
+
+  { --- Entity with no column to write: INSERT ... DEFAULT VALUES --- }
+
+  [TestFixture('INSERT of an entity whose only column is the auto-increment key')]
+  TInsertDefaultValuesTests = class
+  private
+    function InsertOf(const ADialect: ISQLDialect): string;
+    function TemplateOf(const ADialect: ISQLDialect): string;
+  public
+    [Test]
+    procedure Test_SQLite_Uses_Default_Values;
+
+    [Test]
+    procedure Test_PostgreSQL_Uses_Default_Values;
+
+    [Test]
+    procedure Test_SQLServer_Uses_Default_Values;
+
+    [Test]
+    procedure Test_Firebird_Uses_Default_Values;
+
+    [Test]
+    procedure Test_MySQL_Uses_Empty_Column_List;
+
+    [Test]
+    procedure Test_MariaDB_Uses_Empty_Column_List;
+
+    [Test]
+    procedure Test_Oracle_Uses_Default_Keyword;
+
+    [Test]
+    procedure Test_Array_Dml_Template_Follows_The_Single_Insert;
+
+    [Test]
+    procedure Test_SQLServer_Output_Goes_Before_Default_Values;
+
+    [Test]
+    procedure Test_SQLite_Inserts_Rows_And_Assigns_Ids;
   end;
 
 implementation
@@ -342,6 +384,166 @@ begin
     Should(Entity.Id).Be(42);
   finally
     Ctx.Free;
+  end;
+end;
+
+{ TInsertDefaultValuesTests }
+
+function TInsertDefaultValuesTests.InsertOf(const ADialect: ISQLDialect): string;
+var
+  Gen: TSqlGenerator<TIntEntity>;
+  Entity: TIntEntity;
+begin
+  Gen := TSqlGenerator<TIntEntity>.Create(ADialect, nil);
+  Entity := TIntEntity.Create;
+  try
+    Result := Gen.GenerateInsert(Entity);
+  finally
+    Entity.Free;
+    Gen.Free;
+  end;
+end;
+
+function TInsertDefaultValuesTests.TemplateOf(const ADialect: ISQLDialect): string;
+var
+  Gen: TSqlGenerator<TIntEntity>;
+  Props: IList<TPair<TRttiProperty, string>>;
+begin
+  Gen := TSqlGenerator<TIntEntity>.Create(ADialect, nil);
+  try
+    Result := Gen.GenerateInsertTemplate(Props);
+  finally
+    Gen.Free;
+  end;
+end;
+
+procedure TInsertDefaultValuesTests.Test_SQLite_Uses_Default_Values;
+var
+  Sql: string;
+begin
+  Sql := InsertOf(TSQLiteDialect.Create);
+  Should(Sql).Contain('INSERT INTO');
+  Should(Sql).Contain(' DEFAULT VALUES');
+  Should(Pos('()', Sql)).Be(0);
+end;
+
+procedure TInsertDefaultValuesTests.Test_PostgreSQL_Uses_Default_Values;
+var
+  Sql: string;
+begin
+  Sql := InsertOf(TPostgreSQLDialect.Create);
+  Should(Sql).Contain(' DEFAULT VALUES');
+  Should(Pos('()', Sql)).Be(0);
+end;
+
+procedure TInsertDefaultValuesTests.Test_SQLServer_Uses_Default_Values;
+var
+  Sql: string;
+begin
+  Sql := InsertOf(TSQLServerDialect.Create);
+  Should(Sql).Contain(' DEFAULT VALUES');
+  Should(Pos('()', Sql)).Be(0);
+end;
+
+procedure TInsertDefaultValuesTests.Test_Firebird_Uses_Default_Values;
+var
+  Sql: string;
+begin
+  Sql := InsertOf(TFirebirdDialect.Create);
+  Should(Sql).Contain(' DEFAULT VALUES');
+  Should(Pos('()', Sql)).Be(0);
+end;
+
+procedure TInsertDefaultValuesTests.Test_MySQL_Uses_Empty_Column_List;
+begin
+  Should(InsertOf(TMySQLDialect.Create)).Contain(' () VALUES ()');
+end;
+
+procedure TInsertDefaultValuesTests.Test_MariaDB_Uses_Empty_Column_List;
+begin
+  Should(InsertOf(TMariaDBDialect.Create)).Contain(' () VALUES ()');
+end;
+
+procedure TInsertDefaultValuesTests.Test_Oracle_Uses_Default_Keyword;
+var
+  Sql: string;
+begin
+  Sql := InsertOf(TOracleDialect.Create);
+  Should(Sql).Contain(' VALUES (DEFAULT)');
+  Should(Pos('()', Sql)).Be(0);
+end;
+
+procedure TInsertDefaultValuesTests.Test_Array_Dml_Template_Follows_The_Single_Insert;
+begin
+  Should(TemplateOf(TSQLiteDialect.Create)).Contain(' DEFAULT VALUES');
+  Should(TemplateOf(TMySQLDialect.Create)).Contain(' () VALUES ()');
+  Should(TemplateOf(TOracleDialect.Create)).Contain(' VALUES (DEFAULT)');
+end;
+
+procedure TInsertDefaultValuesTests.Test_SQLServer_Output_Goes_Before_Default_Values;
+var
+  Conn: Mock<IDbConnection>;
+  Cmd: Mock<IDbCommand>;
+  Ctx: TDbContext;
+  Entity: TIntEntity;
+  Captured: string;
+begin
+  Cmd := Mock<IDbCommand>.Create;
+  Cmd.Setup.Returns(TValue.From<Integer>(7)).When.ExecuteScalar;
+
+  Captured := '';
+  Conn := Mock<IDbConnection>.Create;
+  Conn.Setup.Executes(
+    procedure(Inv: IInvocation)
+    begin
+      if Inv.Arguments[0].AsString.StartsWith('INSERT') then
+        Captured := Inv.Arguments[0].AsString;
+      Inv.Result := TValue.From<IDbCommand>(Cmd.Instance);
+    end).When.CreateCommand(Arg.Any<string>);
+
+  Ctx := TDbContext.Create(Conn.Instance, TSQLServerDialect.Create);
+  try
+    Entity := TIntEntity.Create;
+    Ctx.Entities<TIntEntity>.Add(Entity);
+    Ctx.SaveChanges;
+
+    // INSERT INTO [t] OUTPUT INSERTED.[Id] DEFAULT VALUES
+    Should(Captured).Contain('OUTPUT');
+    Should(Captured).Contain('DEFAULT VALUES');
+    Should(Pos('OUTPUT', Captured) < Pos('DEFAULT VALUES', Captured)).BeTrue;
+    Should(Entity.Id).Be(7);
+  finally
+    Ctx.Free;
+  end;
+end;
+
+procedure TInsertDefaultValuesTests.Test_SQLite_Inserts_Rows_And_Assigns_Ids;
+var
+  Options: TDbContextOptions;
+  Ctx: TDbContext;
+  A, B: TIntEntity;
+begin
+  Options := TDbContextOptions.Create;
+  try
+    Options.UseSQLite(':memory:');
+    Ctx := TDbContext.Create(Options, nil);
+    try
+      Ctx.ModelBuilder.Entity<TIntEntity>();
+      Ctx.EnsureCreated;
+
+      A := TIntEntity.Create;
+      B := TIntEntity.Create;
+      Ctx.Entities<TIntEntity>.Add(A);
+      Ctx.Entities<TIntEntity>.Add(B);
+      Ctx.SaveChanges;
+
+      Should(A.Id).Be(1);
+      Should(B.Id).Be(2);
+    finally
+      Ctx.Free;
+    end;
+  finally
+    Options.Free;
   end;
 end;
 

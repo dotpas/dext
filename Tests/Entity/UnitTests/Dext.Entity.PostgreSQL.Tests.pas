@@ -81,6 +81,23 @@ type
     property Items: IDbSet<TPgArrayThing> read GetItems;
   end;
 
+  // The only mapped column is the generated key: the INSERT has nothing to write.
+  [Table('pg_only_key')]
+  TPgOnlyKey = class
+  private
+    FId: Integer;
+  public
+    [PrimaryKey, AutoInc]
+    property Id: Integer read FId write FId;
+  end;
+
+  TPgOnlyKeyDb = class(TDbContext)
+  private
+    function GetItems: IDbSet<TPgOnlyKey>;
+  public
+    property Items: IDbSet<TPgOnlyKey> read GetItems;
+  end;
+
   TPgSchemaDb = class(TDbContext)
   private
     function GetThings: IDbSet<TPgSchemaThing>;
@@ -110,6 +127,9 @@ type
     [Test]
     [Description('Several entities with a TArray (jsonb) are inserted in one SaveChanges')]
     procedure Arrays_Of_Several_Entities_Are_Inserted_Together;
+    [Test]
+    [Description('An entity whose only column is the generated key is inserted with DEFAULT VALUES')]
+    procedure Entity_With_Only_The_Generated_Key_Is_Inserted;
   end;
 
 implementation
@@ -329,6 +349,43 @@ begin
   finally
     Db.Free;
   end;
+end;
+
+procedure TPostgreSQLSchemaTests.Entity_With_Only_The_Generated_Key_Is_Inserted;
+var
+  Db: TPgOnlyKeyDb;
+  First, Second: TPgOnlyKey;
+begin
+  if Connection = '' then
+    Exit; // no server configured
+
+  if GLink = nil then
+    NewDb.Free;
+  Db := TPgOnlyKeyDb.Create(DbContextOptions.UsePostgreSQL(Connection));
+  try
+    Db.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_g CASCADE').Execute;
+    Db.Connection.CreateCommand('CREATE SCHEMA dext_ut_g').Execute;
+    Db.Connection.CreateCommand('SET search_path TO dext_ut_g').Execute;
+    Db.EnsureCreated;
+
+    First := TPgOnlyKey.Create;
+    Second := TPgOnlyKey.Create;
+    Db.Items.Add(First);
+    Db.Items.Add(Second);
+    Should(Db.SaveChanges).Be(2);
+
+    // The key comes back through RETURNING.
+    Should(First.Id).Be(1);
+    Should(Second.Id).Be(2);
+    Db.Connection.CreateCommand('DROP SCHEMA dext_ut_g CASCADE').Execute;
+  finally
+    Db.Free;
+  end;
+end;
+
+function TPgOnlyKeyDb.GetItems: IDbSet<TPgOnlyKey>;
+begin
+  Result := Entities<TPgOnlyKey>;
 end;
 
 function TPgGuidBatchDb.GetItems: IDbSet<TPgGuidBatch>;

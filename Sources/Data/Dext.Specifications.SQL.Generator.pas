@@ -2035,8 +2035,12 @@ begin
        end;
     end;
 
-    Result := Format('INSERT INTO %s (%s) VALUES (%s)', 
-      [GetTableName, SBCols.ToString, SBVals.ToString]);
+    if SBCols.Length = 0 then
+      // Nothing to write (only the auto-increment key is mapped).
+      Result := FDialect.GetInsertDefaultValuesSQL(GetTableName)
+    else
+      Result := Format('INSERT INTO %s (%s) VALUES (%s)', 
+        [GetTableName, SBCols.ToString, SBVals.ToString]);
       
   finally
     SBCols.Free;
@@ -2112,8 +2116,12 @@ begin
       SBVals.Append(ValueSQL);
     end;
     
-    Result := Format('INSERT INTO %s (%s) VALUES (%s)', 
-      [GetTableName, SBCols.ToString, SBVals.ToString]);
+    if SBCols.Length = 0 then
+      // Nothing to write (only the auto-increment key is mapped).
+      Result := FDialect.GetInsertDefaultValuesSQL(GetTableName)
+    else
+      Result := Format('INSERT INTO %s (%s) VALUES (%s)', 
+        [GetTableName, SBCols.ToString, SBVals.ToString]);
       
   finally
     SBCols.Free;
