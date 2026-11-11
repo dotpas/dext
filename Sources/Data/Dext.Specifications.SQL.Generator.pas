@@ -3259,10 +3259,18 @@ var
   HIdx: Integer;
   CurMap, RootMap, SubMap: TEntityMap;
   DiscValue: Variant;
+  FKCols: IList<string>;
+  NavMap, FKMap, OtherNav, TgtPropMap: TPropertyMap;
+  TgtMap, OtherMap: TEntityMap;
+  FKRtti, NavRtti: TRttiProperty;
+  TgtClass: TClass;
+  FKCol, TgtTable, TgtSchema, TgtPK, TgtPKProp, TgtFull: string;
+  OnDeleteAction: TCascadeAction;
 begin
   SB := TStringBuilder.Create;
   PKCols := TCollections.CreateList<string>;
   FKConstraints := TCollections.CreateList<string>;
+  FKCols := TCollections.CreateList<string>;
   HierTypes := TCollections.CreateList<TRttiType>;
   HierMaps := TCollections.CreateList<TEntityMap>;
   Emitted := TCollections.CreateList<string>;
@@ -3414,6 +3422,7 @@ begin
                    LConstraint := LConstraint + ' ON UPDATE ' + TSQLGeneratorHelper.GetCascadeSQL(FK.OnUpdate);
                    
                  FKConstraints.Add(LConstraint);
+                 FKCols.Add(LLocalCol);
              end;
         end;
         
@@ -3609,6 +3618,96 @@ begin
       SB.Append(')');
     end;
     
+    // Foreign keys declared in the fluent model: BelongsTo / HasOne with
+    // HasForeignKey, when the key column is on this entity.
+    if (FMap <> nil) and (RootMap = nil) then
+    begin
+      Typ := TReflection.Context.GetType(T);
+      for NavMap in FMap.Properties.Values do
+      begin
+        if (not NavMap.IsNavigation) or (NavMap.ForeignKeyColumn = '') then Continue;
+        if not (NavMap.Relationship in [rtManyToOne, rtOneToOne]) then Continue;
+        FKRtti := Typ.GetProperty(NavMap.ForeignKeyColumn);
+        NavRtti := Typ.GetProperty(NavMap.PropertyName);
+        if (FKRtti = nil) or (NavRtti = nil) then Continue;
+        if NavRtti.PropertyType.TypeKind <> tkClass then Continue;
+
+        FKCol := FKRtti.Name;
+        if FMap.Properties.TryGetValue(FKRtti.Name, FKMap) and (FKMap.ColumnName <> '') then
+          FKCol := FKMap.ColumnName;
+        if (FKCol = FKRtti.Name) and (FNamingStrategy <> nil) then
+          FKCol := FNamingStrategy.GetColumnName(FKRtti);
+        if FKCols.Contains(FKCol) then Continue;
+
+        // The referenced table and key: from the model, else from attributes
+        TgtClass := NavRtti.PropertyType.AsInstance.MetaclassType;
+        TgtTable := '';
+        TgtSchema := '';
+        TgtPK := '';
+        TgtMap := nil;
+        if TModelBuilder.Instance.HasMap(TgtClass.ClassInfo) then
+          TgtMap := TModelBuilder.Instance.GetMap(TgtClass.ClassInfo);
+        if (TgtMap <> nil) and (TgtMap.TableName <> '') then
+        begin
+          TgtTable := TgtMap.TableName;
+          TgtSchema := TgtMap.Schema;
+        end;
+        if TgtMap <> nil then
+        begin
+          TgtPKProp := NavMap.PrincipalKey;
+          if TgtPKProp = '' then
+            for TgtPropMap in TgtMap.Properties.Values do
+              if TgtPropMap.IsPK then
+              begin
+                TgtPKProp := TgtPropMap.PropertyName;
+                Break;
+              end;
+          if (TgtPKProp <> '') and TgtMap.Properties.TryGetValue(TgtPKProp, TgtPropMap) then
+          begin
+            TgtPK := TgtPropMap.ColumnName;
+            if (TgtPK = '') or ((TgtPK = TgtPKProp) and (FNamingStrategy <> nil)) then
+              TgtPK := FNamingStrategy.GetColumnName(
+                TReflection.Context.GetType(TgtClass).GetProperty(TgtPKProp));
+          end;
+        end;
+        if (TgtTable = '') or (TgtPK = '') then
+        begin
+          if not TSQLGeneratorHelper.GetRelatedTableAndPK(TgtClass, RelatedTable,
+            RelatedSchema, RelatedPK, FNamingStrategy) then Continue;
+          if TgtTable = '' then
+          begin
+            TgtTable := RelatedTable;
+            TgtSchema := RelatedSchema;
+          end;
+          if TgtPK = '' then TgtPK := RelatedPK;
+        end;
+
+        TgtFull := TgtTable;
+        if TgtSchema <> '' then TgtFull := TgtSchema + '.' + TgtTable;
+        LConstraint := Format('FOREIGN KEY (%s) REFERENCES %s (%s)',
+          [FDialect.QuoteIdentifier(FKCol), FDialect.QuoteIdentifier(TgtFull),
+           FDialect.QuoteIdentifier(TgtPK)]);
+
+        // ON DELETE: declared on this side, or on the collection of the other
+        OnDeleteAction := NavMap.DeleteBehavior;
+        if (OnDeleteAction = caNoAction) and (TgtMap <> nil) then
+          for OtherMap in TModelBuilder.Instance.GetMaps do
+            if OtherMap = TgtMap then
+              for OtherNav in OtherMap.Properties.Values do
+                if OtherNav.IsNavigation and (OtherNav.Relationship = rtOneToMany) and
+                   SameText(OtherNav.ForeignKeyColumn, FKRtti.Name) and
+                   (OtherNav.DeleteBehavior <> caNoAction) and
+                   ((OtherNav.InverseProperty = '') or
+                    SameText(OtherNav.InverseProperty, NavMap.PropertyName)) then
+                  OnDeleteAction := OtherNav.DeleteBehavior;
+        if OnDeleteAction <> caNoAction then
+          LConstraint := LConstraint + ' ON DELETE ' + TSQLGeneratorHelper.GetCascadeSQL(OnDeleteAction);
+
+        FKConstraints.Add(LConstraint);
+        FKCols.Add(FKCol);
+      end;
+    end;
+
     // Add FK Constraints
     for Constraint in FKConstraints do
     begin
@@ -3619,6 +3718,7 @@ begin
     Result := FDialect.GetCreateTableSQL(ATableName, Body);
   finally
     FKConstraints := nil;
+    FKCols := nil;
     PKCols := nil;
     SB.Free;
   end;

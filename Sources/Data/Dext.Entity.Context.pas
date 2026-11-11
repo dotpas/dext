@@ -235,6 +235,7 @@ type
     procedure ApplyTenantConfig(ACreateSchema: Boolean = False);
     function GetModelBuilder: TModelBuilder;
     procedure EnsureSequence(const ASequenceName: string; AAllocationSize: Integer = 1);
+    function FluentDependencies(const AType: PTypeInfo): TArray<PTypeInfo>;
     function GetSortedTypes(const ATypes: TArray<PTypeInfo>): IList<PTypeInfo>;
   protected
     // IDbContext Implementation
@@ -1042,6 +1043,13 @@ begin
       end;
     end;
     
+    // Relationships declared in the fluent model also order the creation
+    for Node in Nodes do
+      for DepType in FluentDependencies(Node.TypeInfo) do
+        if FCache.ContainsKey(DepType) and (DepType <> Node.TypeInfo) and
+           (not Node.Dependencies.Contains(DepType)) then
+          Node.Dependencies.Add(DepType);
+
     // 2. Topological Sort / Execution
     while Nodes.Count > 0 do
     begin
@@ -1186,6 +1194,35 @@ begin
   inherited;
 end;
 
+// The entities that a type depends on through BelongsTo / HasOne relationships
+// of the fluent model whose key column is on the type itself.
+function TDbContext.FluentDependencies(const AType: PTypeInfo): TArray<PTypeInfo>;
+var
+  Map: TEntityMap;
+  NavMap: TPropertyMap;
+  Typ: TRttiType;
+  NavProp: TRttiProperty;
+  Deps: IList<PTypeInfo>;
+begin
+  Deps := TCollections.CreateList<PTypeInfo>;
+  Map := nil;
+  if FModelBuilder.HasMap(AType) then
+    Map := FModelBuilder.GetMap(AType);
+  Typ := TReflection.Context.GetType(AType);
+  if (Map <> nil) and (Typ <> nil) then
+    for NavMap in Map.Properties.Values do
+      if NavMap.IsNavigation and (NavMap.ForeignKeyColumn <> '') and
+         (NavMap.Relationship in [rtManyToOne, rtOneToOne]) and
+         (Typ.GetProperty(NavMap.ForeignKeyColumn) <> nil) then
+      begin
+        NavProp := Typ.GetProperty(NavMap.PropertyName);
+        if (NavProp <> nil) and (NavProp.PropertyType.TypeKind = tkClass) and
+           (not Deps.Contains(NavProp.PropertyType.Handle)) then
+          Deps.Add(NavProp.PropertyType.Handle);
+      end;
+  Result := Deps.ToArray;
+end;
+
 function TDbContext.GetSortedTypes(const ATypes: TArray<PTypeInfo>): IList<PTypeInfo>;
 var
   Nodes: IList<TEntityNode>;
@@ -1245,6 +1282,12 @@ begin
         end;
       end;
     end;
+
+    for Node in Nodes do
+      for DepType in FluentDependencies(Node.TypeInfo) do
+        if (DepType <> Node.TypeInfo) and LTypesList.Contains(DepType) and
+           (not Node.Dependencies.Contains(DepType)) then
+          Node.Dependencies.Add(DepType);
 
     while Nodes.Count > 0 do
     begin

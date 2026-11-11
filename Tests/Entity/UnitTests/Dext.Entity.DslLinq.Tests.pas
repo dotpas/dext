@@ -170,6 +170,10 @@ type
     procedure Entry_Load_Works_With_Smart_Property_Keys;
     [Test]
     procedure Include_Follows_A_Nested_Path;
+    [Test]
+    procedure EnsureCreated_Declares_The_Fluent_Foreign_Key;
+    [Test]
+    procedure Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
 
     // Select
     [Test]
@@ -1641,7 +1645,7 @@ begin
     .Table('fl_books')
     .HasKey('Id');
   Builder.Entity<TFlBook>
-    .BelongsTo('Author').HasForeignKey('AuthorId');
+    .BelongsTo('Author').HasForeignKey('AuthorId').OnDelete(caCascade);
   Builder.Entity<TFlAuthor>
     .HasMany('Books').WithOne('Author').HasForeignKey('AuthorId');
 end;
@@ -1650,6 +1654,68 @@ constructor TFlAuthor.Create;
 begin
   inherited Create;
   FBooks := TCollections.CreateList<TFlBook>(False);
+end;
+
+procedure TDslLinqTests.EnsureCreated_Declares_The_Fluent_Foreign_Key;
+var
+  Db: TFlDb;
+  Script: string;
+begin
+  Db := TFlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlAuthor>;
+    Db.Entities<TFlBook>;
+    Script := Db.Entities<TFlBook>.GenerateCreateTableScript;
+    Should(Script).Contain('FOREIGN KEY ("AuthorId") REFERENCES "fl_authors" ("Id") ON DELETE CASCADE');
+    // The principal side has no column for the relationship
+    Should(Db.Entities<TFlAuthor>.GenerateCreateTableScript).NotContain('FOREIGN KEY');
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
+var
+  Db: TFlDb;
+  A: TFlAuthor;
+  B: TFlBook;
+begin
+  Db := TFlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlAuthor>;
+    Db.Entities<TFlBook>;
+    Db.Connection.CreateCommand('PRAGMA foreign_keys = ON').ExecuteNonQuery;
+    Db.EnsureCreated;
+
+    // The book is added first: the context must still write the author first
+    B := TFlBook.Create;
+    B.Id := 1;
+    B.AuthorId := 1;
+    B.Title := 'Dext';
+    Db.Entities<TFlBook>.Add(B);
+    A := TFlAuthor.Create;
+    A.Id := 1;
+    A.Name := 'Ana';
+    Db.Entities<TFlAuthor>.Add(A);
+    Should(Db.SaveChanges).Be(2);
+
+    // The database refuses a book of an author that does not exist
+    B := TFlBook.Create;
+    B.Id := 2;
+    B.AuthorId := 99;
+    B.Title := 'Orfao';
+    Db.Entities<TFlBook>.Add(B);
+    Should(procedure begin Db.SaveChanges; end).Throw<Exception>;
+    Db.Clear;
+
+    // ON DELETE CASCADE removes the book with its author
+    Db.Entities<TFlAuthor>.Remove(Db.Entities<TFlAuthor>.Find(1));
+    Db.SaveChanges;
+    Db.Clear;
+    Should(Db.Entities<TFlBook>.Find(1) = nil).BeTrue;
+  finally
+    Db.Free;
+  end;
 end;
 
 procedure TDslLinqTests.Include_Follows_A_Nested_Path;
