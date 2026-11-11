@@ -2955,8 +2955,9 @@ begin
         raise;
       end;
     end;
-    // The DELETE of a versioned row also compares the version
-    if (RowsAffected = 0) and HasVersionColumn then
+    // A DELETE that matches no row (already gone, another version, or a row the
+    // tenant filter hides) must not pass silently, as an UPDATE does not.
+    if RowsAffected = 0 then
       raise EOptimisticConcurrencyException.Create('Concurrency violation: The record has been modified or deleted by another user.');
     FIdentityMap.Remove(GetEntityId(T(AEntity)));
   finally

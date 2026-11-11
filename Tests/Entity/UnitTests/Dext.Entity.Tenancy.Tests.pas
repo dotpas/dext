@@ -55,6 +55,30 @@ type
     procedure Test_ReadAfterTenantSwitch_ShouldUseTheTenantDatabase;
   end;
 
+  [Fixture]
+  [Category('ORM'), Category('Integration'), Category('Tenancy')]
+  TTenancyWriteTests = class
+  private
+    FProvider: ITenantProvider;
+    FDb: TTenantNotesContext;
+    FTenantA: ITenant;
+    FTenantB: ITenant;
+    function RowCount: Integer;
+    function ErrorClassOf(const AAction: TProc): string;
+  public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure Test_Update_OfAnotherTenantsRow_ShouldRaiseConcurrencyError;
+    [Test]
+    procedure Test_Delete_OfAnotherTenantsRow_ShouldRaiseConcurrencyError;
+    [Test]
+    procedure Test_Delete_OfARowAlreadyGone_ShouldRaiseConcurrencyError;
+  end;
+
 implementation
 
 { TTenantNotesContext }
@@ -120,4 +144,99 @@ begin
   end;
 end;
 
+{ TTenancyWriteTests }
+
+procedure TTenancyWriteTests.Setup;
+var
+  Note: TTenantNote;
+begin
+  FProvider := TTenantProvider.Create;
+  FTenantA := TTenant.Create('a', 'A', '');
+  FTenantB := TTenant.Create('b', 'B', '');
+  FDb := TTenantNotesContext.Create(DbContextOptions.UseSQLite(':memory:'), FProvider);
+  FDb.Notes;
+  FDb.EnsureCreated;
+  FProvider.Tenant := FTenantA;
+  Note := TTenantNote.Create;
+  Note.Id := 1;
+  Note.Text := 'from A';
+  FDb.Notes.Add(Note);
+  FDb.SaveChanges;
+  FDb.Clear;
+end;
+
+procedure TTenancyWriteTests.TearDown;
+begin
+  FDb.Free;
+  FProvider := nil;
+end;
+
+function TTenancyWriteTests.RowCount: Integer;
+var
+  Reader: IDbReader;
+begin
+  Reader := FDb.Connection.CreateCommand('SELECT COUNT(*) FROM tenant_notes').ExecuteQuery;
+  Reader.Next;
+  Result := Reader.GetValue(0).AsInteger;
+end;
+
+function TTenancyWriteTests.ErrorClassOf(const AAction: TProc): string;
+begin
+  Result := '';
+  try
+    AAction();
+  except
+    on E: Exception do
+      Result := E.ClassName;
+  end;
+end;
+
+procedure TTenancyWriteTests.Test_Update_OfAnotherTenantsRow_ShouldRaiseConcurrencyError;
+var
+  Note: TTenantNote;
+begin
+  Note := FDb.Notes.Find(1);
+  FProvider.Tenant := FTenantB;
+  Note.Text := 'changed by B';
+
+  Should(ErrorClassOf(
+    procedure
+    begin
+      FDb.SaveChanges;
+    end)).Be('EOptimisticConcurrencyException');
+end;
+
+procedure TTenancyWriteTests.Test_Delete_OfAnotherTenantsRow_ShouldRaiseConcurrencyError;
+var
+  Note: TTenantNote;
+begin
+  Note := FDb.Notes.Find(1);
+  FProvider.Tenant := FTenantB;
+  FDb.Notes.Remove(Note);
+
+  Should(ErrorClassOf(
+    procedure
+    begin
+      FDb.SaveChanges;
+    end)).Be('EOptimisticConcurrencyException');
+  // The row of tenant A is untouched.
+  Should(RowCount).Be(1);
+end;
+
+procedure TTenancyWriteTests.Test_Delete_OfARowAlreadyGone_ShouldRaiseConcurrencyError;
+var
+  Note: TTenantNote;
+begin
+  Note := FDb.Notes.Find(1);
+  FDb.Connection.CreateCommand('DELETE FROM tenant_notes WHERE Id = 1').ExecuteNonQuery;
+  FDb.Notes.Remove(Note);
+
+  Should(ErrorClassOf(
+    procedure
+    begin
+      FDb.SaveChanges;
+    end)).Be('EOptimisticConcurrencyException');
+end;
+
 end.
+

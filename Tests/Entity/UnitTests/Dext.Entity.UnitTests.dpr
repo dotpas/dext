@@ -94,6 +94,7 @@ begin
         TSoftDeleteIntegrationTests,
         TAuditInterceptorTests,
         TTenancyConnectionSwitchTests,
+        TTenancyWriteTests,
         TEntityValidationTests,
         TFluentQueryTests,
         TDynamicQueryFilterUnitTests,

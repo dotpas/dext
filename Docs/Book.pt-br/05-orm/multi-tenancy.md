@@ -41,38 +41,35 @@ Ao salvar uma nova entidade que implementa `ITenantAware`, o `DbContext` preench
 
 Isso garante que, mesmo que você esqueça de setar o ID do tenant em sua lógica de negócio, os dados permanecerão isolados e seguros.
 
-## Configuração do Tenant via Middleware
+## Informando o Locatário
 
-O framework resolve o tenant atual através da requisição (Header, Host, Query, etc):
+O locatário corrente fica num `ITenantProvider` (`TTenantProvider` é a implementação pronta), que é passado ao construtor do `TDbContext`. O `TTenant.Create` recebe o id, o nome, a cadeia de conexão e, opcionalmente, o esquema:
 
 ```pascal
-App.UseMultiTenancy(procedure(Options: TMultiTenancyOptions)
-  begin
-    // Resolver tenant a partir do header 'X-Tenant'
-    Options.ResolveFromHeader('X-Tenant');
-  end);
+Provider := TTenantProvider.Create;
+Provider.Tenant := TTenant.Create('acme', 'Acme Corp', '');
+Db := TMyDb.Create(DbContextOptions.UseSQLite('app.db'), Provider);
 ```
 
-## Isolamento por Schema (Dynamic Schema)
+Trocar de locatário é atribuir `Provider.Tenant`. O `ITenant.Properties` é um dicionário de textos para configurações por locatário (taxas, limites, chaves de recurso) que o código do aplicativo pode ler.
 
-Para maior segurança e performance, você pode usar esquemas separados (ex: PostgreSQL `search_path` ou SQL Server schemas). O Dext implementa isso através de **Dynamic Schema Resolution**:
+Numa aplicação web, o `TMultiTenancyMiddleware` (`Dext.Web.MultiTenancy`) resolve o locatário a cada requisição: uma `ITenantResolutionStrategy` extrai o id do locatário do `IHttpContext` (cabeçalho, host, query, o que o aplicativo definir), um `ITenantStore` devolve o `ITenant` desse id, e o middleware o grava no `ITenantProvider` do escopo. As duas interfaces são implementadas pelo aplicativo.
 
-1. **Configuração**:
-   ```pascal
-   App.UseMultiTenancy(procedure(Options: TMultiTenancyOptions)
-     begin
-       Options.Strategy := TTenancyStrategy.Schema;
-       Options.ResolveFromHeader('X-Tenant');
-     end);
-   ```
+> ⚠️ Se a estratégia devolve um id vazio, ou o store não o conhece, o provedor fica **sem locatário**, e um contexto sem locatário **não filtra** (veja abaixo). Rejeite essas requisições antes de qualquer consulta.
 
-2. **Como Funciona**:
-   - Quando o `DbContext` inicia uma operação, ele executa automaticamente um comando de troca de contexto (ex: `SET search_path = tenant1, public`) na conexão.
-   - O SQL gerado permanece limpo e amigável (ex: `SELECT * FROM clientes`), permitindo que o próprio banco de dados resolva a tabela no esquema correto.
-   - Isso garante que o plano de execução do banco seja otimizado e que os logs de SQL sejam consistentes.
+## Comportamento
 
-3. **Design-Time**:
-   O isolamento por esquema também funciona no **Delphi IDE**. Ao configurar o parâmetro `MetaCurSchema` ou `Schema` em um `TFDConnection`, o `TEntityDataSet` e o `TEntityDataProvider` respeitarão o contexto de inquilino durante o "Preview Data".
+- **Carimbo:** ao acrescentar uma entidade `ITenantAware`, o contexto grava o `TenantId` do locatário corrente, substituindo qualquer valor que o código tenha atribuído.
+- **Consultas:** toda consulta e todo `Find` de uma entidade `ITenantAware` é filtrado pelo locatário corrente, inclusive depois de uma troca de locatário no mesmo contexto.
+- **Sem locatário, sem filtro:** sem locatário no provedor, nada é filtrado nem carimbado.
+- **`IgnoreQueryFilters`** também desliga o filtro do locatário (e o carimbo) naquela consulta.
+- **Escritas:** `UPDATE` e `DELETE` levam o locatário no `WHERE`. A linha de outro locatário não é tocada, e o `SaveChanges` lança `EOptimisticConcurrencyException`, na alteração e na remoção (um `DELETE` que não encontra linha deixou de passar em silêncio). As remoções executadas em lote não informam as linhas não encontradas.
+- **SQL escrito à mão** (`Connection.CreateCommand`) não é filtrado: inclua o locatário no `WHERE`.
+- **Rastreador:** trocar de locatário não esvazia as entidades rastreadas do contexto. Use um contexto por locatário e por requisição, ou chame `Clear` na troca.
+
+## Esquema ou Banco por Locatário
+
+Quando o `ITenant` tem `Schema`, o contexto o cria no `EnsureCreated` e aponta a conexão para ele antes das operações (o dialeto do PostgreSQL executa `SET search_path TO "esquema", public`; cada dialeto tem o seu comando). Quando tem `ConnectionString` (formato do FireDAC, por exemplo `DriverID=SQLite;Database=...`), o contexto reconecta com ela quando o locatário muda. As duas são aplicadas antes das consultas e antes das escritas. As tabelas dessas estratégias não precisam da coluna `TenantId`.
 
 ## Vantagens do Multi-Tenancy no Dext
 

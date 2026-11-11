@@ -583,28 +583,33 @@ type
   // Or inherit from TTenantEntity
 ```
 
-Configure in pipeline:
+Provide the tenant with an `ITenantProvider` passed to the context constructor:
 
 ```pascal
-App.Builder.UseMultiTenancy(procedure(Options: TMultiTenancyOptions)
-  begin
-    Options.ResolveFromHeader('X-Tenant'); // or ResolveFromHost
-  end);
+Provider := TTenantProvider.Create;
+Provider.Tenant := TTenant.Create('acme', 'Acme Corp', '');
+Db := TMyDb.Create(DbContextOptions.UseSQLite('app.db'), Provider);
 ```
 
-All queries automatically get `WHERE TenantId = 'current-tenant'`.
+In a web app, `TMultiTenancyMiddleware` (`Dext.Web.MultiTenancy`) fills the scoped provider from an app-implemented `ITenantResolutionStrategy` and `ITenantStore`. If the tenant is not resolved, the provider has no tenant and **queries are not filtered**: reject the request first.
 
-**S68:** `GenerateUpdate` / `GenerateDelete` (and batch templates) also append `AND TenantId = :…` for `ITenantAware` / `TTenantEntity` when an `ITenantProvider` is set. Use `.IgnoreQueryFilters` to bypass.
+All queries and `Find` automatically get `WHERE TenantId = 'current-tenant'`, and added entities are stamped with the current tenant (replacing any assigned value).
 
-### Strategy 2: Schema Isolation
+`GenerateUpdate` / `GenerateDelete` (and batch templates) also append `AND TenantId = :…`. A row of another tenant is not touched and `SaveChanges` raises `EOptimisticConcurrencyException` for updates and deletes (bulk batch deletes do not report unmatched rows). `.IgnoreQueryFilters` bypasses the tenant filter and the stamp, like the soft-delete filter. Raw SQL is not filtered. Switching tenant does not clear the tracker: one context per tenant/request, or `Clear`.
+
+### Strategy 2: Schema Isolation / Strategy 3: Database per Tenant
 
 ```pascal
-App.Builder.UseMultiTenancy(procedure(Options: TMultiTenancyOptions)
-  begin
-    Options.Strategy := TTenancyStrategy.Schema;
-    Options.ResolveFromHost; // customer1.myapp.com → schema "customer1"
-  end);
+// Schema per tenant: EnsureCreated creates it, the connection is switched to it
+Provider.Tenant := TTenant.Create('customer1', 'Customer 1', '', 'customer1');
+Db.EnsureCreated;
+
+// Database per tenant: the context reconnects when the tenant changes
+Provider.Tenant := TTenant.Create('customer2', 'Customer 2',
+  'DriverID=SQLite;Database=customer2.db');
 ```
+
+The schema (PostgreSQL: `SET search_path`) or the connection is applied before queries and writes. Schema switching is dialect-specific.
 
 ## Dynamic Query Filters
 
