@@ -65,6 +65,8 @@ var
   RProp: TRttiProperty;
   Attr: TableAttribute;
   Maps: TArray<TEntityMap>; 
+  RenamedAttr: RenamedFromAttribute;
+  RField: TRttiField;
 begin
   Result := TSnapshotModel.Create;
   
@@ -100,6 +102,11 @@ begin
       Table.Name := String(Map.EntityType.Name).Substring(1); // Remove 'T'
     end;
     
+    // [RenamedFrom] on the class: the table was renamed
+    RenamedAttr := RType.GetAttribute<RenamedFromAttribute>;
+    if RenamedAttr <> nil then
+      Table.RenamedFrom := RenamedAttr.OldName;
+
     // Iterate Properties
     for RProp in RType.GetProperties do
     begin
@@ -143,6 +150,17 @@ begin
       // Note: We need PTypeInfo.
       // TRttiProperty.PropertyType.Handle gives PTypeInfo.
       Col.ColumnType := AContext.Dialect.GetColumnType(RProp.PropertyType.Handle, Col.IsIdentity);
+
+      // [RenamedFrom] on the property, or on its backing field FName
+      RenamedAttr := RProp.GetAttribute<RenamedFromAttribute>;
+      if RenamedAttr = nil then
+      begin
+        RField := RType.GetField('F' + RProp.Name);
+        if RField <> nil then
+          RenamedAttr := RField.GetAttribute<RenamedFromAttribute>;
+      end;
+      if RenamedAttr <> nil then
+        Col.RenamedFrom := RenamedAttr.OldName;
       
       Table.Columns.Add(Col);
     end;

@@ -5,12 +5,43 @@ interface
 uses
   Dext.Collections,
   Dext.Testing,
+  Dext.Entity,
+  Dext.Entity.Attributes,
+  Dext.Entity.Core,
+  Dext.Entity.Setup,
+  Dext.Entity.Migrations.Extractor,
+  FireDAC.Phys.SQLite,
+  FireDAC.Stan.Def,
+  FireDAC.Stan.Async,
+  FireDAC.Phys.SQLiteWrapper.Stat,
+  Dext.Entity.Drivers.FireDAC,
   Dext.Entity.Migrations.Model,
   Dext.Entity.Migrations.Differ,
   Dext.Entity.Migrations.Operations,
   System.SysUtils;
 
 type
+  {$M+}
+  [Table('Users'), RenamedFrom('LegacyUsers')]
+  TRenamedUser = class
+  private
+    FId: Integer;
+    FName: string;
+    FMail: string;
+  public
+    [PK]
+    property Id: Integer read FId write FId;
+    [RenamedFrom('Full_Name')]
+    property Name: string read FName write FName;
+    property Mail: string read FMail write FMail;
+  end;
+  {$M-}
+
+  TRenamedModelContext = class(TDbContext)
+  public
+    function Users: IDbSet<TRenamedUser>;
+  end;
+
   [TestFixture]
   TMigrationTests = class
   public
@@ -18,11 +49,44 @@ type
     procedure Test_Rename_Table_Detection;
     [Test]
     procedure Test_Rename_Column_Detection;
+    [Test]
+    procedure Test_Extractor_ReadsRenamedFromAttributes;
   end;
 
 implementation
 
+{ TRenamedModelContext }
+
+function TRenamedModelContext.Users: IDbSet<TRenamedUser>;
+begin
+  Result := Entities<TRenamedUser>;
+end;
+
 { TMigrationTests }
+
+procedure TMigrationTests.Test_Extractor_ReadsRenamedFromAttributes;
+var
+  Db: TRenamedModelContext;
+  Model: TSnapshotModel;
+  Table: TSnapshotTable;
+begin
+  Db := TRenamedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Users;
+    Model := TDbContextModelExtractor.Extract(Db);
+    try
+      Table := Model.FindTable('Users');
+      Should(Table <> nil).BeTrue;
+      Should(Table.RenamedFrom).Be('LegacyUsers');
+      Should(Table.FindColumn('Name').RenamedFrom).Be('Full_Name');
+      Should(Table.FindColumn('Mail').RenamedFrom).Be('');
+    finally
+      Model.Free;
+    end;
+  finally
+    Db.Free;
+  end;
+end;
 
 procedure TMigrationTests.Test_Rename_Table_Detection;
 var
