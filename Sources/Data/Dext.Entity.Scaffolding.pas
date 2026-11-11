@@ -290,7 +290,8 @@ begin
       Qry.Connection := FDConn;
       Qry.SQL.Text := 
         'SELECT table_name, column_name, data_type, character_maximum_length, ' +
-        '       numeric_precision, numeric_scale, is_nullable, column_default ' +
+        '       numeric_precision, numeric_scale, is_nullable, column_default, ' +
+        '       is_identity ' +
         'FROM information_schema.columns ' +
         'WHERE table_schema = :schema ' +
         'ORDER BY table_name, ordinal_position';
@@ -316,7 +317,10 @@ begin
         LCol.Scale := Qry.FieldByName('numeric_scale').AsInteger;
         LCol.IsNullable := SameText(Qry.FieldByName('is_nullable').AsString, 'YES');
         LCol.IsPrimaryKey := False;
-        LCol.IsAutoInc := Qry.FieldByName('column_default').AsString.Contains('nextval');
+        // SERIAL columns default to nextval(...); GENERATED AS IDENTITY
+        // columns have no default and are flagged by is_identity.
+        LCol.IsAutoInc := Qry.FieldByName('column_default').AsString.Contains('nextval') or
+          SameText(Qry.FieldByName('is_identity').AsString, 'YES');
 
         LTable.Columns := LTable.Columns + [LCol];
         FCache.AddOrSetValue(LFullTableName, LTable);
