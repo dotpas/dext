@@ -46,6 +46,7 @@ type
   TMigrationGenerator = class
   private
     class function GenerateOperation(Op: TMigrationOperation): string;
+    class function GenerateInverse(Op: TMigrationOperation): string;
     class function GenerateColumnDefinition(Col: TColumnDefinition; const Indent: string): string;
     class function GenerateCreateTable(Op: TCreateTableOperation): string;
     class function GenerateAddColumn(Op: TAddColumnOperation): string;
@@ -97,6 +98,7 @@ var
   SB: TStringBuilder;
   Op: TMigrationOperation;
   ID, Code: string;
+  i: Integer;
 begin
   SB := TStringBuilder.Create;
   try
@@ -105,7 +107,8 @@ begin
     SB.AppendLine('interface');
     SB.AppendLine('');
     SB.AppendLine('uses');
-    SB.AppendLine('  Dext.Entity.Migrations;');
+    SB.AppendLine('  Dext.Entity.Migrations,');
+    SB.AppendLine('  Dext.Entity.Migrations.Builder;');
     SB.AppendLine('');
     SB.AppendLine('type');
     SB.AppendLine('  ' + AClassName + ' = class(TInterfacedObject, IMigration)');
@@ -147,9 +150,10 @@ begin
     // Down
     SB.AppendLine('procedure ' + AClassName + '.Down(Builder: TSchemaBuilder);');
     SB.AppendLine('begin');
-    SB.AppendLine('  // TODO: Implement Down migration');
-    // Generating Down logic requires the inverse operations or the previous state.
-    // For now, we leave it as a TODO or we could try to reverse simple operations.
+    // The inverse of each operation, in reverse order. What cannot be undone
+    // without the previous definition becomes an "Irreversible" comment.
+    for i := Ops.Count - 1 downto 0 do
+      SB.AppendLine('  ' + GenerateInverse(Ops[i]));
     SB.AppendLine('end;');
     SB.AppendLine('');
     
@@ -173,6 +177,20 @@ begin
     otDropColumn: Result := GenerateDropColumn(TDropColumnOperation(Op));
     otCreateIndex: Result := GenerateCreateIndex(TCreateIndexOperation(Op));
     otAddForeignKey: Result := GenerateAddForeignKey(TAddForeignKeyOperation(Op));
+    otAlterColumn:
+      Result := Format('Builder.AlterColumn(%s, %s, %s);',
+        [QuoteString(TAlterColumnOperation(Op).TableName),
+         QuoteString(TAlterColumnOperation(Op).Column.Name),
+         QuoteString(TAlterColumnOperation(Op).Column.ColumnType)]);
+    otRenameTable:
+      Result := Format('Builder.RenameTable(%s, %s);',
+        [QuoteString(TRenameTableOperation(Op).OldName),
+         QuoteString(TRenameTableOperation(Op).NewName)]);
+    otRenameColumn:
+      Result := Format('Builder.RenameColumn(%s, %s, %s);',
+        [QuoteString(TRenameColumnOperation(Op).TableName),
+         QuoteString(TRenameColumnOperation(Op).OldName),
+         QuoteString(TRenameColumnOperation(Op).NewName)]);
     // TODO: Implement others
     else Result := '// Unsupported operation: ' + GetEnumName(TypeInfo(TOperationType), Integer(Op.OperationType));
   end;
@@ -308,6 +326,44 @@ begin
   end
   else
     Result := '// Unsupported composite FK in generator yet';
+end;
+
+class function TMigrationGenerator.GenerateInverse(Op: TMigrationOperation): string;
+begin
+  case Op.OperationType of
+    otCreateTable:
+      Result := 'Builder.DropTable(' + QuoteString(TCreateTableOperation(Op).Name) + ');';
+    otAddColumn:
+      Result := Format('Builder.DropColumn(%s, %s);',
+        [QuoteString(TAddColumnOperation(Op).TableName),
+         QuoteString(TAddColumnOperation(Op).Column.Name)]);
+    otCreateIndex:
+      Result := Format('Builder.DropIndex(%s, %s);',
+        [QuoteString(TCreateIndexOperation(Op).Table),
+         QuoteString(TCreateIndexOperation(Op).Name)]);
+    otAddForeignKey:
+      Result := Format('Builder.DropForeignKey(%s, %s);',
+        [QuoteString(TAddForeignKeyOperation(Op).Table),
+         QuoteString(TAddForeignKeyOperation(Op).Name)]);
+    otRenameTable:
+      Result := Format('Builder.RenameTable(%s, %s);',
+        [QuoteString(TRenameTableOperation(Op).NewName),
+         QuoteString(TRenameTableOperation(Op).OldName)]);
+    otRenameColumn:
+      Result := Format('Builder.RenameColumn(%s, %s, %s);',
+        [QuoteString(TRenameColumnOperation(Op).TableName),
+         QuoteString(TRenameColumnOperation(Op).NewName),
+         QuoteString(TRenameColumnOperation(Op).OldName)]);
+    otDropTable:
+      Result := '// Irreversible: DropTable ' + TDropTableOperation(Op).Name +
+        ' (recreate it by hand)';
+    otDropColumn:
+      Result := '// Irreversible: DropColumn ' + TDropColumnOperation(Op).TableName +
+        '.' + TDropColumnOperation(Op).Name + ' (add it back by hand)';
+  else
+    Result := '// Irreversible: ' +
+      GetEnumName(TypeInfo(TOperationType), Integer(Op.OperationType));
+  end;
 end;
 
 class function TMigrationGenerator.QuoteString(const S: string): string;

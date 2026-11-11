@@ -113,6 +113,8 @@ type
     
     function CreateIndex(const ATable, AName: string; const AColumns: array of string; AUnique: Boolean = False): TSchemaBuilder;
     function DropIndex(const ATable, AName: string): TSchemaBuilder;
+    function RenameTable(const AOldName, ANewName: string): TSchemaBuilder;
+    function RenameColumn(const ATable, AOldName, ANewName: string): TSchemaBuilder;
     
     function Sql(const ASql: string): TSchemaBuilder;
     
@@ -310,6 +312,18 @@ end;
 function TSchemaBuilder.DropIndex(const ATable, AName: string): TSchemaBuilder;
 begin
   FOperations.Add(TDropIndexOperation.Create(ATable, AName));
+  Result := Self;
+end;
+
+function TSchemaBuilder.RenameTable(const AOldName, ANewName: string): TSchemaBuilder;
+begin
+  FOperations.Add(TRenameTableOperation.Create(AOldName, ANewName));
+  Result := Self;
+end;
+
+function TSchemaBuilder.RenameColumn(const ATable, AOldName, ANewName: string): TSchemaBuilder;
+begin
+  FOperations.Add(TRenameColumnOperation.Create(ATable, AOldName, ANewName));
   Result := Self;
 end;
 

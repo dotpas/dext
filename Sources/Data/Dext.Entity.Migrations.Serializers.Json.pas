@@ -277,6 +277,21 @@ begin
         Result.SetString('name', TDropIndexOperation(Op).Name);
       end;
       
+    otRenameTable:
+      begin
+        Result.SetString('op', 'rename_table');
+        Result.SetString('old_name', TRenameTableOperation(Op).OldName);
+        Result.SetString('new_name', TRenameTableOperation(Op).NewName);
+      end;
+
+    otRenameColumn:
+      begin
+        Result.SetString('op', 'rename_column');
+        Result.SetString('table', TRenameColumnOperation(Op).TableName);
+        Result.SetString('old_name', TRenameColumnOperation(Op).OldName);
+        Result.SetString('new_name', TRenameColumnOperation(Op).NewName);
+      end;
+
     otSql:
       begin
         Result.SetString('op', 'sql');
@@ -395,6 +410,21 @@ begin
     Result := TDropIndexOperation.Create(
       Obj.GetString('table'),
       Obj.GetString('name')
+    );
+  end
+  else if OpType = 'rename_table' then
+  begin
+    Result := TRenameTableOperation.Create(
+      Obj.GetString('old_name'),
+      Obj.GetString('new_name')
+    );
+  end
+  else if OpType = 'rename_column' then
+  begin
+    Result := TRenameColumnOperation.Create(
+      Obj.GetString('table'),
+      Obj.GetString('old_name'),
+      Obj.GetString('new_name')
     );
   end
   else if OpType = 'sql' then

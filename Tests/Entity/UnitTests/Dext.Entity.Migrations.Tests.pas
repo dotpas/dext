@@ -18,6 +18,9 @@ uses
   Dext.Entity.Migrations.Model,
   Dext.Entity.Migrations.Differ,
   Dext.Entity.Migrations.Operations,
+  Dext.Entity.Migrations.Builder,
+  Dext.Entity.Migrations.Generator,
+  Dext.Entity.Migrations.Serializers.Json,
   System.SysUtils;
 
 type
@@ -55,6 +58,14 @@ type
     procedure Test_Rename_Column_Emits_Only_The_Rename;
     [Test]
     procedure Test_Leftover_RenamedFrom_Emits_Nothing;
+    [Test]
+    procedure Test_Builder_Rename_Operations;
+    [Test]
+    procedure Test_Json_RoundTrip_Rename_Operations;
+    [Test]
+    procedure Test_Generator_Unit_Uses_Builder_And_Writes_Rename;
+    [Test]
+    procedure Test_Generator_Down_Reverses_The_Operations;
   end;
 
 implementation
@@ -261,6 +272,96 @@ begin
     NewModel.Free;
     OldModel.Free;
   end;
+end;
+
+procedure TMigrationTests.Test_Builder_Rename_Operations;
+var
+  Builder: TSchemaBuilder;
+begin
+  Builder := TSchemaBuilder.Create;
+  try
+    Builder.RenameTable('OldUsers', 'Users').RenameColumn('Users', 'Full_Name', 'Name');
+
+    Should(Builder.Operations.Count).Be(2);
+    Should(Builder.Operations[0] is TRenameTableOperation).BeTrue;
+    Should(TRenameTableOperation(Builder.Operations[0]).OldName).Be('OldUsers');
+    Should(TRenameTableOperation(Builder.Operations[0]).NewName).Be('Users');
+    Should(Builder.Operations[1] is TRenameColumnOperation).BeTrue;
+    Should(TRenameColumnOperation(Builder.Operations[1]).TableName).Be('Users');
+    Should(TRenameColumnOperation(Builder.Operations[1]).OldName).Be('Full_Name');
+    Should(TRenameColumnOperation(Builder.Operations[1]).NewName).Be('Name');
+  finally
+    Builder.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Json_RoundTrip_Rename_Operations;
+var
+  Ops, Back: IList<TMigrationOperation>;
+begin
+  Ops := TCollections.CreateList<TMigrationOperation>(True);
+  Ops.Add(TRenameTableOperation.Create('OldUsers', 'Users'));
+  Ops.Add(TRenameColumnOperation.Create('Users', 'Full_Name', 'Name'));
+
+  Back := TMigrationJsonSerializer.Deserialize(
+    TMigrationJsonSerializer.Serialize(Ops));
+
+  Should(Back.Count).Be(2);
+  Should(TRenameTableOperation(Back[0]).OldName).Be('OldUsers');
+  Should(TRenameTableOperation(Back[0]).NewName).Be('Users');
+  Should(TRenameColumnOperation(Back[1]).TableName).Be('Users');
+  Should(TRenameColumnOperation(Back[1]).OldName).Be('Full_Name');
+  Should(TRenameColumnOperation(Back[1]).NewName).Be('Name');
+end;
+
+procedure TMigrationTests.Test_Generator_Unit_Uses_Builder_And_Writes_Rename;
+var
+  Ops: IList<TMigrationOperation>;
+  Code: string;
+begin
+  Ops := TCollections.CreateList<TMigrationOperation>(True);
+  Ops.Add(TRenameColumnOperation.Create('Users', 'Full_Name', 'Name'));
+
+  Code := TMigrationGenerator.GenerateUnit('Migrations.Sample',
+    'TMigration_20260101_Rename', Ops);
+
+  // TSchemaBuilder lives in the Builder unit: without it in the uses clause
+  // the generated unit does not compile.
+  Should(Code.Contains('Dext.Entity.Migrations.Builder')).BeTrue;
+  Should(Code.Contains(
+    'Builder.RenameColumn(''Users'', ''Full_Name'', ''Name'');')).BeTrue;
+  Should(Code.Contains('Unsupported')).BeFalse;
+end;
+
+procedure TMigrationTests.Test_Generator_Down_Reverses_The_Operations;
+var
+  Ops: IList<TMigrationOperation>;
+  Code, Down: string;
+  Col: TColumnDefinition;
+  P1, P2: Integer;
+begin
+  Ops := TCollections.CreateList<TMigrationOperation>(True);
+  Col := TColumnDefinition.Create('Email', 'VARCHAR');
+  Col.Length := 120;
+  Ops.Add(TAddColumnOperation.Create('Users', Col));
+  Ops.Add(TRenameColumnOperation.Create('Users', 'Full_Name', 'Name'));
+  Ops.Add(TCreateIndexOperation.Create('Users', 'ix_users_name', ['Name']));
+  Ops.Add(TDropColumnOperation.Create('Users', 'Legacy'));
+
+  Code := TMigrationGenerator.GenerateUnit('Migrations.Sample',
+    'TMigration_20260101_Evolution', Ops);
+  Down := Code.Substring(Code.IndexOf('.Down(Builder'));
+
+  Should(Down.Contains('TODO: Implement Down')).BeFalse;
+  // Reverse order: index first, then the rename back, then the column.
+  P1 := Down.IndexOf('Builder.DropIndex(''Users'', ''ix_users_name'');');
+  P2 := Down.IndexOf('Builder.RenameColumn(''Users'', ''Name'', ''Full_Name'');');
+  Should(P1 >= 0).BeTrue;
+  Should(P2 > P1).BeTrue;
+  Should(Down.IndexOf('Builder.DropColumn(''Users'', ''Email'');') > P2).BeTrue;
+  // What cannot be inverted without the old definition is flagged, not lost.
+  Should(Down.Contains('Irreversible')).BeTrue;
+  Should(Down.Contains('Legacy')).BeTrue;
 end;
 
 end.
