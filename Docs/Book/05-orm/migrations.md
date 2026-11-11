@@ -139,11 +139,9 @@ Builder.RenameTable('old_name', 'new_name');
 // Rename a column (v2.1+)
 Builder.RenameColumn('users', 'old_col', 'new_col');
 
-// Seed data during migration
-Builder.Seed('settings', TJSONObject.Create
-  .AddPair('key', 'theme')
-  .AddPair('value', 'dark')
-);
+// Reference data: the builder has no seed operation, use SQL
+Builder.Sql(
+  'INSERT INTO "settings" ("Key", "Value") VALUES (''theme'', ''dark'')');
 ```
 
 ### Execution (Safety Handshake)
@@ -151,7 +149,8 @@ Builder.Seed('settings', TJSONObject.Create
 You can validate schema compatibility at startup without running migrations:
 
 ```pascal
-if not Context.Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
+Migrator := TMigrator.Create(Context);
+if not Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
   raise Exception.Create('Database schema is outdated!');
 ```
 
