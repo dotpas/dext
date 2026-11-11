@@ -517,6 +517,8 @@ var
   ExistingFK: TMetaForeignKey;
   LActualSchema, LActualTable: string;
   LFound: Boolean;
+  LPkCount: Integer;
+  LRowIdName: string;
 begin
   FDConn := TFireDACConnection(FConnection).Connection;
   LSchema := FDConn.Params.Values['MetaCurSchema'];
@@ -623,20 +625,36 @@ begin
         Qry.Connection := FDConn;
         Qry.SQL.Text := 'PRAGMA table_info(''' + LActualTable + ''')';
         Qry.Open;
+        LPkCount := 0;
+        LRowIdName := '';
         while not Qry.Eof do
         begin
-          if Qry.FieldByName('pk').AsInteger > 0 then
-          begin
-            LColName := Qry.FieldByName('name').AsString;
-            for i := 0 to High(Result.Columns) do
-              if SameText(Result.Columns[i].Name, LColName) then
+          LColName := Qry.FieldByName('name').AsString;
+          for i := 0 to High(Result.Columns) do
+            if SameText(Result.Columns[i].Name, LColName) then
+            begin
+              // FireDAC reports every SQLite column as nullable: the pragma
+              // knows NOT NULL, and a primary key is never null.
+              Result.Columns[i].IsNullable :=
+                (Qry.FieldByName('notnull').AsInteger = 0) and
+                (Qry.FieldByName('pk').AsInteger = 0);
+              if Qry.FieldByName('pk').AsInteger > 0 then
               begin
                 Result.Columns[i].IsPrimaryKey := True;
-                Break;
+                Inc(LPkCount);
+                // A lone INTEGER primary key is the rowid alias: the
+                // database generates it.
+                if SameText(Qry.FieldByName('type').AsString.Trim, 'INTEGER') then
+                  LRowIdName := LColName;
               end;
-          end;
+              Break;
+            end;
           Qry.Next;
         end;
+        if (LPkCount = 1) and (LRowIdName <> '') then
+          for i := 0 to High(Result.Columns) do
+            if SameText(Result.Columns[i].Name, LRowIdName) then
+              Result.Columns[i].IsAutoInc := True;
       finally
         Qry.Free;
       end;
