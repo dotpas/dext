@@ -279,6 +279,28 @@ type
   /// <returns>The IDextServerEngine interface instance.</returns>
   function CreateSocketEngine(const AOptions: TServerEngineOptions): IDextServerEngine;
 
+type
+  /// <summary>
+  ///   Called on a worker thread of the Windows engines (http.sys and IOCP
+  ///   sockets) when that worker has handled work and then waited
+  ///   DextWorkerIdleMs without any: once per idle period, on that thread.
+  ///   It lets the application release per-thread caches, for example a memory
+  ///   manager with thread-local heaps that only trims a heap when its own
+  ///   thread asks (mimalloc: mi_collect).
+  /// </summary>
+  TDextWorkerIdleProc = procedure;
+
+var
+  /// <summary>
+  ///   The idle hook (see TDextWorkerIdleProc). nil (default): the workers wait
+  ///   as before. Set it, and DextWorkerIdleMs, before the server starts: each
+  ///   worker reads them when it starts. It runs on the worker thread, so it
+  ///   must be quick and must not raise.
+  /// </summary>
+  DextWorkerIdle: TDextWorkerIdleProc = nil;
+  /// <summary>How long a worker waits without work before DextWorkerIdle (ms).</summary>
+  DextWorkerIdleMs: Cardinal = 1000;
+
 implementation
 
 {$IFDEF MSWINDOWS}
