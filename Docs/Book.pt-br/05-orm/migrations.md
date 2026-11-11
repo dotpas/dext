@@ -139,9 +139,11 @@ Builder.RenameTable('nome_antigo', 'nome_novo');
 // Renomear uma coluna (v2.1+)
 Builder.RenameColumn('users', 'col_antiga', 'col_nova');
 
-// Dados de referência: o builder não tem operação de carga, use SQL
-Builder.Sql(
-  'INSERT INTO "settings" ("Key", "Value") VALUES (''theme'', ''dark'')');
+// Dados de referência: um INSERT por linha; DeleteData é o inverso
+Builder.Seed('settings', ['Key', 'Value'],
+  [['theme', 'dark'], ['lang', 'pt-BR']]);
+Builder.DeleteData('settings', ['Key', 'Value'],
+  [['theme', 'dark'], ['lang', 'pt-BR']]);
 ```
 
 ### Execução (Safety Handshake)
@@ -149,8 +151,7 @@ Builder.Sql(
 Você pode validar a compatibilidade do schema no startup sem rodar migrations:
 
 ```pascal
-Migrator := TMigrator.Create(Context);
-if not Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
+if not Context.Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
   raise Exception.Create('O schema do banco está desatualizado!');
 ```
 
