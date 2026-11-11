@@ -2275,6 +2275,7 @@ var
   Handler: IPropertyHandler;
   Shadow: TEntityShadowState;
   HasModifiedFilter: Boolean;
+  VersionMap: TPropertyMap;
 begin
   FParams.Clear;
   FParamTypes.Clear;
@@ -2305,7 +2306,11 @@ begin
     begin
       IsMapped := True;
       IsPK := Handler.GetIsPK();
-      IsVersion := Handler.GetMember().HasAttribute(VersionAttribute);
+      // The version column comes from [Version] or from the fluent IsVersion
+      IsVersion := Handler.GetMember().HasAttribute(VersionAttribute) or
+        ((FMap <> nil) and
+         FMap.Properties.TryGetValue(Handler.GetName(), VersionMap) and
+         VersionMap.IsVersion);
       ColName := Handler.GetColumnName();
       
       PropMap := nil;

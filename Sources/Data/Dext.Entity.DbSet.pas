@@ -2624,7 +2624,7 @@ begin
   begin
     for PropMap in FMap.Properties.Values do
     begin
-      if PropMap.IsShadow then
+      if PropMap.IsShadow or PropMap.IsVersion then
       begin
         Result := False;
         Exit;
@@ -2688,6 +2688,8 @@ var
   Pair: TPair<string, TValue>;
   ParamType: TFieldType;
   Prop: TRttiProperty;
+  PropMap: TPropertyMap;
+  IsVersionProp: Boolean;
   RowsAffected: Integer;
   Sql, Id: string;
   Val: TValue;
@@ -2733,7 +2735,13 @@ begin
     Meta := TReflection.GetMetadata(TypeInfo(T));
     for Handler in Meta.GetPropertyHandlers() do
     begin
-      if Handler.GetMember().HasAttribute(VersionAttribute) then
+      // The version column comes from [Version] or from the fluent IsVersion
+      IsVersionProp := Handler.GetMember().HasAttribute(VersionAttribute);
+      if (not IsVersionProp) and (FMap <> nil) and
+         FMap.Properties.TryGetValue(Handler.GetName(), PropMap) and
+         PropMap.IsVersion then
+        IsVersionProp := True;
+      if IsVersionProp then
       begin
         Prop := TRttiProperty(Handler.GetMember());
         Val := Prop.GetValue(Pointer(AEntity));

@@ -11,6 +11,7 @@ interface
 
 uses
   System.SysUtils,
+  System.IOUtils,
   System.Rtti,
   System.TypInfo,
   Data.FmtBcd,
@@ -129,6 +130,23 @@ type
     property Tags: IList<TFlTag> read FTags write FTags;
   end;
 
+  // Optimistic concurrency declared only in the fluent mapping
+  TFlConta = class
+  private
+    FId: Integer;
+    FSaldo: Integer;
+    FVersao: Integer;
+  public
+    property Id: Integer read FId write FId;
+    property Saldo: Integer read FSaldo write FSaldo;
+    property Versao: Integer read FVersao write FVersao;
+  end;
+
+  TFlContaDb = class(TDbContext)
+  protected
+    procedure OnModelCreating(Builder: TModelBuilder); override;
+  end;
+
   TFlM2mDb = class(TDbContext)
   protected
     procedure OnModelCreating(Builder: TModelBuilder); override;
@@ -240,6 +258,8 @@ type
     procedure EnsureCreated_Creates_The_Many_To_Many_Join_Table;
     [Test]
     procedure Many_To_Many_Changes_On_A_Plain_List_Are_Saved;
+    [Test]
+    procedure Fluent_Version_Detects_A_Concurrent_Update;
     [Test]
     procedure Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
 
@@ -1928,6 +1948,61 @@ begin
     end;
   finally
     First.Free;
+  end;
+end;
+
+procedure TFlContaDb.OnModelCreating(Builder: TModelBuilder);
+begin
+  Builder.Entity<TFlConta>
+    .Table('fl_contas')
+    .HasKey('Id')
+    .Prop('Id').IsAutoInc
+    .Prop('Versao').IsVersion;
+end;
+
+procedure TDslLinqTests.Fluent_Version_Detects_A_Concurrent_Update;
+var
+  Path: string;
+  D1, D2: TFlContaDb;
+  C1, C2: TFlConta;
+begin
+  // Two contexts on the same file stand for two sessions
+  Path := TPath.Combine(TPath.GetTempPath, 'dext_fl_version.db');
+  if TFile.Exists(Path) then
+    TFile.Delete(Path);
+  D1 := TFlContaDb.Create(DbContextOptions.UseSQLite(Path));
+  D2 := TFlContaDb.Create(DbContextOptions.UseSQLite(Path));
+  try
+    D1.Entities<TFlConta>;
+    D2.Entities<TFlConta>;
+    D1.EnsureCreated;
+    C1 := TFlConta.Create;
+    C1.Saldo := 100;
+    D1.Entities<TFlConta>.Add(C1);
+    D1.SaveChanges;
+    D1.Clear;
+
+    C1 := D1.Entities<TFlConta>.Find(1);
+    C2 := D2.Entities<TFlConta>.Find(1);
+    C1.Saldo := 80;
+    D1.Entities<TFlConta>.Update(C1);
+    D1.SaveChanges;
+    Should(C1.Versao).Be(1);
+
+    // The second session read version 0, and the row is now at version 1
+    C2.Saldo := 70;
+    D2.Entities<TFlConta>.Update(C2);
+    Should(
+      procedure
+      begin
+        D2.SaveChanges;
+      end).Throw<EOptimisticConcurrencyException>;
+    Should(FlCount(D1, 'SELECT "Saldo" FROM "fl_contas"')).Be(80);
+  finally
+    D2.Free;
+    D1.Free;
+    if TFile.Exists(Path) then
+      TFile.Delete(Path);
   end;
 end;
 
