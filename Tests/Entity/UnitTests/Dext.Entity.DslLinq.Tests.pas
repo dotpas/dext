@@ -23,6 +23,7 @@ uses
   Dext.Entity,
   Dext.Entity.Attributes,
   Dext.Entity.Core,
+  Dext.Specifications.Interfaces,
   Dext.Entity.Drivers.Interfaces,
   Dext.Entity.Mapping,
   Dext.Entity.Query,
@@ -154,6 +155,20 @@ type
     property Versao: IntType read FVersao write FVersao;
   end;
 
+  // Offline lock lease: [LockToken] holds who has it, [LockExpiration] until when
+  TFlTrava = class
+  private
+    FId: Integer;
+    FDono: string;
+    FExpira: TDateTime;
+  public
+    property Id: Integer read FId write FId;
+    [LockToken]
+    property Dono: string read FDono write FDono;
+    [LockExpiration]
+    property Expira: TDateTime read FExpira write FExpira;
+  end;
+
   TFlContaDb = class(TDbContext)
   protected
     procedure OnModelCreating(Builder: TModelBuilder); override;
@@ -276,6 +291,10 @@ type
     procedure Version_Delete_Of_A_Stale_Row_Is_Refused;
     [Test]
     procedure Smart_Property_Version_Is_Incremented;
+    [Test]
+    procedure Sqlite_Ignores_The_Row_Lock_Clause;
+    [Test]
+    procedure TryLock_Takes_Refuses_And_Takes_Over_An_Expired_Lease;
     [Test]
     procedure Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
 
@@ -1974,6 +1993,9 @@ begin
     .HasKey('Id')
     .Prop('Id').IsAutoInc
     .Prop('Versao').IsVersion;
+  Builder.Entity<TFlTrava>
+    .Table('fl_travas')
+    .HasKey('Id');
   Builder.Entity<TFlContaS>
     .Table('fl_contas_s')
     .HasKey('Id')
@@ -2095,6 +2117,58 @@ begin
     Db.SaveChanges;
     Should(Integer(C.Versao)).Be(1);
     Should(FlCount(Db, 'SELECT "Versao" FROM "fl_contas_s"')).Be(1);
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Sqlite_Ignores_The_Row_Lock_Clause;
+var
+  Db: TFlContaDb;
+  C: TFlConta;
+  Rows: IList<TFlConta>;
+begin
+  Db := TFlContaDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlConta>;
+    Db.EnsureCreated;
+    C := TFlConta.Create;
+    C.Saldo := 100;
+    Db.Entities<TFlConta>.Add(C);
+    Db.SaveChanges;
+    Db.Clear;
+    // FOR UPDATE is a syntax error in SQLite: the clause is left out
+    Rows := Db.Entities<TFlConta>.QueryAll.WithLock(lmExclusive).ToList;
+    Should(Rows.Count).Be(1);
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TDslLinqTests.TryLock_Takes_Refuses_And_Takes_Over_An_Expired_Lease;
+var
+  Db: TFlContaDb;
+  T: TFlTrava;
+begin
+  Db := TFlContaDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlTrava>;
+    Db.EnsureCreated;
+    T := TFlTrava.Create;
+    T.Id := 1;
+    Db.Entities<TFlTrava>.Add(T);
+    Db.SaveChanges;
+
+    Should(Db.Entities<TFlTrava>.TryLock(T, 'ana', 10)).BeTrue;
+    Should(T.Dono).Be('ana');
+    // Another holder is refused while the lease is valid
+    Should(Db.Entities<TFlTrava>.TryLock(T, 'bob', 10)).BeFalse;
+    // The same holder renews
+    Should(Db.Entities<TFlTrava>.TryLock(T, 'ana', 10)).BeTrue;
+    Should(Db.Entities<TFlTrava>.Unlock(T)).BeTrue;
+    // A lease that has already expired can be taken over
+    Should(Db.Entities<TFlTrava>.TryLock(T, 'bob', -1)).BeTrue;
+    Should(Db.Entities<TFlTrava>.TryLock(T, 'ana', 10)).BeTrue;
   finally
     Db.Free;
   end;

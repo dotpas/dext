@@ -2958,6 +2958,7 @@ var
   Sql: string;
   TokenCol, ExpiryCol: string;
   Typ: TRttiType;
+  NowVal, ExpiryVal: TDateTime;
 begin
   Result := False;
   TokenProp := nil;
@@ -2999,13 +3000,20 @@ begin
     Sql := Sql + FContext.Dialect.QuoteIdentifier(PKCols[i]) + ' = :pk' + IntToStr(i);
   end;
 
-  Sql := Sql + Format(' AND (%s IS NULL OR %s = :token OR %s < :now)', 
-    [FContext.Dialect.QuoteIdentifier(TokenCol), FContext.Dialect.QuoteIdentifier(TokenCol), FContext.Dialect.QuoteIdentifier(ExpiryCol)]);
+  // A row that was never locked has a NULL or empty token (an unset string
+  // property is stored as '') and a NULL expiration
+  Sql := Sql + Format(' AND (%s IS NULL OR %s = '''' OR %s = :token OR %s < :now)',
+    [FContext.Dialect.QuoteIdentifier(TokenCol), FContext.Dialect.QuoteIdentifier(TokenCol),
+     FContext.Dialect.QuoteIdentifier(TokenCol), FContext.Dialect.QuoteIdentifier(ExpiryCol)]);
 
   Cmd := FContext.Connection.CreateCommand(Sql);
+  // The dates go as date/time parameters: as plain numbers they would be
+  // compared with text in SQLite and refused as double precision in PostgreSQL
+  NowVal := Now;
+  ExpiryVal := NowVal + (ADurationMinutes / 1440.0);
   Cmd.AddParam('token', AToken);
-  Cmd.AddParam('expiry', Now + (ADurationMinutes / 1440.0));
-  Cmd.AddParam('now', Now);
+  Cmd.AddParam('expiry', TValue.From<TDateTime>(ExpiryVal), ftDateTime);
+  Cmd.AddParam('now', TValue.From<TDateTime>(NowVal), ftDateTime);
 
   // Add PK Params
   // Extract PK values from entity
@@ -3034,7 +3042,7 @@ begin
   begin
     // Update local entity
     TokenProp.SetValue(Pointer(AEntity), AToken);
-    ExpiryProp.SetValue(Pointer(AEntity), Now + (ADurationMinutes / 1440.0));
+    ExpiryProp.SetValue(Pointer(AEntity), TValue.From<TDateTime>(ExpiryVal));
     Result := True;
   end;
 end;

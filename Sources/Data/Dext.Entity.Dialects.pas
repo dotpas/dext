@@ -201,6 +201,7 @@ type
     function GetDialect: TDatabaseDialect; override;
     function GetJsonValueSQL(const AColumn, APath: string): string; override;
     function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
+    function GetLockingSQL(ALockMode: TLockMode): string; override;
   end;
 
   /// <summary>
@@ -898,6 +899,13 @@ begin
   // Using json_extract for maximum compatibility. 
   // Redundant identifier quoting is avoided as AColumn is already quoted.
   Result := Format('json_extract(%s, ''$.%s'')', [AColumn, APath]);
+end;
+
+// SQLite has no row locks (a write transaction locks the whole file), and
+// FOR UPDATE / FOR SHARE are syntax errors there.
+function TSQLiteDialect.GetLockingSQL(ALockMode: TLockMode): string;
+begin
+  Result := '';
 end;
 
 function TSQLiteDialect.GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer): string;
