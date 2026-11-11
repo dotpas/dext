@@ -102,6 +102,14 @@ type
     [Test]
     [Description('An unchanged context must not overwrite another context''s update')]
     procedure Unchanged_Context_Does_Not_Overwrite_A_Concurrent_Update;
+
+    [Test]
+    [Description('Removing an entity that was only added writes nothing')]
+    procedure Remove_Of_An_Added_Entity_Writes_Nothing;
+
+    [Test]
+    [Description('Removing an added entity must not delete another row with the same key')]
+    procedure Remove_Of_An_Added_Entity_Keeps_The_Row_With_The_Same_Key;
   end;
 
 implementation
@@ -272,6 +280,58 @@ begin
     // Only a property that is not a column changes: there is nothing to UPDATE.
     Conta.Etiqueta := 'urgente';
     Should(Db.SaveChanges).Be(0);
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TChangeTrackerSnapshotTests.Remove_Of_An_Added_Entity_Writes_Nothing;
+var
+  Db: TSnapshotContaDb;
+  Conta: TSnapshotConta;
+begin
+  Db := NewDb;
+  try
+    Db.EnsureCreated;
+    Conta := TSnapshotConta.Create;
+    Conta.Id := 1;
+    Conta.Saldo := 10;
+    Db.Contas.Add(Conta);
+    Db.Contas.Remove(Conta);
+
+    // The row never existed: there is nothing to delete
+    Should(Ord(Db.ChangeTracker.GetState(Conta))).Be(Ord(esDetached));
+    Should(Db.SaveChanges).Be(0);
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TChangeTrackerSnapshotTests.Remove_Of_An_Added_Entity_Keeps_The_Row_With_The_Same_Key;
+var
+  Db: TSnapshotContaDb;
+  Existente, Repetida: TSnapshotConta;
+begin
+  Db := NewDb;
+  try
+    Db.EnsureCreated;
+    Existente := TSnapshotConta.Create;
+    Existente.Id := 1;
+    Existente.Saldo := 10;
+    Db.Contas.Add(Existente);
+    Db.SaveChanges;
+    Db.Clear;
+
+    // A second instance with the same key is added and then given up
+    Repetida := TSnapshotConta.Create;
+    Repetida.Id := 1;
+    Repetida.Saldo := 99;
+    Db.Contas.Add(Repetida);
+    Db.Contas.Remove(Repetida);
+    Should(Db.SaveChanges).Be(0);
+
+    Db.Clear;
+    Should(Db.Contas.Find(1) <> nil).BeTrue;
   finally
     Db.Free;
   end;

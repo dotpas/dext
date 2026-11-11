@@ -1749,7 +1749,13 @@ end;
 
 function TDbSet<T>.Remove(const AEntity: T): IDbSet<T>;
 begin
-  FContext.ChangeTracker.Track(AEntity, esDeleted);
+  // An entity that was only added has no row yet: forgetting it is enough.
+  // The DbSet keeps owning the instance (see Add), so nothing leaks, and no
+  // DELETE reaches a row of the same key that belongs to another instance.
+  if FContext.ChangeTracker.GetState(AEntity) = esAdded then
+    FContext.ChangeTracker.Remove(AEntity)
+  else
+    FContext.ChangeTracker.Track(AEntity, esDeleted);
   Result := Self;
 end;
 
