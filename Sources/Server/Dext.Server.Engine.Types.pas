@@ -34,6 +34,13 @@ uses
 
 {$SCOPEDENUMS ON}
 
+const
+  /// <summary>
+  ///   Default of TServerEngineOptions.HttpSysContextsPerThread: the Http.Sys
+  ///   contexts each I/O worker keeps for reuse.
+  /// </summary>
+  DefaultHttpSysContextsPerThread = 32;
+
 type
   /// <summary>
   ///   Configuration options for the Dext high-performance server engines.
@@ -72,8 +79,9 @@ type
     /// </summary>
     OutstandingReceives: Integer;
     /// <summary>
-    ///   Http.Sys contexts each I/O worker keeps for reuse (default: 32; 0 means
-    ///   the default). The others go back to the shared pool, behind a lock.
+    ///   Http.Sys contexts each I/O worker keeps for reuse (default:
+    ///   DefaultHttpSysContextsPerThread, 32; 0 means the default). The others
+    ///   go back to the shared pool, behind a lock.
     /// </summary>
     HttpSysContextsPerThread: Integer;
     /// <summary>
@@ -237,7 +245,7 @@ begin
   Result.MaxQueueCapacity := 1024;
   Result.OutstandingReceiveDepth := 2;
   Result.OutstandingReceives := 0;
-  Result.HttpSysContextsPerThread := 32;
+  Result.HttpSysContextsPerThread := DefaultHttpSysContextsPerThread;
   Result.SkipIocpOnSuccess := False;
   Result.QueueLength := 0;
   Result.MaxBandwidth := 0;

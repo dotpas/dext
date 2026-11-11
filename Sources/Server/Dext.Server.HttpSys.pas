@@ -681,7 +681,7 @@ begin
 
   LocalMax := FOptions.HttpSysContextsPerThread;
   if LocalMax <= 0 then
-    LocalMax := 32;
+    LocalMax := DefaultHttpSysContextsPerThread;
   if FLocalContextPool.Count < LocalMax then
   begin
     FLocalContextPool.Add(AContext);
