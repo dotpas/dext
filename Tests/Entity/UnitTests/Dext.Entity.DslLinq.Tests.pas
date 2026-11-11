@@ -278,6 +278,10 @@ type
     procedure FromSql_Count_Frees_What_It_Created;
     [Test]
     procedure FromSql_First_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure FromSql_Binds_Two_Positional_Markers;
+    [Test]
+    procedure FromSql_Leaves_A_Marker_Inside_A_Literal_Alone;
   end;
 
 implementation
@@ -1523,6 +1527,26 @@ begin
   Before := TDlOrder.Live;
   Consume;
   Should(TDlOrder.Live).Be(Before);
+end;
+
+procedure TDslLinqTests.FromSql_Binds_Two_Positional_Markers;
+begin
+  // Customer 1 has orders 1 (50) and 4 (200). Two unnamed markers in one
+  // command used to fail: "Parameter [] data type is unknown".
+  Should(FDb.Orders.FromSql(
+    'SELECT * FROM dl_orders WHERE "CustomerId" = ? AND "Amount" > ?',
+    [1, 60]).Count).Be(1);
+  Should(FDb.Orders.FromSql(
+    'SELECT * FROM dl_orders WHERE "CustomerId" = ? AND "Amount" > ?',
+    [1, 0]).Count).Be(2);
+end;
+
+procedure TDslLinqTests.FromSql_Leaves_A_Marker_Inside_A_Literal_Alone;
+begin
+  // The "?" inside the quoted text is text, not a parameter
+  Should(FDb.Orders.FromSql(
+    'SELECT * FROM dl_orders WHERE "Status" <> ''?'' AND "CustomerId" = ?',
+    [1]).Count).Be(2);
 end;
 
 procedure TDslLinqTests.FromSql_First_Hands_The_Object_To_The_Caller;

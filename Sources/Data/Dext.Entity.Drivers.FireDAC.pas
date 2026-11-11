@@ -1138,10 +1138,70 @@ begin
   LSpan.Finish;
 end;
 
+// A "?" marker has no name, and two or more of them in one command are not
+// told apart. Each one outside a string, a quoted identifier or a comment
+// gets its own name (_pos1, _pos2, ...), in order, so BindSequentialParams can
+// fill them by position.
+function NameTheMarkers(const ASQL: string): string;
+var
+  I, N: Integer;
+  Quote: Char;
+  C: Char;
+begin
+  if Pos('?', ASQL) = 0 then
+    Exit(ASQL);
+  Result := '';
+  N := 0;
+  I := 1;
+  while I <= Length(ASQL) do
+  begin
+    C := ASQL[I];
+    if (C = '''') or (C = '"') then
+    begin
+      // Copy the quoted text as it is; a doubled quote stays inside it
+      Quote := C;
+      Result := Result + C;
+      Inc(I);
+      while I <= Length(ASQL) do
+      begin
+        Result := Result + ASQL[I];
+        if ASQL[I] = Quote then
+        begin
+          if (I < Length(ASQL)) and (ASQL[I + 1] = Quote) then
+          begin
+            Inc(I);
+            Result := Result + ASQL[I];
+          end
+          else
+            Break;
+        end;
+        Inc(I);
+      end;
+    end
+    else if (C = '-') and (I < Length(ASQL)) and (ASQL[I + 1] = '-') then
+    begin
+      while (I <= Length(ASQL)) and (ASQL[I] <> #10) do
+      begin
+        Result := Result + ASQL[I];
+        Inc(I);
+      end;
+      Continue;
+    end
+    else if C = '?' then
+    begin
+      Inc(N);
+      Result := Result + ':_pos' + IntToStr(N);
+    end
+    else
+      Result := Result + C;
+    Inc(I);
+  end;
+end;
+
 procedure TFireDACCommand.SetSQL(const ASQL: string);
 begin
   FQuery.Params.Clear;
-  FQuery.SQL.Text := ASQL;
+  FQuery.SQL.Text := NameTheMarkers(ASQL);
 end;
 
 procedure TFireDACCommand.SetArraySize(const ASize: Integer);
