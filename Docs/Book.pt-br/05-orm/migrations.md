@@ -139,11 +139,9 @@ Builder.RenameTable('nome_antigo', 'nome_novo');
 // Renomear uma coluna (v2.1+)
 Builder.RenameColumn('users', 'col_antiga', 'col_nova');
 
-// Semear (Seed) dados durante a migração
-Builder.Seed('settings', TJSONObject.Create
-  .AddPair('key', 'theme')
-  .AddPair('value', 'dark')
-);
+// Dados de referência: o builder não tem operação de carga, use SQL
+Builder.Sql(
+  'INSERT INTO "settings" ("Key", "Value") VALUES (''theme'', ''dark'')');
 ```
 
 ### Execução (Safety Handshake)
@@ -151,7 +149,8 @@ Builder.Seed('settings', TJSONObject.Create
 Você pode validar a compatibilidade do schema no startup sem rodar migrations:
 
 ```pascal
-if not Context.Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
+Migrator := TMigrator.Create(Context);
+if not Migrator.ValidateSchemaCompatibility('20251205_CreateUsers') then
   raise Exception.Create('O schema do banco está desatualizado!');
 ```
 
