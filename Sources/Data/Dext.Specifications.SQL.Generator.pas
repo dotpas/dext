@@ -3652,7 +3652,14 @@ begin
 
       if (not IsPk) and IsSoftDeleteColumn then
       begin
-        SB.Append(' DEFAULT ').Append(VarToStr(SoftDeleteDefaultValue));
+        // A Boolean column takes the dialect's literal: PostgreSQL rejects
+        // DEFAULT 0 on a BOOLEAN column.
+        if (Prop.PropertyType.Handle = TypeInfo(Boolean)) or
+           (PropTypeHandle = TypeInfo(Boolean)) then
+          SB.Append(' DEFAULT ').Append(FDialect.BooleanToSQL(
+            Boolean(SoftDeleteDefaultValue)))
+        else
+          SB.Append(' DEFAULT ').Append(VarToStr(SoftDeleteDefaultValue));
       end;
     end; // End of Properties Loop
     end; // End of hierarchy loop

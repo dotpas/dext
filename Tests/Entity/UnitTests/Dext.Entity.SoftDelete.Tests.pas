@@ -133,6 +133,9 @@ type
 
     [Test]
     procedure Test_Mapping_DeletedAt_ShouldEnableSoftDeleteAutomatically;
+
+    [Test]
+    procedure Test_CreateTable_BooleanSoftDelete_UsesTheDialectLiteral;
   end;
 
 implementation
@@ -337,6 +340,29 @@ begin
   Map := TModelBuilder.Instance.GetMap(TypeInfo(TTaskTimestamp));
   Dext.Assertions.Should(Map.IsSoftDelete).BeTrue;
   Dext.Assertions.Should(Map.SoftDeleteProp).Be('DeletedAt');
+end;
+
+procedure TSoftDeleteUnitTests.Test_CreateTable_BooleanSoftDelete_UsesTheDialectLiteral;
+var
+  Gen: TSqlGenerator<TTaskBool>;
+  Sql: string;
+begin
+  // PostgreSQL has a real BOOLEAN: DEFAULT 0 is rejected by the server
+  Gen := TSqlGenerator<TTaskBool>.Create(TPostgreSQLDialect.Create, nil);
+  try
+    Sql := Gen.GenerateCreateTable('tasks_bool');
+    Dext.Assertions.Should(Sql).Contain('DEFAULT FALSE');
+    Dext.Assertions.Should(Sql).NotContain('DEFAULT 0');
+  finally
+    Gen.Free;
+  end;
+
+  Gen := TSqlGenerator<TTaskBool>.Create(TSQLiteDialect.Create, nil);
+  try
+    Dext.Assertions.Should(Gen.GenerateCreateTable('tasks_bool')).Contain('DEFAULT 0');
+  finally
+    Gen.Free;
+  end;
 end;
 
 procedure TSoftDeleteUnitTests.Test_SQLFilter_Boolean_ShouldUseEquality;
