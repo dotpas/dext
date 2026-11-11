@@ -153,6 +153,7 @@ type
     function GenerateRenameTable(AOp: TRenameTableOperation): string; virtual;
     function GenerateRenameColumn(AOp: TRenameColumnOperation): string; virtual;
     function GenerateSeedData(AOp: TSeedDataOperation): string; virtual;
+    function GenerateDeleteData(AOp: TDeleteDataOperation): string; virtual;
   public
     function GetSetSchemaSQL(const ASchemaName: string): string; virtual;
     function GetCreateSchemaSQL(const ASchemaName: string): string; virtual;
@@ -593,6 +594,7 @@ begin
     otRenameTable: Result := GenerateRenameTable(TRenameTableOperation(AOperation));
     otRenameColumn: Result := GenerateRenameColumn(TRenameColumnOperation(AOperation));
     otSeedData: Result := GenerateSeedData(TSeedDataOperation(AOperation));
+      otDeleteData: Result := GenerateDeleteData(TDeleteDataOperation(AOperation));
     otSql: Result := TSqlOperation(AOperation).Sql;
   else
     Result := '-- Unknown operation';
@@ -814,6 +816,28 @@ begin
       [QuoteIdentifier(AOp.TableName), Cols, Values]);
   end;
   Result := SQL;
+end;
+
+function TBaseDialect.GenerateDeleteData(AOp: TDeleteDataOperation): string;
+var
+  Cond: string;
+  i, j: Integer;
+begin
+  Result := '';
+  for i := 0 to High(AOp.Data) do
+  begin
+    Cond := '';
+    for j := 0 to High(AOp.Columns) do
+    begin
+      if j > 0 then Cond := Cond + ' AND ';
+      if VarIsNull(AOp.Data[i][j]) or VarIsClear(AOp.Data[i][j]) then
+        Cond := Cond + QuoteIdentifier(AOp.Columns[j]) + ' IS NULL'
+      else
+        Cond := Cond + QuoteIdentifier(AOp.Columns[j]) + ' = ' + VariantToSQL(AOp.Data[i][j]);
+    end;
+    Result := Result + Format('DELETE FROM %s WHERE %s;' + sLineBreak,
+      [QuoteIdentifier(AOp.TableName), Cond]);
+  end;
 end;
 
 { TSQLiteDialect }

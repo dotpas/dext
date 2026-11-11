@@ -33,6 +33,7 @@ uses
   Dext.Collections.Base,
   Dext.Collections,
   System.StrUtils,
+  System.Variants,
   System.TypInfo,
   Dext.Entity.Migrations.Operations,
   Dext.Entity.Migrations.Serializers.Json,
@@ -55,6 +56,9 @@ type
     class function GenerateDropTable(Op: TDropTableOperation): string;
     class function GenerateDropColumn(Op: TDropColumnOperation): string;
     class function QuoteString(const S: string): string;
+    class function GenerateVariant(const V: Variant): string;
+    class function GenerateDataArgs(const ATable: string; const AColumns: TArray<string>;
+      const AData: TArray<TArray<Variant>>): string;
   public
     class function GenerateUnit(const AUnitName, AClassName: string; Ops: IList<TMigrationOperation>): string;
     class function GenerateJson(const AId, ADescription, AAuthor: string; Ops: IList<TMigrationOperation>): string;
@@ -177,6 +181,12 @@ begin
     otDropColumn: Result := GenerateDropColumn(TDropColumnOperation(Op));
     otCreateIndex: Result := GenerateCreateIndex(TCreateIndexOperation(Op));
     otAddForeignKey: Result := GenerateAddForeignKey(TAddForeignKeyOperation(Op));
+    otSeedData:
+      Result := 'Builder.Seed(' + GenerateDataArgs(TSeedDataOperation(Op).TableName,
+        TSeedDataOperation(Op).Columns, TSeedDataOperation(Op).Data) + ');';
+    otDeleteData:
+      Result := 'Builder.DeleteData(' + GenerateDataArgs(TDeleteDataOperation(Op).TableName,
+        TDeleteDataOperation(Op).Columns, TDeleteDataOperation(Op).Data) + ');';
     otAlterColumn:
       Result := Format('Builder.AlterColumn(%s, %s, %s);',
         [QuoteString(TAlterColumnOperation(Op).TableName),
@@ -354,6 +364,9 @@ begin
         [QuoteString(TRenameColumnOperation(Op).TableName),
          QuoteString(TRenameColumnOperation(Op).NewName),
          QuoteString(TRenameColumnOperation(Op).OldName)]);
+    otSeedData:
+      Result := 'Builder.DeleteData(' + GenerateDataArgs(TSeedDataOperation(Op).TableName,
+        TSeedDataOperation(Op).Columns, TSeedDataOperation(Op).Data) + ');';
     otDropTable:
       Result := '// Irreversible: DropTable ' + TDropTableOperation(Op).Name +
         ' (recreate it by hand)';
@@ -364,6 +377,51 @@ begin
     Result := '// Irreversible: ' +
       GetEnumName(TypeInfo(TOperationType), Integer(Op.OperationType));
   end;
+end;
+
+class function TMigrationGenerator.GenerateVariant(const V: Variant): string;
+begin
+  if VarIsNull(V) or VarIsClear(V) then
+    Exit('Null');
+  case VarType(V) of
+    varSmallint, varInteger, varByte, varShortInt, varWord, varLongWord, varInt64:
+      Result := IntToStr(Int64(V));
+    varSingle, varDouble, varCurrency:
+      Result := FloatToStr(Double(V), TFormatSettings.Invariant);
+    varBoolean:
+      if Boolean(V) then Result := 'True' else Result := 'False';
+    varDate:
+      Result := QuoteString(FormatDateTime('yyyy-mm-dd hh:nn:ss', V));
+  else
+    Result := QuoteString(VarToStr(V));
+  end;
+end;
+
+class function TMigrationGenerator.GenerateDataArgs(const ATable: string;
+  const AColumns: TArray<string>; const AData: TArray<TArray<Variant>>): string;
+var
+  Cols, Rows, Row: string;
+  i, j: Integer;
+begin
+  Cols := '';
+  for i := 0 to High(AColumns) do
+  begin
+    if i > 0 then Cols := Cols + ', ';
+    Cols := Cols + QuoteString(AColumns[i]);
+  end;
+  Rows := '';
+  for i := 0 to High(AData) do
+  begin
+    Row := '';
+    for j := 0 to High(AData[i]) do
+    begin
+      if j > 0 then Row := Row + ', ';
+      Row := Row + GenerateVariant(AData[i][j]);
+    end;
+    if i > 0 then Rows := Rows + ', ';
+    Rows := Rows + '[' + Row + ']';
+  end;
+  Result := QuoteString(ATable) + ', [' + Cols + '], [' + Rows + ']';
 end;
 
 class function TMigrationGenerator.QuoteString(const S: string): string;

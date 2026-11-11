@@ -52,7 +52,78 @@ type
 implementation
 
 uses
-  System.TypInfo;
+  System.TypInfo,
+  System.Variants;
+
+// Seed rows as an array of arrays. Dates travel as ISO text.
+function RowsToJson(const AData: TArray<TArray<Variant>>): IDextJsonArray;
+var
+  Provider: IDextJsonProvider;
+  Row: IDextJsonArray;
+  i, j: Integer;
+  V: Variant;
+begin
+  Provider := TDextJson.Provider;
+  Result := Provider.CreateArray;
+  for i := 0 to High(AData) do
+  begin
+    Row := Provider.CreateArray;
+    for j := 0 to High(AData[i]) do
+    begin
+      V := AData[i][j];
+      if VarIsNull(V) or VarIsClear(V) then
+        Row.AddNull
+      else
+        case VarType(V) of
+          varSmallint, varInteger, varByte, varShortInt, varWord, varLongWord, varInt64:
+            Row.Add(Int64(V));
+          varSingle, varDouble, varCurrency:
+            Row.Add(Double(V));
+          varBoolean:
+            Row.Add(Boolean(V));
+          varDate:
+            Row.Add(FormatDateTime('yyyy-mm-dd hh:nn:ss', V));
+        else
+          Row.Add(VarToStr(V));
+        end;
+    end;
+    Result.Add(Row);
+  end;
+end;
+
+function JsonToRows(const AArr: IDextJsonArray): TArray<TArray<Variant>>;
+var
+  Row: IDextJsonArray;
+  Node: IDextJsonNode;
+  Text: string;
+  i, j: Integer;
+begin
+  SetLength(Result, AArr.Count);
+  for i := 0 to AArr.Count - 1 do
+  begin
+    Row := AArr.GetArray(i);
+    SetLength(Result[i], Row.Count);
+    for j := 0 to Row.Count - 1 do
+    begin
+      Node := Row.GetNode(j);
+      case Node.NodeType of
+        jntNull: Result[i][j] := Null;
+        jntString: Result[i][j] := Row.GetString(j);
+        jntBoolean: Result[i][j] := Row.GetBoolean(j);
+        jntNumber:
+          begin
+            Text := Node.ToJson(False);
+            if Text.IndexOfAny(['.', 'e', 'E']) >= 0 then
+              Result[i][j] := Row.GetDouble(j)
+            else
+              Result[i][j] := Row.GetInt64(j);
+          end;
+      else
+        Result[i][j] := Null;
+      end;
+    end;
+  end;
+end;
 
 { TMigrationJsonSerializer }
 
@@ -292,6 +363,28 @@ begin
         Result.SetString('new_name', TRenameColumnOperation(Op).NewName);
       end;
 
+    otSeedData:
+      begin
+        Result.SetString('op', 'seed');
+        Result.SetString('table', TSeedDataOperation(Op).TableName);
+        Strs := Provider.CreateArray;
+        for S in TSeedDataOperation(Op).Columns do
+          Strs.Add(S);
+        Result.SetArray('columns', Strs);
+        Result.SetArray('rows', RowsToJson(TSeedDataOperation(Op).Data));
+      end;
+
+    otDeleteData:
+      begin
+        Result.SetString('op', 'delete_data');
+        Result.SetString('table', TDeleteDataOperation(Op).TableName);
+        Strs := Provider.CreateArray;
+        for S in TDeleteDataOperation(Op).Columns do
+          Strs.Add(S);
+        Result.SetArray('columns', Strs);
+        Result.SetArray('rows', RowsToJson(TDeleteDataOperation(Op).Data));
+      end;
+
     otSql:
       begin
         Result.SetString('op', 'sql');
@@ -411,6 +504,19 @@ begin
       Obj.GetString('table'),
       Obj.GetString('name')
     );
+  end
+  else if (OpType = 'seed') or (OpType = 'delete_data') then
+  begin
+    StrsArr := Obj.GetArray('columns');
+    SetLength(Cols, StrsArr.GetCount);
+    for i := 0 to StrsArr.GetCount - 1 do
+      Cols[i] := StrsArr.GetString(i);
+    if OpType = 'seed' then
+      Result := TSeedDataOperation.Create(Obj.GetString('table'), Cols,
+        JsonToRows(Obj.GetArray('rows')))
+    else
+      Result := TDeleteDataOperation.Create(Obj.GetString('table'), Cols,
+        JsonToRows(Obj.GetArray('rows')));
   end
   else if OpType = 'rename_table' then
   begin

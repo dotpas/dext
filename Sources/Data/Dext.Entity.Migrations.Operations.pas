@@ -48,6 +48,7 @@ type
     otRenameTable,
     otRenameColumn,
     otSeedData,
+    otDeleteData,
     otSql // Raw SQL fallback
   );
 
@@ -237,6 +238,22 @@ type
     property Data: TArray<TArray<Variant>> read FData;
   end;
 
+  /// <summary>
+  ///   Deletes the rows that match the given values (the inverse of a seed). A row
+  ///   is matched by every column it names; a null value matches with IS NULL.
+  /// </summary>
+  TDeleteDataOperation = class(TMigrationOperation)
+  private
+    FTableName: string;
+    FData: TArray<TArray<Variant>>;
+    FColumns: TArray<string>;
+  public
+    constructor Create(const ATableName: string; const AColumns: TArray<string>; const AData: TArray<TArray<Variant>>);
+    property TableName: string read FTableName;
+    property Columns: TArray<string> read FColumns;
+    property Data: TArray<TArray<Variant>> read FData;
+  end;
+
   TSqlOperation = class(TMigrationOperation)
   private
     FSql: string;
@@ -393,6 +410,16 @@ end;
 constructor TSeedDataOperation.Create(const ATableName: string; const AColumns: TArray<string>; const AData: TArray<TArray<Variant>>);
 begin
   inherited Create(otSeedData);
+  FTableName := ATableName;
+  FColumns := AColumns;
+  FData := AData;
+end;
+
+{ TDeleteDataOperation }
+
+constructor TDeleteDataOperation.Create(const ATableName: string; const AColumns: TArray<string>; const AData: TArray<TArray<Variant>>);
+begin
+  inherited Create(otDeleteData);
   FTableName := ATableName;
   FColumns := AColumns;
   FData := AData;

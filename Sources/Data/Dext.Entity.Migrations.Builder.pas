@@ -121,6 +121,16 @@ type
     function CreateIndex(const ATable, AName: string; const AColumns: array of string; AUnique: Boolean = False): TSchemaBuilder;
     function DropIndex(const ATable, AName: string): TSchemaBuilder;
     function RenameTable(const AOldName, ANewName: string): TSchemaBuilder;
+    /// <summary>
+    ///   Reference data: one INSERT per row. Dates go as ISO text ('yyyy-mm-dd hh:nn:ss').
+    /// </summary>
+    function Seed(const ATable: string; const AColumns: array of string;
+      const ARows: TArray<TArray<Variant>>): TSchemaBuilder;
+    /// <summary>
+    ///   Deletes the rows that match the given values; the inverse of Seed.
+    /// </summary>
+    function DeleteData(const ATable: string; const AColumns: array of string;
+      const ARows: TArray<TArray<Variant>>): TSchemaBuilder;
     function RenameColumn(const ATable, AOldName, ANewName: string): TSchemaBuilder;
     
     function Sql(const ASql: string): TSchemaBuilder;
@@ -339,6 +349,32 @@ end;
 function TSchemaBuilder.RenameColumn(const ATable, AOldName, ANewName: string): TSchemaBuilder;
 begin
   FOperations.Add(TRenameColumnOperation.Create(ATable, AOldName, ANewName));
+  Result := Self;
+end;
+
+function TSchemaBuilder.Seed(const ATable: string; const AColumns: array of string;
+  const ARows: TArray<TArray<Variant>>): TSchemaBuilder;
+var
+  Cols: TArray<string>;
+  i: Integer;
+begin
+  SetLength(Cols, Length(AColumns));
+  for i := 0 to High(AColumns) do
+    Cols[i] := AColumns[i];
+  FOperations.Add(TSeedDataOperation.Create(ATable, Cols, ARows));
+  Result := Self;
+end;
+
+function TSchemaBuilder.DeleteData(const ATable: string; const AColumns: array of string;
+  const ARows: TArray<TArray<Variant>>): TSchemaBuilder;
+var
+  Cols: TArray<string>;
+  i: Integer;
+begin
+  SetLength(Cols, Length(AColumns));
+  for i := 0 to High(AColumns) do
+    Cols[i] := AColumns[i];
+  FOperations.Add(TDeleteDataOperation.Create(ATable, Cols, ARows));
   Result := Self;
 end;
 

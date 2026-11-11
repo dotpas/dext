@@ -19,6 +19,7 @@ uses
   Dext.Entity.Migrations.Differ,
   Dext.Entity.Migrations.Operations,
   Dext.Core.SmartTypes,
+  System.Variants,
   Dext.Entity.Migrations.Builder,
   Dext.Entity.Migrations.Runner,
   Dext.Entity.Migrations.Generator,
@@ -90,6 +91,16 @@ type
     procedure Test_Extractor_Uses_Bare_Varchar_With_The_Length;
     [Test]
     procedure Test_Extractor_Unwraps_Smart_Types;
+    [Test]
+    procedure Test_Seed_Inserts_Every_Row;
+    [Test]
+    procedure Test_Builder_Seed_And_DeleteData_Operations;
+    [Test]
+    procedure Test_DeleteData_Removes_Exactly_The_Given_Rows;
+    [Test]
+    procedure Test_Json_RoundTrip_Seed_And_DeleteData;
+    [Test]
+    procedure Test_Generator_Seed_Up_Has_DeleteData_Down;
     [Test]
     procedure Test_Context_Exposes_The_Migrator;
     [Test]
@@ -365,6 +376,146 @@ begin
   finally
     Db.Free;
   end;
+end;
+
+procedure TMigrationTests.Test_Seed_Inserts_Every_Row;
+var
+  Db: TRenamedModelContext;
+  Op: TSeedDataOperation;
+  Reader: IDbReader;
+  Total: string;
+begin
+  Db := TRenamedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Connection.CreateCommand(
+      'CREATE TABLE "Seeds" ("Id" INTEGER, "Name" TEXT)').ExecuteNonQuery;
+    Op := TSeedDataOperation.Create('Seeds', ['Id', 'Name'],
+      [[1, 'Ana'], [2, 'O''Neil'], [3, Null]]);
+    try
+      Db.Connection.CreateCommand(
+        Db.Dialect.GenerateMigration(Op)).ExecuteNonQuery;
+    finally
+      Op.Free;
+    end;
+
+    Reader := Db.Connection.CreateCommand(
+      'SELECT COUNT(*) FROM "Seeds"').ExecuteQuery;
+    Reader.Next;
+    Total := Reader.GetValue(0).ToString;
+    Should(Total).Be('3');
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Builder_Seed_And_DeleteData_Operations;
+var
+  Builder: TSchemaBuilder;
+  Seed: TSeedDataOperation;
+  Del: TDeleteDataOperation;
+begin
+  Builder := TSchemaBuilder.Create;
+  try
+    Builder
+      .Seed('Users', ['Id', 'Name'], [[1, 'Ana'], [2, 'Bia']])
+      .DeleteData('Users', ['Id', 'Name'], [[1, 'Ana']]);
+
+    Should(Builder.Operations.Count).Be(2);
+    Should(Builder.Operations[0] is TSeedDataOperation).BeTrue;
+    Seed := TSeedDataOperation(Builder.Operations[0]);
+    Should(Seed.TableName).Be('Users');
+    Should(Length(Seed.Columns)).Be(2);
+    Should(Length(Seed.Data)).Be(2);
+    Should(VarToStr(Seed.Data[1][1])).Be('Bia');
+    Should(Builder.Operations[1] is TDeleteDataOperation).BeTrue;
+    Del := TDeleteDataOperation(Builder.Operations[1]);
+    Should(Del.TableName).Be('Users');
+    Should(Length(Del.Data)).Be(1);
+  finally
+    Builder.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_DeleteData_Removes_Exactly_The_Given_Rows;
+var
+  Db: TRenamedModelContext;
+  Op: TDeleteDataOperation;
+  Reader: IDbReader;
+  Total: string;
+begin
+  Db := TRenamedModelContext.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Connection.CreateCommand(
+      'CREATE TABLE "Seeds" ("Id" INTEGER, "Name" TEXT)').ExecuteNonQuery;
+    Db.Connection.CreateCommand(
+      'INSERT INTO "Seeds" VALUES (1, ''Ana''), (2, ''O''''Neil''), ' +
+      '(3, NULL), (4, ''Dani'')').ExecuteNonQuery;
+
+    // A row is matched by every column it names; NULL needs IS NULL.
+    Op := TDeleteDataOperation.Create('Seeds', ['Id', 'Name'],
+      [[2, 'O''Neil'], [3, Null]]);
+    try
+      Db.Connection.CreateCommand(
+        Db.Dialect.GenerateMigration(Op)).ExecuteNonQuery;
+    finally
+      Op.Free;
+    end;
+
+    Reader := Db.Connection.CreateCommand(
+      'SELECT GROUP_CONCAT("Id") FROM "Seeds"').ExecuteQuery;
+    Reader.Next;
+    Total := Reader.GetValue(0).ToString;
+    Should(Total).Be('1,4');
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Json_RoundTrip_Seed_And_DeleteData;
+var
+  Ops, Back: IList<TMigrationOperation>;
+  Seed: TSeedDataOperation;
+begin
+  Ops := TCollections.CreateList<TMigrationOperation>(True);
+  Ops.Add(TSeedDataOperation.Create('Users', ['Id', 'Name', 'Active'],
+    [[1, 'Ana', True], [2, Null, False]]));
+  Ops.Add(TDeleteDataOperation.Create('Users', ['Id'], [[1], [2]]));
+
+  Back := TMigrationJsonSerializer.Deserialize(
+    TMigrationJsonSerializer.Serialize(Ops));
+
+  Should(Back.Count).Be(2);
+  Should(Back[0] is TSeedDataOperation).BeTrue;
+  Seed := TSeedDataOperation(Back[0]);
+  Should(Seed.TableName).Be('Users');
+  Should(Seed.Columns[2]).Be('Active');
+  Should(VarToStr(Seed.Data[0][0])).Be('1');
+  Should(VarToStr(Seed.Data[0][1])).Be('Ana');
+  Should(VarType(Seed.Data[0][2]) = varBoolean).BeTrue;
+  Should(Boolean(Seed.Data[0][2])).BeTrue;
+  Should(VarIsNull(Seed.Data[1][1])).BeTrue;
+  Should(Back[1] is TDeleteDataOperation).BeTrue;
+  Should(Length(TDeleteDataOperation(Back[1]).Data)).Be(2);
+end;
+
+procedure TMigrationTests.Test_Generator_Seed_Up_Has_DeleteData_Down;
+var
+  Ops: IList<TMigrationOperation>;
+  Code, Down: string;
+begin
+  Ops := TCollections.CreateList<TMigrationOperation>(True);
+  Ops.Add(TSeedDataOperation.Create('Users', ['Id', 'Name', 'Active'],
+    [[1, 'O''Neil', True], [2, Null, False]]));
+
+  Code := TMigrationGenerator.GenerateUnit('Migrations.Sample',
+    'TMigration_20260101_Seed', Ops);
+  Down := Code.Substring(Code.IndexOf('.Down(Builder'));
+
+  Should(Code.Contains('Builder.Seed(''Users'', [''Id'', ''Name'', ''Active''], ' +
+    '[[1, ''O''''Neil'', True], [2, Null, False]]);')).BeTrue;
+  // The inverse of a seed deletes exactly the rows it inserted.
+  Should(Down.Contains('Builder.DeleteData(''Users'', [''Id'', ''Name'', ''Active''], ' +
+    '[[1, ''O''''Neil'', True], [2, Null, False]]);')).BeTrue;
 end;
 
 procedure TMigrationTests.Test_Context_Exposes_The_Migrator;
