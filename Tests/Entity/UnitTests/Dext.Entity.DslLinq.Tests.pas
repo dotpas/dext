@@ -14,6 +14,7 @@ uses
   Dext.Testing.Attributes,
   Dext.Assertions,
   Dext.Collections,
+  Dext.Collections.Dict,
   Dext.Core.SmartTypes,
   Dext.Entity,
   Dext.Entity.Attributes,
@@ -128,6 +129,20 @@ type
     procedure Concat_Appends_The_Other_Sequence;
     [Test]
     procedure Union_Intersect_Except_Work_By_Entity;
+    [Test]
+    procedure MaxOf_And_MinOf_Work_For_Any_Comparable_Type;
+    [Test]
+    procedure MaxOf_Raises_On_An_Empty_Sequence;
+    [Test]
+    procedure Aggregate_Accumulates_From_A_Seed;
+    [Test]
+    procedure ToDictionary_Keys_By_The_Selector;
+    [Test]
+    procedure ToDictionary_With_Value_Selector;
+    [Test]
+    procedure ToDictionary_Raises_On_A_Repeated_Key;
+    [Test]
+    procedure ThenBy_Accepts_An_Order_Expression;
   end;
 
 implementation
@@ -545,6 +560,135 @@ begin
   Should(A.Intersect(B).Single.Id).Be(2);
   Should(A.&Except(B).ToList.Count).Be(1);
   Should(A.&Except(B).Single.Id).Be(1);
+end;
+
+procedure TDslLinqTests.MaxOf_And_MinOf_Work_For_Any_Comparable_Type;
+var
+  O: TDlOrder;
+  Q: TFluentQuery<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Q := FDb.Orders.Where(O.Id > 0);
+  Should(Q.MaxOf<Integer>(
+    function(Ord: TDlOrder): Integer
+    begin
+      Result := Ord.CustomerId;
+    end)).Be(3);
+  Should(Q.MinOf<string>(
+    function(Ord: TDlOrder): string
+    begin
+      Result := Ord.Status;
+    end)).Be('Open');
+  Should(Q.MaxOf<string>(
+    function(Ord: TDlOrder): string
+    begin
+      Result := Ord.Status;
+    end)).Be('Paid');
+end;
+
+procedure TDslLinqTests.MaxOf_Raises_On_An_Empty_Sequence;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    FDb.Orders.Where(O.Id > 99).MaxOf<Integer>(
+      function(Ord: TDlOrder): Integer
+      begin
+        Result := Ord.Id;
+      end);
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TDslLinqTests.Aggregate_Accumulates_From_A_Seed;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // 1 + 2 + ... + 6
+  Should(FDb.Orders.Where(O.Id > 0).Aggregate<Integer>(0,
+    function(Acc: Integer; Ord: TDlOrder): Integer
+    begin
+      Result := Acc + Ord.Id;
+    end)).Be(21);
+end;
+
+procedure TDslLinqTests.ToDictionary_Keys_By_The_Selector;
+var
+  O: TDlOrder;
+  Map: IDictionary<Integer, TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Map := FDb.Orders.Where(O.Id > 0).ToDictionary<Integer>(
+    function(Ord: TDlOrder): Integer
+    begin
+      Result := Ord.Id;
+    end);
+  Should(Map.Count).Be(6);
+  Should(Map[3].Id).Be(3);
+end;
+
+procedure TDslLinqTests.ToDictionary_With_Value_Selector;
+var
+  O: TDlOrder;
+  Map: IDictionary<Integer, string>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Map := FDb.Orders.Where(O.Id > 0).ToDictionary<Integer, string>(
+    function(Ord: TDlOrder): Integer
+    begin
+      Result := Ord.Id;
+    end,
+    function(Ord: TDlOrder): string
+    begin
+      Result := Ord.Status;
+    end);
+  Should(Map[1]).Be('Open');
+  Should(Map[2]).Be('Paid');
+end;
+
+procedure TDslLinqTests.ToDictionary_Raises_On_A_Repeated_Key;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    // Three customers for six orders: the key repeats
+    FDb.Orders.Where(O.Id > 0).ToDictionary<Integer>(
+      function(Ord: TDlOrder): Integer
+      begin
+        Result := Ord.CustomerId;
+      end);
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TDslLinqTests.ThenBy_Accepts_An_Order_Expression;
+var
+  O: TDlOrder;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Open first (ids 5, 3, 1 by descending id), then Paid (6, 4, 2)
+  Items := FDb.Orders.Where(O.Id > 0).OrderBy(O.Status.Asc)
+    .ThenBy(O.Id.Desc).ToList;
+  Should(Items[0].Id).Be(5);
+  Should(Items[2].Id).Be(1);
+  Should(Items[3].Id).Be(6);
+  // ThenByDescending forces the descending direction
+  Items := FDb.Orders.Where(O.Id > 0).OrderBy(O.Status.Asc)
+    .ThenByDescending(O.Id.Asc).ToList;
+  Should(Items[0].Id).Be(5);
+  Should(Items[5].Id).Be(2);
 end;
 
 end.

@@ -33,6 +33,7 @@ interface
 
 uses
   System.Classes,
+  System.Generics.Defaults,
   Dext.Collections.Base,
   Dext.Collections,
   Dext.Collections.Comparers,
@@ -215,8 +216,10 @@ type
     function OrderByDescending(const AOrderBy: IOrderBy): TFluentQuery<T>; overload;
     function OrderBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
     function OrderByDescending<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
-    function ThenBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
-    function ThenByDescending<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
+    function ThenBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
+    function ThenByDescending<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
+    function ThenBy(const AOrderBy: IOrderBy): TFluentQuery<T>; overload;
+    function ThenByDescending(const AOrderBy: IOrderBy): TFluentQuery<T>; overload;
 
     /// <summary>
     ///   Force execution and return materialized list.
@@ -342,6 +345,21 @@ type
     function Union(const AOther: TFluentQuery<T>): TFluentQuery<T>;
     function Intersect(const AOther: TFluentQuery<T>): TFluentQuery<T>;
     function &Except(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+
+    /// <summary>The smallest / largest value the selector gives, for any
+    ///   comparable type (string, date, integer...). Raises on an empty
+    ///   sequence.</summary>
+    function MinOf<TResult>(const ASelector: TFunc<T, TResult>): TResult;
+    function MaxOf<TResult>(const ASelector: TFunc<T, TResult>): TResult;
+
+    /// <summary>Applies an accumulator over the sequence, from a seed.</summary>
+    function Aggregate<TAcc>(const ASeed: TAcc; const AFunc: TFunc<TAcc, T, TAcc>): TAcc;
+
+    /// <summary>Builds a dictionary keyed by the selector; a repeated key
+    ///   raises, as in .NET.</summary>
+    function ToDictionary<TKey>(const AKeySelector: TFunc<T, TKey>): IDictionary<TKey, T>; overload;
+    function ToDictionary<TKey, TValue>(const AKeySelector: TFunc<T, TKey>;
+      const AValueSelector: TFunc<T, TValue>): IDictionary<TKey, TValue>; overload;
 
     function Sum(const ASelector: TFunc<T, Double>): Double; overload;
     function Sum(const APropertyName: string): Double; overload;
@@ -1188,6 +1206,16 @@ end;
 function TFluentQuery<T>.OrderByDescending<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
 begin
   Result := OrderBy(TOrderBy.Create(AProp.Name, False));
+end;
+
+function TFluentQuery<T>.ThenBy(const AOrderBy: IOrderBy): TFluentQuery<T>;
+begin
+  Result := OrderBy(AOrderBy);
+end;
+
+function TFluentQuery<T>.ThenByDescending(const AOrderBy: IOrderBy): TFluentQuery<T>;
+begin
+  Result := OrderByDescending(AOrderBy);
 end;
 
 function TFluentQuery<T>.ThenBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>;
@@ -2129,6 +2157,88 @@ begin
           Result.Add(Item);
         end;
     end);
+end;
+
+function TFluentQuery<T>.MinOf<TResult>(const ASelector: TFunc<T, TResult>): TResult;
+var
+  Enumerator: IEnumerator<T>;
+  Comparer: IComparer<TResult>;
+  Value: TResult;
+  Found: Boolean;
+begin
+  Comparer := TComparer<TResult>.Default;
+  Found := False;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+  begin
+    Value := ASelector(Enumerator.Current);
+    if (not Found) or (Comparer.Compare(Value, Result) < 0) then
+    begin
+      Result := Value;
+      Found := True;
+    end;
+  end;
+  if not Found then
+    raise Exception.Create('Sequence contains no elements');
+end;
+
+function TFluentQuery<T>.MaxOf<TResult>(const ASelector: TFunc<T, TResult>): TResult;
+var
+  Enumerator: IEnumerator<T>;
+  Comparer: IComparer<TResult>;
+  Value: TResult;
+  Found: Boolean;
+begin
+  Comparer := TComparer<TResult>.Default;
+  Found := False;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+  begin
+    Value := ASelector(Enumerator.Current);
+    if (not Found) or (Comparer.Compare(Value, Result) > 0) then
+    begin
+      Result := Value;
+      Found := True;
+    end;
+  end;
+  if not Found then
+    raise Exception.Create('Sequence contains no elements');
+end;
+
+function TFluentQuery<T>.Aggregate<TAcc>(const ASeed: TAcc; const AFunc: TFunc<TAcc, T, TAcc>): TAcc;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Result := ASeed;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    Result := AFunc(Result, Enumerator.Current);
+end;
+
+function TFluentQuery<T>.ToDictionary<TKey>(const AKeySelector: TFunc<T, TKey>): IDictionary<TKey, T>;
+begin
+  Result := ToDictionary<TKey, T>(AKeySelector,
+    function(Item: T): T
+    begin
+      Result := Item;
+    end);
+end;
+
+function TFluentQuery<T>.ToDictionary<TKey, TValue>(const AKeySelector: TFunc<T, TKey>;
+  const AValueSelector: TFunc<T, TValue>): IDictionary<TKey, TValue>;
+var
+  Enumerator: IEnumerator<T>;
+  Key: TKey;
+begin
+  Result := TCollections.CreateDictionary<TKey, TValue>;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+  begin
+    Key := AKeySelector(Enumerator.Current);
+    if Result.ContainsKey(Key) then
+      raise Exception.Create('ToDictionary: the key is already in the dictionary');
+    Result.Add(Key, AValueSelector(Enumerator.Current));
+  end;
 end;
 
 function TFluentQuery<T>.Sum(const ASelector: TFunc<T, Double>): Double;
