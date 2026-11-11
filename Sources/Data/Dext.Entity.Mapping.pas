@@ -710,6 +710,52 @@ begin
   end;
 end;
 
+// Lazy<T> whose T is a class without a registered converter: a reference to
+// another entity. Lazy<string> or Lazy<TStrings> are lazily read columns.
+function IsLazyEntityReference(AType: PTypeInfo): Boolean;
+var
+  Meta: TTypeMetadata;
+begin
+  Result := False;
+  if AType = nil then
+    Exit;
+  Meta := TReflection.GetMetadata(AType);
+  Result := Meta.IsLazy and (Meta.InnerType <> nil) and
+    (Meta.InnerType.Kind = tkClass) and
+    (TTypeConverterRegistry.Instance.GetConverter(Meta.InnerType) = nil);
+end;
+
+// The foreign key of a navigation may be written as the property name
+// (ClienteId) or as the column name of the table (cliente_id), which is what
+// the scaffolding generator emits. Everything downstream looks the key up as a
+// property, so a column name is translated to the property that owns it.
+procedure ResolveNavigationForeignKeys(AMap: TEntityMap);
+var
+  Nav, Candidate: TPropertyMap;
+  Wanted, Actual: string;
+begin
+  for Nav in AMap.Properties.Values do
+  begin
+    Wanted := Nav.ForeignKeyColumn;
+    if (not Nav.IsNavigation) or (Wanted = '') or
+       AMap.Properties.ContainsKey(Wanted) then
+      Continue;
+    for Candidate in AMap.Properties.Values do
+    begin
+      if Candidate.IsNavigation then
+        Continue;
+      Actual := Candidate.ColumnName;
+      if Actual = '' then
+        Actual := Candidate.PropertyName;
+      if SameText(Actual, Wanted) then
+      begin
+        Nav.ForeignKeyColumn := Candidate.PropertyName;
+        Break;
+      end;
+    end;
+  end;
+end;
+
 procedure TEntityMap.DiscoverAttributes;
 var
   Typ: TRttiType;
@@ -1147,7 +1193,20 @@ begin
           if (LTypeName = 'TStrings') or (LTypeName = 'TBytes') then
             PropMap.IsLazy := True;
       end;
+
+      // Lazy<TEntity> is a reference to another entity, not a column. Lazy of
+      // a scalar (Lazy<string>) or of a converted class (TStrings) stays a column.
+      if PropMap.IsLazy and not PropMap.IsNavigation and
+         not PropMap.IsJsonColumn and
+         IsLazyEntityReference(Prop.PropertyType.Handle) then
+      begin
+        PropMap.IsNavigation := True;
+        if PropMap.Relationship = rtNone then
+          PropMap.Relationship := rtManyToOne;
+      end;
     end;
+
+    ResolveNavigationForeignKeys(Self);
 end;
 
 function TEntityMap.GetOrAddProperty(const APropName: string): TPropertyMap;

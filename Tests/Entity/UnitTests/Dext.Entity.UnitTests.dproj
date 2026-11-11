@@ -120,6 +120,7 @@
         <DCCReference Include="Dext.Entity.Architecture.Tests.pas"/>
         <DCCReference Include="Dext.Entity.ReportedIssues.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Scaffolding.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.LazyNavigation.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Migrations.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SnakeCaseFk.Tests.pas"/>
         <DCCReference Include="Dext.Entity.FormatSettings.Tests.pas"/>
