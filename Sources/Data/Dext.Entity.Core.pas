@@ -466,13 +466,16 @@ type
     procedure Clear;
 
     /// <summary>
-    ///   Detaches all entities from the context without destroying them.
-    ///   The caller becomes responsible for freeing the entities.
+    ///   Detaches all entities from the context: they stop being tracked and
+    ///   leave the identity map, but the instances stay valid. The context
+    ///   still owns them and frees them when it is destroyed or cleared, so
+    ///   the caller must not free them.
     /// </summary>
     procedure DetachAll;
 
     /// <summary>
-    ///   Detaches a specific entity from the context.
+    ///   Detaches a specific entity from the context. The instance stays valid
+    ///   and the context keeps owning it (see DetachAll).
     /// </summary>
     procedure Detach(const AEntity: TObject);
 
