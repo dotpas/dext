@@ -276,80 +276,96 @@ var ByAge := TAgeRangeSpec.Create(MinAge, MaxAge);
 
 ## Migrations
 
+A migration implements `IMigration` (`GetId`, `Up`, `Down`) and describes the change with a `TSchemaBuilder`. It registers itself in the unit's `initialization`, so the unit must be in the program's `uses` clause. Ids start with the date (`YYYYMMDD_Name`): the registry orders by Id.
+
 ```pascal
-unit Migration_001_CreateUsers;
+unit Migration_20261101_CreateUsers;
 
 interface
+
 uses
-  Dext.Entity.Migrations;
+  Dext.Entity.Migrations,
+  Dext.Entity.Migrations.Builder;
 
 type
-  [Migration(1, 'CreateUsers')]
-  TMigration_001_CreateUsers = class(TMigration)
+  TMigration_CreateUsers = class(TInterfacedObject, IMigration)
   public
-    procedure Up; override;
-    procedure Down; override;
+    function GetId: string;
+    procedure Up(Builder: TSchemaBuilder);
+    procedure Down(Builder: TSchemaBuilder);
   end;
 
 implementation
 
-procedure TMigration_001_CreateUsers.Up;
+function TMigration_CreateUsers.GetId: string;
 begin
-  CreateTable('users', procedure(T: TTableBuilder)
+  Result := '20261101_CreateUsers';
+end;
+
+procedure TMigration_CreateUsers.Up(Builder: TSchemaBuilder);
+begin
+  Builder.CreateTable('users',
+    procedure(T: TTableBuilder)
     begin
-      T.AddColumn('id').AsInteger.PrimaryKey.AutoIncrement;
-      T.AddColumn('name').AsString(100).NotNull;
-      T.AddColumn('email').AsString(255).NotNull.Unique;
-      T.AddColumn('created_at').AsDateTime.Default('CURRENT_TIMESTAMP');
+      T.Column('Id', 'INTEGER').PrimaryKey;
+      T.Column('Name', 'VARCHAR', 100).NotNull;
+      T.Column('Email', 'VARCHAR', 255);
+      T.Column('Balance', 'DECIMAL', 18, 2);
     end);
 end;
 
-procedure TMigration_001_CreateUsers.Down;
+procedure TMigration_CreateUsers.Down(Builder: TSchemaBuilder);
 begin
-  DropTable('users');
+  Builder.DropTable('users');
 end;
+
+initialization
+  RegisterMigration(TMigration_CreateUsers.Create);
+
+end.
 ```
 
-### Table Builder API
+### Builder API
 
 ```pascal
-T.AddColumn('id').AsInteger.PrimaryKey.AutoIncrement;
-T.AddColumn('name').AsString(100).NotNull;
-T.AddColumn('email').AsString(255).Nullable;
-T.AddColumn('price').AsDecimal(10, 2).Default('0.00');
-T.AddColumn('active').AsBoolean.Default('true');
-T.AddColumn('created_at').AsDateTime;
-T.AddColumn('data').AsText;           // CLOB/TEXT for large strings
-T.AddColumn('binary').AsBlob;         // BLOB
-T.AddColumn('uuid').AsGuid;
+Builder.CreateTable('t', procedure(T: TTableBuilder) begin ... end);
+Builder.DropTable('t');
+Builder.AddColumn('t', 'Phone', 'VARCHAR', 20);      // table, column, type, length, nullable
+Builder.DropColumn('t', 'Legacy');
+Builder.AlterColumn('t', 'Phone', 'VARCHAR');         // name and type only
+Builder.RenameTable('old', 'new');
+Builder.RenameColumn('t', 'old', 'new');
+Builder.CreateIndex('t', 'ix_t_email', ['Email'], True);   // True = unique
+Builder.DropIndex('t', 'ix_t_email');
+Builder.AddForeignKey('t', 'fk_t_u', 'UserId', 'users', 'Id');
+Builder.DropForeignKey('t', 'fk_t_u');
+Builder.Seed('t', ['Id', 'Name'], [[1, 'Ana'], [2, 'Bia']]);       // one INSERT per row
+Builder.DeleteData('t', ['Id', 'Name'], [[1, 'Ana'], [2, 'Bia']]); // inverse of Seed
+Builder.Sql('CREATE INDEX ...');                       // anything else
 
-// Constraints & Indexes
-T.AddColumn('email').AsString(255).Unique;
-T.AddColumn('status').AsString(20).Check('status IN (''active'', ''inactive'')');
-T.AddForeignKey('user_id', 'users', 'id').OnDeleteCascade;
-T.AddIndex('idx_email', 'email');
-T.AddUniqueIndex('idx_email_unique', 'email');
-
-// Alter
-AlterTable('users', procedure(T: TTableBuilder)
-  begin
-    T.AddColumn('phone').AsString(20).Nullable;
-    T.DropColumn('legacy');
-    T.RenameColumn('name', 'full_name');
-  end);
-
-// Raw SQL
-Execute('CREATE INDEX CONCURRENTLY ...');
+// Column marks inside CreateTable
+T.Column('Id', 'INTEGER').PrimaryKey.Identity;
+T.Column('Name', 'VARCHAR', 100).NotNull;
+T.Column('Active', 'BOOLEAN').Default('1');
+T.PrimaryKey(['A', 'B']);
+T.ForeignKey('fk_name', 'UserId', 'users', 'Id');      // emitted after the CREATE TABLE
 ```
 
-Register migrations — add to the program's `uses` clause:
+### Running them
 
 ```pascal
-uses
-  Migration_001_CreateUsers,
-  Migration_002_AddEmailIndex;
-// Dext auto-discovers [Migration] attributed classes
+Db.Migrator.Migrate;                                   // pending ones, one transaction each
+Db.Migrator.Rollback;                                  // last one
+Db.Migrator.Rollback('20261101_CreateUsers');          // that one and all after it
+if not Db.Migrator.ValidateSchemaCompatibility('20261101_CreateUsers') then
+  raise Exception.Create('Database schema is outdated!');
 ```
+
+A migration that fails is rolled back whole on databases with transactional DDL (SQLite, PostgreSQL); MySQL and Oracle commit DDL on their own. History lives in `__DextMigrations`.
+
+### From model to migration
+
+`[RenamedFrom('Old')]` on a property (or class) tells the differ it is a rename, not a drop plus an add. `TDbContextModelExtractor.Extract(Db)` gives a snapshot, `TModelDiffer.Diff(Current, Previous)` the operations, `TMigrationGenerator.GenerateUnit` / `GenerateJson` the migration (the generated `Down` is the reverse; what cannot be inverted is flagged `// Irreversible:`). `TJsonMigration` loads a migration written as JSON.
 
 ### Migration CLI
 
