@@ -44,12 +44,14 @@ type
     FCustomerId: IntType;
     FAmount: CurrencyType;
     FStatus: StringType;
+    FCreatedAt: DateTimeType;
   public
     [PrimaryKey]
     property Id: IntType read FId write FId;
     property CustomerId: IntType read FCustomerId write FCustomerId;
     property Amount: CurrencyType read FAmount write FAmount;
     property Status: StringType read FStatus write FStatus;
+    property CreatedAt: DateTimeType read FCreatedAt write FCreatedAt;
   end;
 
   TDlDb = class(TDbContext)
@@ -225,6 +227,18 @@ type
     procedure Subquery_With_Other_Literals_Reuses_The_Cache_And_Refreshes;
     [Test]
     procedure Subquery_Works_Inside_A_Query_With_A_Join;
+    [Test]
+    procedure ToUpper_And_ToLower_Compare_Ignoring_Case;
+    [Test]
+    procedure Len_Counts_The_Characters;
+    [Test]
+    procedure Substring_Uses_A_Zero_Based_Index;
+    [Test]
+    procedure Trim_Removes_The_Blanks_Around;
+    [Test]
+    procedure Year_Month_Day_Extract_The_Parts_Of_The_Date;
+    [Test]
+    procedure Function_Result_Can_Be_Combined_With_Other_Conditions;
   end;
 
 implementation
@@ -279,6 +293,8 @@ begin
     O.CustomerId := ((I - 1) mod 3) + 1;
     O.Amount := I * 50;
     if I mod 2 = 0 then O.Status := 'Paid' else O.Status := 'Open';
+    // 2024-01-15 .. 2024-03-15, then 2025-04-15 .. 2025-06-15
+    O.CreatedAt := EncodeDate(2024 + (I - 1) div 3, I, 15);
     FDb.Orders.Add(O);
   end;
   FDb.SaveChanges;
@@ -1141,6 +1157,81 @@ begin
     .Where(O.CustomerId.&In(FDb.Customers.Where(C.City = 'RJ').Subquery(C.Id)))
     .ToList;
   Should(Items.Count).Be(2);
+end;
+
+procedure TDslLinqTests.ToUpper_And_ToLower_Compare_Ignoring_Case;
+var
+  C: TDlCustomer;
+begin
+  C := Prototype.Entity<TDlCustomer>;
+  Should(FDb.Customers.Where(C.Name.ToUpper = 'CUSTOMER 1').Count).Be(1);
+  Should(FDb.Customers.Where(C.City.ToLower = 'sp').Count).Be(2);
+  Should(FDb.Customers.Where(C.City.ToLower = 'SP').Count).Be(0);
+end;
+
+procedure TDslLinqTests.Len_Counts_The_Characters;
+var
+  C: TDlCustomer;
+begin
+  C := Prototype.Entity<TDlCustomer>;
+  Should(FDb.Customers.Where(C.Name.Len = 10).Count).Be(3);
+  Should(FDb.Customers.Where(C.City.Len = 2).Count).Be(3);
+  Should(FDb.Customers.Where(C.Name.Len > 10).Count).Be(0);
+end;
+
+procedure TDslLinqTests.Substring_Uses_A_Zero_Based_Index;
+var
+  C: TDlCustomer;
+begin
+  C := Prototype.Entity<TDlCustomer>;
+  // LINQ: c.Name.Substring(0, 8) == "Customer"
+  Should(FDb.Customers.Where(C.Name.Substring(0, 8) = 'Customer').Count).Be(3);
+  // "Customer 3": index 9 is the digit
+  Should(FDb.Customers.Where(C.Name.Substring(9, 1) = '3').Count).Be(1);
+  Should(FDb.Customers.Where(C.Name.Substring(0, 4) = 'Cust').Count).Be(3);
+end;
+
+procedure TDslLinqTests.Trim_Removes_The_Blanks_Around;
+var
+  C: TDlCustomer;
+  X: TDlCustomer;
+begin
+  X := TDlCustomer.Create;
+  X.Id := 9;
+  X.Name := '  Zed  ';
+  X.City := 'SP';
+  FDb.Customers.Add(X);
+  FDb.SaveChanges;
+  C := Prototype.Entity<TDlCustomer>;
+  Should(FDb.Customers.Where(C.Name.Trim = 'Zed').Count).Be(1);
+  Should(FDb.Customers.Where(C.Name = 'Zed').Count).Be(0);
+end;
+
+procedure TDslLinqTests.Year_Month_Day_Extract_The_Parts_Of_The_Date;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.CreatedAt.Year = 2025).Count).Be(3);
+  Should(FDb.Orders.Where(O.CreatedAt.Month = 2).Count).Be(1);
+  Should(FDb.Orders.Where(O.CreatedAt.Day = 15).Count).Be(6);
+  Should(FDb.Orders.Where(O.CreatedAt.Year = 2024).Count).Be(3);
+end;
+
+procedure TDslLinqTests.Function_Result_Can_Be_Combined_With_Other_Conditions;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Should(FDb.Orders.Where((O.CreatedAt.Year = 2024) and
+    (O.CreatedAt.Month >= 2)).Count).Be(2);
+  // inside a subquery too: customers with an order in 2025
+  Should(FDb.Customers.Where(FDb.Orders.Where(
+    (O.CustomerId = C.Id) and (O.CreatedAt.Year = 2025)).Exists).Count).Be(3);
+  Should(FDb.Customers.Where(FDb.Orders.Where(
+    (O.CustomerId = C.Id) and (O.CreatedAt.Month = 6)).Exists).Count).Be(1);
 end;
 
 end.

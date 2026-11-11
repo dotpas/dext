@@ -136,6 +136,33 @@ type
     function ToString: string; override;
   end;
 
+  /// <summary>
+  ///   Scalar functions of the query DSL (LINQ: ToUpper, ToLower, Length,
+  ///   Trim, Substring, Year, Month, Day).
+  /// </summary>
+  TFunctionKind = (fkUpper, fkLower, fkLength, fkTrim, fkSubstring,
+    fkYear, fkMonth, fkDay);
+
+  /// <summary>
+  ///   A scalar function applied to an expression (a column or another
+  ///   function). Arg1/Arg2 are integers written in the SQL (Substring).
+  /// </summary>
+  TFunctionExpression = class(TAbstractExpression)
+  private
+    FKind: TFunctionKind;
+    FOperand: IExpression;
+    FArg1: Integer;
+    FArg2: Integer;
+  public
+    constructor Create(AKind: TFunctionKind; const AOperand: IExpression;
+      AArg1: Integer = 0; AArg2: Integer = 0);
+    property Kind: TFunctionKind read FKind;
+    property Operand: IExpression read FOperand;
+    property Arg1: Integer read FArg1;
+    property Arg2: Integer read FArg2;
+    function ToString: string; override;
+  end;
+
   TSubqueryKind = (sqIn, sqNotIn, sqExists, sqNotExists);
 
   /// <summary>
@@ -484,6 +511,24 @@ begin
     Result := FOwner + '.' + FPropertyName
   else
     Result := FPropertyName;
+end;
+
+{ TFunctionExpression }
+
+constructor TFunctionExpression.Create(AKind: TFunctionKind;
+  const AOperand: IExpression; AArg1, AArg2: Integer);
+begin
+  inherited Create;
+  FKind := AKind;
+  FOperand := AOperand;
+  FArg1 := AArg1;
+  FArg2 := AArg2;
+end;
+
+function TFunctionExpression.ToString: string;
+begin
+  Result := Format('FN%d(%s,%d,%d)',
+    [Ord(FKind), FOperand.ToString, FArg1, FArg2]);
 end;
 
 { TSubqueryExpression }

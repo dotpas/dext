@@ -259,6 +259,20 @@ type
     function Asc: IOrderBy;
     function Desc: IOrderBy;
 
+    // Scalar functions (LINQ: ToUpper, ToLower, Length, Trim, Substring,
+    // Year, Month, Day). They build an expression for the query; the value of
+    // a property outside a query is not computed.
+    function ToUpper: Prop<string>;
+    function ToLower: Prop<string>;
+    function Trim: Prop<string>;
+    /// <summary>LINQ: Length (the number of characters).</summary>
+    function Len: Prop<Integer>;
+    /// <summary>LINQ: Substring(startIndex, length); the index is zero-based.</summary>
+    function Substring(AStartIndex, ALength: Integer): Prop<string>;
+    function Year: Prop<Integer>;
+    function Month: Prop<Integer>;
+    function Day: Prop<Integer>;
+
     /// <summary>Gives a name to the result column of a projection item
     ///   (Select&lt;TDto&gt;): the alias is the property of the DTO.</summary>
     function &As(const AAlias: string): TSelectItem;
@@ -779,6 +793,70 @@ begin
     raise EArgumentException.Create('NotIn(subquery) needs a prototype property.');
   Result := BooleanExpression.FromQuery(
     TSubqueryExpression.Create(sqNotIn, GetExpression, ASubquery));
+end;
+
+function Prop<T>.ToUpper: Prop<string>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('ToUpper only applies in a query.');
+  Result := Prop<string>.FromExpression(
+    TFunctionExpression.Create(fkUpper, GetExpression));
+end;
+
+function Prop<T>.ToLower: Prop<string>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('ToLower only applies in a query.');
+  Result := Prop<string>.FromExpression(
+    TFunctionExpression.Create(fkLower, GetExpression));
+end;
+
+function Prop<T>.Trim: Prop<string>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Trim only applies in a query.');
+  Result := Prop<string>.FromExpression(
+    TFunctionExpression.Create(fkTrim, GetExpression));
+end;
+
+function Prop<T>.Len: Prop<Integer>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Len only applies in a query.');
+  Result := Prop<Integer>.FromExpression(
+    TFunctionExpression.Create(fkLength, GetExpression));
+end;
+
+function Prop<T>.Substring(AStartIndex, ALength: Integer): Prop<string>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Substring only applies in a query.');
+  Result := Prop<string>.FromExpression(
+    TFunctionExpression.Create(fkSubstring, GetExpression, AStartIndex, ALength));
+end;
+
+function Prop<T>.Year: Prop<Integer>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Year only applies in a query.');
+  Result := Prop<Integer>.FromExpression(
+    TFunctionExpression.Create(fkYear, GetExpression));
+end;
+
+function Prop<T>.Month: Prop<Integer>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Month only applies in a query.');
+  Result := Prop<Integer>.FromExpression(
+    TFunctionExpression.Create(fkMonth, GetExpression));
+end;
+
+function Prop<T>.Day: Prop<Integer>;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('Day only applies in a query.');
+  Result := Prop<Integer>.FromExpression(
+    TFunctionExpression.Create(fkDay, GetExpression));
 end;
 
 function Prop<T>.&As(const AAlias: string): TSelectItem;

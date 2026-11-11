@@ -76,6 +76,7 @@ type
     FCorrelated: Boolean;
 
     procedure ProcessSubquery(const C: TSubqueryExpression);
+    procedure ProcessFunction(const C: TFunctionExpression);
     procedure ProcessBinary(const C: TBinaryExpression);
     procedure ProcessArithmetic(const C: TArithmeticExpression);
     procedure ProcessLogical(const C: TLogicalExpression);
@@ -399,6 +400,8 @@ begin
     // No params
   else if Ex is TSubqueryExpression then
     ProcessSubquery(TSubqueryExpression(Ex))
+  else if Ex is TFunctionExpression then
+    Resolve(TFunctionExpression(Ex).Operand)
   else if Ex is TJsonPropertyExpression then
     // No params
   else if Ex is TLiteralExpression then
@@ -801,6 +804,8 @@ begin
     ProcessAggregate(TAggregateExpression(AExpression))
   else if AExpression is TSubqueryExpression then
     ProcessSubquery(TSubqueryExpression(AExpression))
+  else if AExpression is TFunctionExpression then
+    ProcessFunction(TFunctionExpression(AExpression))
   else if AExpression is TJsonPropertyExpression then
     ProcessJsonProperty(TJsonPropertyExpression(AExpression))
   else if AExpression is TLiteralExpression then
@@ -1009,6 +1014,65 @@ begin
   // Inside a subquery, any other table is the one of the outer query
   if FCorrelated then
     Result := FDialect.QuoteIdentifier(AOwner);
+end;
+
+procedure TSQLWhereGenerator.ProcessFunction(const C: TFunctionExpression);
+var
+  Start: Integer;
+  X: string;
+  D: TDatabaseDialect;
+
+  function DatePart(const APart: string; const AStrftime: string;
+    const AShort: string): string;
+  begin
+    case D of
+      ddSQLite: Result := 'CAST(strftime(''' + AStrftime + ''', ' + X + ') AS INTEGER)';
+      ddMySQL, ddMariaDB, ddSQLServer: Result := AShort + '(' + X + ')';
+    else
+      Result := 'EXTRACT(' + APart + ' FROM ' + X + ')';
+    end;
+  end;
+
+begin
+  D := ResolveDialect(FDialect);
+  // The operand is written first, then wrapped by the function
+  Start := FSQL.Length;
+  ResolveSQL(C.Operand);
+  X := FSQL.ToString(Start, FSQL.Length - Start);
+  FSQL.Length := Start;
+
+  case C.Kind of
+    fkUpper: FSQL.Append('UPPER(').Append(X).Append(')');
+    fkLower: FSQL.Append('LOWER(').Append(X).Append(')');
+    fkLength:
+      case D of
+        ddSQLServer: FSQL.Append('LEN(').Append(X).Append(')');
+        ddFirebird, ddInterbase: FSQL.Append('CHAR_LENGTH(').Append(X).Append(')');
+      else
+        FSQL.Append('LENGTH(').Append(X).Append(')');
+      end;
+    fkTrim:
+      if D = ddSQLServer then
+        FSQL.Append('LTRIM(RTRIM(').Append(X).Append('))')
+      else
+        FSQL.Append('TRIM(').Append(X).Append(')');
+    fkSubstring:
+      // The DSL index is zero-based (LINQ); SQL counts from 1
+      case D of
+        ddFirebird, ddInterbase:
+          FSQL.Append('SUBSTRING(').Append(X).Append(' FROM ')
+            .Append(C.Arg1 + 1).Append(' FOR ').Append(C.Arg2).Append(')');
+        ddPostgreSQL, ddMySQL, ddMariaDB, ddSQLServer:
+          FSQL.Append('SUBSTRING(').Append(X).Append(', ')
+            .Append(C.Arg1 + 1).Append(', ').Append(C.Arg2).Append(')');
+      else
+        FSQL.Append('SUBSTR(').Append(X).Append(', ')
+          .Append(C.Arg1 + 1).Append(', ').Append(C.Arg2).Append(')');
+      end;
+    fkYear: FSQL.Append(DatePart('YEAR', '%Y', 'YEAR'));
+    fkMonth: FSQL.Append(DatePart('MONTH', '%m', 'MONTH'));
+    fkDay: FSQL.Append(DatePart('DAY', '%d', 'DAY'));
+  end;
 end;
 
 procedure TSQLWhereGenerator.ProcessSubquery(const C: TSubqueryExpression);
