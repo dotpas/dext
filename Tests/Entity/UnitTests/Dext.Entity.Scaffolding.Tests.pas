@@ -140,12 +140,13 @@ begin
 
     // Verify User.pas content
     Content := TFile.ReadAllText(UserFile);
-    Should(Content).Contain('property Roles: IEntityCollection<TRole>');
+    Should(Content).Contain('property Roles: IList<TRole>');
     Should(Content).Contain('[ManyToMany(''UserRoles'', ''UserId'', ''RoleId'')]');
+    Should(Content).Contain('FRoles := TCollections.CreateList<TRole>(False);');
 
     // Verify Role.pas content (Bidirectional)
     Content := TFile.ReadAllText(RoleFile);
-    Should(Content).Contain('property Users: IEntityCollection<TUser>');
+    Should(Content).Contain('property Users: IList<TUser>');
     Should(Content).Contain('[ManyToMany(''UserRoles'', ''RoleId'', ''UserId'')]');
   finally
     Generator.Free;

@@ -3,6 +3,7 @@ unit @Model.DelphiUnitName;
 interface
 
 uses
+  Dext.Collections,
   Dext.Entity,
   Dext.Entity.Collections,
   Dext.Types.Nullable,
@@ -24,9 +25,10 @@ type
 @endforeach
 
 @foreach(var m2m in Model.ManyToMany)
-    F@m2m.PropertyName: IEntityCollection<@m2m.TargetClass>;
+    F@m2m.PropertyName: IList<@m2m.TargetClass>;
 @endforeach
   public
+    constructor Create;
     [Table('@Model.Name')]
 @foreach(var col in Model.Columns)
     @col.GetAttributeString
@@ -40,13 +42,21 @@ type
 
 @foreach(var m2m in Model.ManyToMany)
     [ManyToMany('@m2m.JoinTable', '@m2m.SourceColumn', '@m2m.TargetColumn')]
-    property @m2m.PropertyName: IEntityCollection<@m2m.TargetClass> read F@m2m.PropertyName;
+    property @m2m.PropertyName: IList<@m2m.TargetClass> read F@m2m.PropertyName;
 @endforeach
   end;
 
 implementation
 
 { @Model.DelphiClassName }
+
+constructor @Model.DelphiClassName.Create;
+begin
+  inherited Create;
+@foreach(var m2m in Model.ManyToMany)
+  F@m2m.PropertyName := TCollections.CreateList<@m2m.TargetClass>(False);
+@endforeach
+end;
 
 @foreach(var fk in Model.ForeignKeys)
 function @Model.DelphiClassName.Get@fk.PropertyName: @fk.ReferencedClass;
