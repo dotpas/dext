@@ -217,8 +217,17 @@ type
 
   /// <summary>
   ///   Marks a property as a nested object for multi-mapping hydration.
+  ///   Without a prefix the columns are routed by the name of the property
+  ///   (Category_Name, Category.Name); with one, by that prefix
+  ///   ([Nested('cat_')]: cat_Name). Both forms work for the same property.
   /// </summary>
   NestedAttribute = class(TCustomAttribute)
+  private
+    FPrefix: string;
+  public
+    constructor Create; overload;
+    constructor Create(const APrefix: string); overload;
+    property Prefix: string read FPrefix;
   end;
 
   /// <summary>
@@ -603,6 +612,20 @@ end;
 constructor ColumnAttribute.Create(const AName: string);
 begin
   FName := AName;
+end;
+
+{ NestedAttribute }
+
+constructor NestedAttribute.Create;
+begin
+  inherited Create;
+  FPrefix := '';
+end;
+
+constructor NestedAttribute.Create(const APrefix: string);
+begin
+  inherited Create;
+  FPrefix := APrefix;
 end;
 
 { FieldAttribute }

@@ -73,6 +73,21 @@ type
     property NotNested: TNdCategoryDto read FNotNested write FNotNested;
   end;
 
+  // [Nested] with its own prefix: the property name is not the prefix
+  TNdPrefixDto = class
+  private
+    FId: Integer;
+    FHome: TNdCategoryDto;
+    FWork: TNdCategoryDto;
+  public
+    destructor Destroy; override;
+    property Id: Integer read FId write FId;
+    [Nested('h_')]
+    property Home: TNdCategoryDto read FHome write FHome;
+    [Nested('work_')]
+    property Work: TNdCategoryDto read FWork write FWork;
+  end;
+
   // Read entity: [Nested] on an entity, used with FromSql. It has its own
   // table name because the SQL of FromSql decides where the rows come from.
   [Table('nd_items_read')]
@@ -133,6 +148,14 @@ type
     procedure FromSql_Nested_Works_Over_Two_Levels;
     [Test]
     procedure FromSql_Nested_Reads_Each_Row_Own_Values;
+    [Test]
+    procedure Nested_With_Prefix_Fills_The_Nested_Object;
+    [Test]
+    procedure Two_Nested_Properties_Of_The_Same_Class_Use_Their_Own_Prefix;
+    [Test]
+    procedure Prefix_Is_Case_Insensitive;
+    [Test]
+    procedure Prefix_Reaches_A_Second_Level;
   end;
 
 implementation
@@ -151,6 +174,15 @@ destructor TNdItemDto.Destroy;
 begin
   FCategory.Free;
   FNotNested.Free;
+  inherited;
+end;
+
+{ TNdPrefixDto }
+
+destructor TNdPrefixDto.Destroy;
+begin
+  FHome.Free;
+  FWork.Free;
   inherited;
 end;
 
@@ -375,6 +407,54 @@ begin
     'SELECT i.Id, i.Name, c.Name AS "Category.Name" ' +
     'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId');
   Should(List[0].Category.Name).Be('Hardware');
+end;
+
+procedure TNestedDtoTests.Nested_With_Prefix_Fills_The_Nested_Object;
+var
+  List: IList<TNdPrefixDto>;
+begin
+  List := FDb.SqlQuery<TNdPrefixDto>(
+    'SELECT i.Id, c.Name AS h_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId');
+  Should(List.Count).Be(1);
+  Should(List[0].Id).Be(10);
+  Should(List[0].Home <> nil).BeTrue;
+  Should(List[0].Home.Name).Be('Hardware');
+  Should(List[0].Work = nil).BeTrue;
+end;
+
+procedure TNestedDtoTests.Two_Nested_Properties_Of_The_Same_Class_Use_Their_Own_Prefix;
+var
+  List: IList<TNdPrefixDto>;
+begin
+  List := FDb.SqlQuery<TNdPrefixDto>(
+    'SELECT i.Id, c.Name AS h_Name, i.Name AS work_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId');
+  Should(List[0].Home.Name).Be('Hardware');
+  Should(List[0].Work.Name).Be('Keyboard');
+end;
+
+procedure TNestedDtoTests.Prefix_Is_Case_Insensitive;
+var
+  List: IList<TNdPrefixDto>;
+begin
+  List := FDb.SqlQuery<TNdPrefixDto>(
+    'SELECT i.Id, c.Name AS H_NAME ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId');
+  Should(List[0].Home <> nil).BeTrue;
+  Should(List[0].Home.Name).Be('Hardware');
+end;
+
+procedure TNestedDtoTests.Prefix_Reaches_A_Second_Level;
+var
+  List: IList<TNdPrefixDto>;
+begin
+  // A prefix can reach a second level: h_Parent_Name -> Home.Parent.Name
+  List := FDb.SqlQuery<TNdPrefixDto>(
+    'SELECT i.Id, c.Name AS h_Name, c.Name AS h_Parent_Name ' +
+    'FROM nd_items i JOIN nd_categories c ON c.Id = i.CategoryId');
+  Should(List[0].Home.Parent <> nil).BeTrue;
+  Should(List[0].Home.Parent.Name).Be('Hardware');
 end;
 
 end.

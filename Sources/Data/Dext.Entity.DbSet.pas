@@ -707,11 +707,28 @@ class function TDextDtoHydrator.ResolveNested(const AType: TRttiType;
   out AMapping: TDtoColumnMapping): Boolean;
 var
   Props: TArray<TRttiProperty>;
-  Prefix: string;
+  Prefix, Custom: string;
+  Attr: TCustomAttribute;
   j, p: Integer;
 begin
   Result := False;
   Props := AType.GetProperties;
+  // A [Nested('prefix')] property takes the columns that start with its prefix
+  for j := 0 to Length(Props) - 1 do
+  begin
+    if not IsNestedProp(Props[j]) then Continue;
+    for Attr in Props[j].GetAttributes do
+      if (Attr is NestedAttribute) and (NestedAttribute(Attr).Prefix <> '') then
+      begin
+        Custom := NestedAttribute(Attr).Prefix;
+        if (Length(AColName) > Length(Custom)) and
+           SameText(AColName.Substring(0, Length(Custom)), Custom) then
+          if ResolveColumn(Props[j].PropertyType,
+            AColName.Substring(Length(Custom)), AColIndex,
+            APath + [Props[j]], AMapping) then
+            Exit(True);
+      end;
+  end;
   // The part before a '_' or '.' names a [Nested] property and the rest
   // names a column of its class (tried at every separator, so prefixes such
   // as Data_Pagamento also work)
