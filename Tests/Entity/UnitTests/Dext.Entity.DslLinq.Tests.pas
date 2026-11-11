@@ -73,13 +73,18 @@ type
   end;
 
   // Entities mapped only through the fluent API: no [Table], no [PrimaryKey]
+  TFlBook = class;
+
   TFlAuthor = class
   private
     FId: IntType;
     FName: StringType;
+    FBooks: IList<TFlBook>;
   public
+    constructor Create;
     property Id: IntType read FId write FId;
     property Name: StringType read FName write FName;
+    property Books: IList<TFlBook> read FBooks write FBooks;
   end;
 
   TFlBook = class
@@ -87,10 +92,12 @@ type
     FId: IntType;
     FAuthorId: IntType;
     FTitle: StringType;
+    FAuthor: TFlAuthor;
   public
     property Id: IntType read FId write FId;
     property AuthorId: IntType read FAuthorId write FAuthorId;
     property Title: StringType read FTitle write FTitle;
+    property Author: TFlAuthor read FAuthor write FAuthor;
   end;
 
   TFlDb = class(TDbContext)
@@ -159,6 +166,8 @@ type
     // Fluent-only mapping reaching prototypes and joins
     [Test]
     procedure Join_Works_With_A_Fluent_Only_Mapping;
+    [Test]
+    procedure Entry_Load_Works_With_Smart_Property_Keys;
 
     // Select
     [Test]
@@ -1629,6 +1638,54 @@ begin
   Builder.Entity<TFlBook>
     .Table('fl_books')
     .HasKey('Id');
+  Builder.Entity<TFlBook>
+    .BelongsTo('Author').HasForeignKey('AuthorId');
+  Builder.Entity<TFlAuthor>
+    .HasMany('Books').WithOne('Author').HasForeignKey('AuthorId');
+end;
+
+constructor TFlAuthor.Create;
+begin
+  inherited Create;
+  FBooks := TCollections.CreateList<TFlBook>(False);
+end;
+
+procedure TDslLinqTests.Entry_Load_Works_With_Smart_Property_Keys;
+var
+  Db: TFlDb;
+  A: TFlAuthor;
+  B: TFlBook;
+  Loaded: TFlBook;
+begin
+  Db := TFlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlAuthor>;
+    Db.Entities<TFlBook>;
+    Db.EnsureCreated;
+    A := TFlAuthor.Create;
+    A.Id := 1;
+    A.Name := 'Ana';
+    Db.Entities<TFlAuthor>.Add(A);
+    B := TFlBook.Create;
+    B.Id := 1;
+    B.AuthorId := 1;
+    B.Title := 'Dext';
+    Db.Entities<TFlBook>.Add(B);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Loaded := Db.Entities<TFlBook>.Find(1);
+    Should(Loaded.Author = nil).BeTrue;
+    Db.Entry(Loaded).Reference('Author').Load;
+    Should(Loaded.Author <> nil).BeTrue;
+    Should(Loaded.Author.Name.Value).Be('Ana');
+
+    A := Db.Entities<TFlAuthor>.Find(1);
+    Db.Entry(A).Collection('Books').Load;
+    Should(A.Books.Count).Be(1);
+  finally
+    Db.Free;
+  end;
 end;
 
 procedure TDslLinqTests.Join_Works_With_A_Fluent_Only_Mapping;

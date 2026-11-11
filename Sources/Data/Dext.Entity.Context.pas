@@ -465,6 +465,9 @@ begin
     end;
   end;
 
+  // Smart Properties (IntType, StringType...) are records that wrap the value
+  TReflection.TryUnwrapProp(AValue, AValue);
+
   if AValue.IsEmpty then Exit;
 
   // Validate based on type
@@ -2195,6 +2198,8 @@ var
   ListObj: TObject;
   CProp: TRttiProperty;
   Attr: TCustomAttribute;
+  ParentMap: TEntityMap;
+  NavMap: TPropertyMap;
 begin
   ListIntf := nil;
   ListObj := nil;
@@ -2245,13 +2250,20 @@ begin
   ParentPKProp := Typ.GetProperty('Id'); // Simplified
   if ParentPKProp = nil then raise Exception.Create('PK Id not found on parent');
   ParentPKVal := ParentPKProp.GetValue(Pointer(FParent));
+  TReflection.TryUnwrapProp(ParentPKVal, ParentPKVal);
   
   // Find FK on Child pointing to Parent
   FKName := '';
   ChildTyp := TReflection.Context.GetType(ChildClass);
-  
+
+  // The relationship declared on the collection (HasMany(...).HasForeignKey)
+  ParentMap := TModelBuilder.Instance.GetMap(Typ.Handle);
+  if (ParentMap <> nil) and ParentMap.Properties.TryGetValue(FPropName, NavMap) then
+    FKName := NavMap.ForeignKeyColumn;
+
   for CProp in ChildTyp.GetProperties do
   begin
+    if FKName <> '' then Break;
     if CProp.PropertyType.Handle = Typ.Handle then // Found property of Parent type
     begin
        // Check for ForeignKey attribute
