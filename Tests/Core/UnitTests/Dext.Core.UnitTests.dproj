@@ -151,6 +151,7 @@
         <DCCReference Include="Dext.Web.Utf8.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Web\Dext.Web.ResponseWriter.pas"/>
         <DCCReference Include="Dext.Web.ResponseWriter.Tests.pas"/>
+        <DCCReference Include="Dext.Events.Ownership.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Server\Dext.Server.BoundedExecutor.pas"/>
         <DCCReference Include="Dext.Server.BoundedExecutor.Tests.pas"/>
         <DCCReference Include="Dext.Json.Utf8.Serializer.Tests.pas"/>

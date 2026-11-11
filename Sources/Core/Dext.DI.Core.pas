@@ -311,6 +311,8 @@ end;
 destructor TDextServiceProvider.Destroy;
 var
   Pair: TPair<TServiceType, TObject>;
+  Freed: IList<TObject>;
+  Desc: TServiceDescriptor;
 begin
   // === SINGLETON CLEANUP (only for root provider) ===
   if FIsRootProvider then
@@ -321,12 +323,28 @@ begin
     FSingletonInterfaces := nil;
 
     // 2. Free class-based singletons (non-TInterfacedObject)
+    Freed := TCollections.CreateList<TObject>(False);
     if Assigned(FSingletons) then
     begin
       for Pair in FSingletons do
-        Pair.Value.Free;
+        if not Freed.Contains(Pair.Value) then
+        begin
+          Freed.Add(Pair.Value);
+          Pair.Value.Free;
+        end;
       FSingletons := nil;
     end;
+
+    // 3. Pre-created class singletons that were never resolved: the container
+    // took ownership at registration, so it frees them too.
+    for Desc in FDescriptors do
+      if (Desc.Lifetime = TServiceLifetime.Singleton) and
+         Desc.OwnsInstance and Assigned(Desc.Instance) and
+         not Desc.IsInterfaceService and not Freed.Contains(Desc.Instance) then
+      begin
+        Freed.Add(Desc.Instance);
+        Desc.Instance.Free;
+      end;
   end;
 
   // === SCOPED CLEANUP ===

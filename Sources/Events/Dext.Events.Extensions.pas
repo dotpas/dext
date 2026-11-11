@@ -45,6 +45,7 @@ type
   THandlerRegistration = record
     EventType: PTypeInfo;
     HandlerClass: TClass;
+    Owned: Boolean;  // Transient created per dispatch: the bus frees it
   end;
 
   TEventBehaviorRegistration = record
@@ -259,7 +260,7 @@ begin
 
       for HEntry in Acc.Handlers do
         Registry.RegisterHandler(HEntry.EventType, HEntry.HandlerClass,
-          MakeActivatorFactory(HEntry.HandlerClass));
+          MakeActivatorFactory(HEntry.HandlerClass), HEntry.Owned);
 
       for BEntry in Acc.Behaviors do
       begin
@@ -323,7 +324,7 @@ begin
   Acc := FindAccumulator;
   Entry.EventType    := TypeInfo(TEvent);
   Entry.HandlerClass := THandler;
-  Acc.Handlers.Add(Entry);
+  Entry.Owned        := False;
 
   // Only add a default Transient registration if the handler class is not
   // already registered in DI (e.g., as a Singleton via AddSingletonInstance).
@@ -336,12 +337,19 @@ begin
     if Desc.ServiceType = TargetServiceType then
     begin
       AlreadyRegistered := True;
-      Break;
+      // The last registration is the one DI resolves. A Transient created from
+      // the class is owned by the dispatch: DI does not track it.
+      Entry.Owned := (Desc.Lifetime = TServiceLifetime.Transient) and
+        (Desc.Instance = nil);
     end;
 
   if not AlreadyRegistered then
+  begin
     Collection.AddTransient(TServiceType.FromClass(THandler), THandler, nil);
+    Entry.Owned := True;
+  end;
 
+  Acc.Handlers.Add(Entry);
   Result := Self;
 end;
 

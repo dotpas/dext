@@ -84,6 +84,12 @@ type
     Factory: TFunc<IServiceProvider, TObject>;
     Instance: TObject;  // Pre-created instance for instance registration
     /// <summary>
+    ///   True when the container owns the pre-created Instance (registered with
+    ///   TDextServices.AddSingletonInstance) and frees it even if it was never
+    ///   resolved. Other instance registrations stay with the caller.
+    /// </summary>
+    OwnsInstance: Boolean;
+    /// <summary>
     ///   Indicates if this service was registered as an interface type.
     ///   Interface services are managed by ARC (TInterfacedObject).
     ///   Class services are managed explicitly by the DI container (Free).
@@ -231,6 +237,7 @@ begin
   Lifetime := ALifetime;
   Factory := AFactory;
   Instance := nil;  // Initialize as nil (will be set for instance registration)
+  OwnsInstance := False;
   // Determine ownership model based on how the service was registered
   IsInterfaceService := AServiceType.IsInterface;
 end;
@@ -246,6 +253,7 @@ begin
   Result := TServiceDescriptor.Create(ServiceType, ImplementationClass, Lifetime, Factory);
   Result.IsInterfaceService := IsInterfaceService;
   Result.Instance := Instance;  // Copy instance reference (for instance registration)
+  Result.OwnsInstance := OwnsInstance;
 end;
 
 { TServiceType }
@@ -418,6 +426,8 @@ end;
 function TDextServices.AddSingletonInstance<T>(const AInstance: T): TDextServices;
 begin
   FServices.AddSingleton(TServiceType.FromClass(TypeInfo(T)), AInstance);
+  // The container assumes ownership of the instance (see the declaration).
+  FServices.GetDescriptors.Last.OwnsInstance := True;
   Result := Self;
 end;
 

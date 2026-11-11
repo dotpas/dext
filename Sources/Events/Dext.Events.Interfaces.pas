@@ -125,6 +125,11 @@ type
   THandlerEntry = record
     Factory: TFunc<IServiceProvider, TObject>;
     HandlerClass: TClass;
+    /// <summary>
+    ///   True when the handler is a Transient created for each dispatch and
+    ///   nobody else owns it: the bus frees it after the call.
+    /// </summary>
+    Owned: Boolean;
   end;
 
   /// <summary>
@@ -136,7 +141,8 @@ type
   IEventHandlerRegistry = interface
     ['{E5C18A6C-7B3D-8F9E-2A4C-6B0D5E1F7A3C}']
     procedure RegisterHandler(AEventType: PTypeInfo; AHandlerClass: TClass;
-      const AFactory: TFunc<IServiceProvider, TObject>);
+      const AFactory: TFunc<IServiceProvider, TObject>;
+      AOwned: Boolean = False);
     // Global behavior - applied to all event types
     procedure RegisterBehavior(
       const AFactory: TFunc<IServiceProvider, TObject>);

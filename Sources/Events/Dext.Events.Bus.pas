@@ -93,6 +93,7 @@ type
   THandlerSnapshot = record
     Factory: TFunc<IServiceProvider, TObject>;
     Method: TRttiMethod;
+    Owned: Boolean;
   end;
 
   /// <summary>
@@ -122,7 +123,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure RegisterHandler(AEventType: PTypeInfo; AHandlerClass: TClass;
-      const AFactory: TFunc<IServiceProvider, TObject>);
+      const AFactory: TFunc<IServiceProvider, TObject>; AOwned: Boolean);
     procedure RegisterBehavior(
       const AFactory: TFunc<IServiceProvider, TObject>);
     procedure RegisterEventBehavior(AEventType: PTypeInfo;
@@ -250,7 +251,8 @@ begin
 end;
 
 procedure TEventHandlerRegistry.RegisterHandler(AEventType: PTypeInfo;
-  AHandlerClass: TClass; const AFactory: TFunc<IServiceProvider, TObject>);
+  AHandlerClass: TClass; const AFactory: TFunc<IServiceProvider, TObject>;
+  AOwned: Boolean);
 var
   List: THandlerEntryList;
   Entry: THandlerEntry;
@@ -264,6 +266,7 @@ begin
     end;
     Entry.Factory      := AFactory;
     Entry.HandlerClass := AHandlerClass;
+    Entry.Owned        := AOwned;
     List.Add(Entry);
   finally
     FLock.EndWrite;
@@ -403,6 +406,7 @@ begin
       for I := 0 to High(RAWHandlers) do
       begin
         Result.Handlers[I].Factory := RAWHandlers[I].Factory;
+        Result.Handlers[I].Owned   := RAWHandlers[I].Owned;
  
         // Cache the TRttiMethod. E2555: generic instantiation might hide 'Handle'
         // in virtual method tables, so we use RTTI to find it by name.
@@ -483,6 +487,7 @@ begin
   for I := 0 to High(ASnapshot.Handlers) do
   begin
     Inc(Result.HandlersInvoked);
+    HandlerObj := nil;
     try
       // Resolve handler instance from DI
       HandlerObj := ASnapshot.Handlers[I].Factory(AScopedProvider);
@@ -544,6 +549,10 @@ begin
         Errors.Add(Format('[%s] %s', [E.ClassName, E.Message]));
       end;
     end;
+
+    // A Transient handler belongs to this dispatch: nobody else frees it.
+    if ASnapshot.Handlers[I].Owned and Assigned(HandlerObj) then
+      HandlerObj.Free;
   end;
  
   if Assigned(Errors) and (Errors.Count > 0) then
