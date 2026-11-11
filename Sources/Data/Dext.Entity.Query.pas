@@ -129,6 +129,19 @@ type
   end;
 
   /// <summary>
+  ///   Row of an aggregate computed by the database (Sum, Average, Min, Max
+  ///   by property name): how many rows entered and the value.
+  /// </summary>
+  TAggregateRow = class
+  private
+    FCnt: Integer;
+    FValue: Double;
+  public
+    property Cnt: Integer read FCnt write FCnt;
+    property Value: Double read FValue write FValue;
+  end;
+
+  /// <summary>
   ///   Runs a specification whose projection is made of expressions (Select
   ///   with aggregates) and delivers each row as an object of the DTO class.
   ///   The DbSet provides it; the query only forwards the call.
@@ -162,6 +175,11 @@ type
     class function JoinStringToEqualsExpression(const ACondition: string): IExpression; static;
     function InMemory(const AWork: TFunc<IList<T>>): TFluentQuery<T>;
     procedure RequireTracked(const AOperator: string);
+    /// <summary>Computes the aggregate in the database when the query comes
+    ///   from a DbSet and is a plain filter (no paging, ordering, grouping or
+    ///   projection). False means "do it in memory".</summary>
+    function TryPushdown(AKind: TAggregateKind; const AProperty: string;
+      out AValue: Double; out ACount: Integer): Boolean;
   public
     property Connection: IDbConnection read GetConnection;
     property Specification: ISpecification read GetSpec;
@@ -1708,6 +1726,52 @@ begin
   Result := Self;
 end;
 
+function TFluentQuery<T>.TryPushdown(AKind: TAggregateKind;
+  const AProperty: string; out AValue: Double; out ACount: Integer): Boolean;
+var
+  LSource, LSpec: ISpecification<T>;
+  LRows: TList<TAggregateRow>;
+begin
+  Result := False;
+  AValue := 0;
+  ACount := 0;
+  if (FSpecification = nil) or not Assigned(FExecuteProjection) then
+    Exit;
+  if not Supports(FSpecification, ISpecification<T>, LSource) then
+    Exit;
+  if LSource.IsPagingEnabled or (Length(LSource.GetOrderBy) > 0) or
+     (Length(LSource.GetGroupBy) > 0) or (Length(LSource.GetIncludes) > 0) or
+     (Length(LSource.GetSelectedColumns) > 0) or
+     (Length(LSource.GetSelectItems) > 0) or (LSource.GetHaving <> nil) then
+    Exit;
+
+  // The query keeps its own specification: the aggregate runs on a copy
+  LSpec := LSource.Clone;
+  LSpec.SelectItem(TAggregateExpression.Create(akCount, ''), 'Cnt');
+  LSpec.SelectItem(TAggregateExpression.Create(AKind, AProperty), 'Value');
+
+  LRows := TList<TAggregateRow>.Create(True);
+  try
+    FExecuteProjection(LSpec, TypeInfo(TAggregateRow),
+      function: TObject
+      begin
+        Result := TAggregateRow.Create;
+      end,
+      procedure(AObject: TObject)
+      begin
+        LRows.Add(TAggregateRow(AObject));
+      end);
+    if LRows.Count > 0 then
+    begin
+      ACount := LRows[0].Cnt;
+      AValue := LRows[0].Value;
+    end;
+  finally
+    LRows.Free;
+  end;
+  Result := True;
+end;
+
 function TFluentQuery<T>.WithProjection(
   const AExecutor: TProjectionExecutor): TFluentQuery<T>;
 begin
@@ -2352,6 +2416,8 @@ end;
 
 function TFluentQuery<T>.Sum(const APropertyName: string): Double;
 var
+  PV: Double;
+  PC: Integer;
   Enumerator: IEnumerator<T>;
   Val: Double;
   Obj: TObject;
@@ -2377,6 +2443,10 @@ begin
   
   if Prop = nil then
     raise Exception.CreateFmt('Property "%s" not found on type "%s"', [APropertyName, PTypeInfo(TypeInfo(T)).Name]);
+
+
+  if TryPushdown(akSum, APropertyName, PV, PC) then
+    Exit(PV);
 
   Enumerator := GetEnumerator;
   try
@@ -2421,6 +2491,8 @@ end;
 
 function TFluentQuery<T>.Average(const APropertyName: string): Double;
 var
+  PV: Double;
+  PC: Integer;
   Enumerator: IEnumerator<T>;
   Val: Double;
   SumVal: Double;
@@ -2448,6 +2520,14 @@ begin
 
   if Prop = nil then
     raise Exception.CreateFmt('Property "%s" not found on type "%s"', [APropertyName, PTypeInfo(TypeInfo(T)).Name]);
+
+
+  if TryPushdown(akAvg, APropertyName, PV, PC) then
+  begin
+    if PC = 0 then
+      raise Exception.Create('Sequence contains no elements');
+    Exit(PV);
+  end;
 
   Enumerator := GetEnumerator;
   try
@@ -2502,6 +2582,8 @@ end;
 
 function TFluentQuery<T>.Min(const APropertyName: string): Double;
 var
+  PV: Double;
+  PC: Integer;
   Enumerator: IEnumerator<T>;
   Val: Double;
   HasValue: Boolean;
@@ -2528,6 +2610,14 @@ begin
 
   if Prop = nil then
     raise Exception.CreateFmt('Property "%s" not found on type "%s"', [APropertyName, PTypeInfo(TypeInfo(T)).Name]);
+
+
+  if TryPushdown(akMin, APropertyName, PV, PC) then
+  begin
+    if PC = 0 then
+      raise Exception.Create('Sequence contains no elements');
+    Exit(PV);
+  end;
 
   Enumerator := GetEnumerator;
   try
@@ -2589,6 +2679,8 @@ end;
 
 function TFluentQuery<T>.Max(const APropertyName: string): Double;
 var
+  PV: Double;
+  PC: Integer;
   Enumerator: IEnumerator<T>;
   Val: Double;
   HasValue: Boolean;
@@ -2615,6 +2707,14 @@ begin
 
   if Prop = nil then
     raise Exception.CreateFmt('Property "%s" not found on type "%s"', [APropertyName, PTypeInfo(TypeInfo(T)).Name]);
+
+
+  if TryPushdown(akMax, APropertyName, PV, PC) then
+  begin
+    if PC = 0 then
+      raise Exception.Create('Sequence contains no elements');
+    Exit(PV);
+  end;
 
   Enumerator := GetEnumerator;
   try
@@ -2679,6 +2779,8 @@ end;
 
 function TFluentQuery<T>.MaxOrDefault(const APropertyName: string; const ADefault: Double): Double;
 var
+  PV: Double;
+  PC: Integer;
   Enumerator: IEnumerator<T>;
   Val: Double;
   Obj: TObject;
@@ -2702,6 +2804,14 @@ begin
   end;
 
   if Prop = nil then Exit;
+
+
+  if TryPushdown(akMax, APropertyName, PV, PC) then
+  begin
+    if PC = 0 then
+      Exit(ADefault);
+    Exit(PV);
+  end;
 
   Enumerator := GetEnumerator;
   try

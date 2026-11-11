@@ -203,6 +203,14 @@ type
     procedure Same_Column_Name_In_Two_Tables_Does_Not_Share_The_Cached_SQL;
     [Test]
     procedure Having_With_Other_Literal_Reuses_The_SQL_And_Refreshes_Params;
+    [Test]
+    procedure Aggregates_By_Name_Raise_On_An_Empty_Sequence;
+    [Test]
+    procedure MaxOrDefault_Returns_The_Default_On_An_Empty_Sequence;
+    [Test]
+    procedure Aggregates_By_Name_With_Take_Use_The_Paged_Rows;
+    [Test]
+    procedure Aggregates_By_Name_Respect_The_Join_Filter;
   end;
 
 implementation
@@ -958,6 +966,54 @@ begin
       Agg.Count.&As('Cnt')]).ToList;
   Should(A.Count).Be(1);
   Should(B.Count).Be(2);
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_Raise_On_An_Empty_Sequence;
+var
+  O: TDlOrder;
+  Q: TFluentQuery<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Q := FDb.Orders.Where(O.Id > 999);
+  Should(Q.Sum('Amount') = 0).BeTrue;
+  Should(
+    procedure begin Q.Average('Amount'); end).Throw<Exception>;
+  Should(
+    procedure begin Q.Min('Amount'); end).Throw<Exception>;
+  Should(
+    procedure begin Q.Max('Amount'); end).Throw<Exception>;
+end;
+
+procedure TDslLinqTests.MaxOrDefault_Returns_The_Default_On_An_Empty_Sequence;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 999).MaxOrDefault('Amount', -1) = -1).BeTrue;
+  Should(FDb.Orders.Where(O.Id > 0).MaxOrDefault('Amount', -1) = 300).BeTrue;
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_With_Take_Use_The_Paged_Rows;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // LINQ: Orders.Take(2).Sum(...) adds the two rows, not the whole table
+  Should(FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).Take(2)
+    .Sum('Amount') = 150).BeTrue;
+end;
+
+procedure TDslLinqTests.Aggregates_By_Name_Respect_The_Join_Filter;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // Customers 1 and 2 live in SP: orders 1,2,4,5 = 50+100+200+250
+  Should(FDb.Orders.Where(C.City = 'SP')
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .Sum('Amount') = 600).BeTrue;
 end;
 
 end.
