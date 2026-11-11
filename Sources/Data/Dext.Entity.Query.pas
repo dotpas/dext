@@ -129,6 +129,12 @@ type
   end;
 
   /// <summary>
+  ///   Turns a specification into a subquery (the DbSet provides it).
+  /// </summary>
+  TSubqueryFactory = reference to function(
+    const ASpec: ISpecification): ISubquery;
+
+  /// <summary>
   ///   Row of an aggregate computed by the database (Sum, Average, Min, Max
   ///   by property name): how many rows entered and the value.
   /// </summary>
@@ -163,6 +169,7 @@ type
     FExecuteAny: TFunc<ISpecification, Boolean>;
     FExecuteFirstOrDefault: TFunc<ISpecification, T>;
     FExecuteProjection: TProjectionExecutor;
+    FSubqueryFactory: TSubqueryFactory;
     FConnection: IDbConnection; // Track connection for async safety
     FNoTracking: Boolean;
     FStreamingIteratorFactory: TFunc<IEnumerator<T>>;
@@ -178,6 +185,7 @@ type
     /// <summary>Computes the aggregate in the database when the query comes
     ///   from a DbSet and is a plain filter (no paging, ordering, grouping or
     ///   projection). False means "do it in memory".</summary>
+    function MakeSubquery(const AColumn: IPropInfo): ISubquery;
     function TryPushdown(AKind: TAggregateKind; const AProperty: string;
       out AValue: Double; out ACount: Integer): Boolean;
   public
@@ -223,6 +231,19 @@ type
     /// </summary>
     function Select<TDto: class, constructor>(
       const AItems: array of TSelectItem): TFluentQuery<TDto>; overload;
+    /// <summary>
+    ///   This query as the list of values of a column, to use inside another
+    ///   query: Orders.Where(O.CustomerId.In(Customers.Where(..).Subquery(C.Id))).
+    ///   LINQ: customers.Where(..).Select(c => c.Id).Contains(o.CustomerId).
+    /// </summary>
+    function Subquery(const AColumn: IPropInfo): ISubquery;
+    /// <summary>EXISTS (this query) inside another query's Where. A property
+    ///   of the outer entity can be used in the filter (correlated). LINQ: Any().</summary>
+    function Exists: BooleanExpression;
+    /// <summary>NOT EXISTS (this query). LINQ: !Any().</summary>
+    function NotExists: BooleanExpression;
+    /// <summary>The factory of subqueries (set by the DbSet).</summary>
+    function WithSubqueryFactory(const AFactory: TSubqueryFactory): TFluentQuery<T>;
     /// <summary>The executor of projections (set by the DbSet).</summary>
     function WithProjection(const AExecutor: TProjectionExecutor): TFluentQuery<T>;
 
@@ -1770,6 +1791,47 @@ begin
     LRows.Free;
   end;
   Result := True;
+end;
+
+function TFluentQuery<T>.MakeSubquery(const AColumn: IPropInfo): ISubquery;
+var
+  LSource, LSpec: ISpecification<T>;
+begin
+  if (FSpecification = nil) or not Assigned(FSubqueryFactory) or
+     not Supports(FSpecification, ISpecification<T>, LSource) then
+    raise Exception.Create('A subquery needs a query from a DbSet.');
+  // The subquery keeps the filter as it is now
+  LSpec := LSource.Clone;
+  if AColumn <> nil then
+    LSpec.SelectItem(
+      TPropertyExpression.Create(AColumn.ColumnName, AColumn.Owner), '');
+  Result := FSubqueryFactory(LSpec);
+end;
+
+function TFluentQuery<T>.Subquery(const AColumn: IPropInfo): ISubquery;
+begin
+  if AColumn = nil then
+    raise Exception.Create('Subquery needs a prototype property.');
+  Result := MakeSubquery(AColumn);
+end;
+
+function TFluentQuery<T>.Exists: BooleanExpression;
+begin
+  Result := BooleanExpression.FromQuery(
+    TSubqueryExpression.Create(sqExists, nil, MakeSubquery(nil)));
+end;
+
+function TFluentQuery<T>.NotExists: BooleanExpression;
+begin
+  Result := BooleanExpression.FromQuery(
+    TSubqueryExpression.Create(sqNotExists, nil, MakeSubquery(nil)));
+end;
+
+function TFluentQuery<T>.WithSubqueryFactory(
+  const AFactory: TSubqueryFactory): TFluentQuery<T>;
+begin
+  Result := Self;
+  Result.FSubqueryFactory := AFactory;
 end;
 
 function TFluentQuery<T>.WithProjection(

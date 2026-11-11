@@ -136,6 +136,27 @@ type
     function ToString: string; override;
   end;
 
+  TSubqueryKind = (sqIn, sqNotIn, sqExists, sqNotExists);
+
+  /// <summary>
+  ///   "operand IN (subquery)" or "EXISTS (subquery)" (LINQ: Contains / Any
+  ///   over another sequence).
+  /// </summary>
+  TSubqueryExpression = class(TAbstractExpression)
+  private
+    FKind: TSubqueryKind;
+    FOperand: IExpression;
+    FSubquery: ISubquery;
+  public
+    constructor Create(AKind: TSubqueryKind; const AOperand: IExpression;
+      const ASubquery: ISubquery);
+    property Kind: TSubqueryKind read FKind;
+    /// <summary>The left side of IN (nil for EXISTS).</summary>
+    property Operand: IExpression read FOperand;
+    property Subquery: ISubquery read FSubquery;
+    function ToString: string; override;
+  end;
+
   /// <summary>
   ///   Represents a reference to a property inside a JSON column.
   /// </summary>
@@ -463,6 +484,28 @@ begin
     Result := FOwner + '.' + FPropertyName
   else
     Result := FPropertyName;
+end;
+
+{ TSubqueryExpression }
+
+constructor TSubqueryExpression.Create(AKind: TSubqueryKind;
+  const AOperand: IExpression; const ASubquery: ISubquery);
+begin
+  inherited Create;
+  FKind := AKind;
+  FOperand := AOperand;
+  FSubquery := ASubquery;
+end;
+
+function TSubqueryExpression.ToString: string;
+var
+  LOperand: string;
+begin
+  if FOperand <> nil then
+    LOperand := FOperand.ToString
+  else
+    LOperand := '';
+  Result := Format('SUBQ%d(%s|%s)', [Ord(FKind), LOperand, FSubquery.GetSignature]);
 end;
 
 { TAggregateExpression }

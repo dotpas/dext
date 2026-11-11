@@ -135,6 +135,22 @@ type
   /// <summary>
   ///   Lightweight, high-performance RTTI hydrator for arbitrary DTO and POCO classes.
   /// </summary>
+  TSubqueryBuilder = reference to function(AFirstParam: Integer;
+    out ASQL: string): TArray<TSubqueryParam>;
+
+  /// <summary>
+  ///   A query of one entity used inside the WHERE of another (IN / EXISTS).
+  /// </summary>
+  TDbSubquery = class(TInterfacedObject, ISubquery)
+  private
+    FSignature: string;
+    FBuilder: TSubqueryBuilder;
+  public
+    constructor Create(const ASignature: string; const ABuilder: TSubqueryBuilder);
+    function GetSignature: string;
+    function Build(AFirstParam: Integer; out ASQL: string): TArray<TSubqueryParam>;
+  end;
+
   TDextDtoHydrator = class
   private
     FMappings: TArray<TDtoColumnMapping>;
@@ -303,6 +319,10 @@ type
     ///   DTO class, to AAdd.</summary>
     procedure ProjectTo(const ASpec: ISpecification<T>; ATypeInfo: PTypeInfo;
       const ACreate: TFunc<TObject>; const AAdd: TProc<TObject>);
+    /// <summary>The SELECT of a specification as a subquery of another
+    ///   statement; its parameters are numbered from AFirstParam + 1.</summary>
+    function BuildSubquery(const ASpec: ISpecification<T>;
+      AFirstParam: Integer; out ASQL: string): TArray<TSubqueryParam>;
     function ToList(const AExpression: IExpression): IList<T>; overload;
 
     // FastPath Direct Streaming (S57)
@@ -577,6 +597,27 @@ begin
     on E: Exception do
       Result := AValue.ToString;
   end;
+end;
+
+{ TDbSubquery }
+
+constructor TDbSubquery.Create(const ASignature: string;
+  const ABuilder: TSubqueryBuilder);
+begin
+  inherited Create;
+  FSignature := ASignature;
+  FBuilder := ABuilder;
+end;
+
+function TDbSubquery.GetSignature: string;
+begin
+  Result := FSignature;
+end;
+
+function TDbSubquery.Build(AFirstParam: Integer;
+  out ASQL: string): TArray<TSubqueryParam>;
+begin
+  Result := FBuilder(AFirstParam, ASQL);
 end;
 
 { TDextDtoHydrator }
@@ -2934,6 +2975,33 @@ begin
   end;
 end;
 
+function TDbSet<T>.BuildSubquery(const ASpec: ISpecification<T>;
+  AFirstParam: Integer; out ASQL: string): TArray<TSubqueryParam>;
+var
+  Generator: TSqlGenerator<T>;
+  LSpec: ISpecification<T>;
+  Raw: string;
+begin
+  // A copy: the tenant filter is added to it on every build
+  LSpec := ASpec.Clone;
+  if LSpec.IsIgnoringFilters then
+    FIgnoreQueryFilters := True;
+  if LSpec.IsOnlyDeleted then
+    FOnlyDeleted := True;
+  ApplyTenantFilter(LSpec);
+
+  Generator := CreateGenerator;
+  try
+    Generator.Correlated := True;
+    Raw := Generator.GenerateSelect(LSpec);
+    Result := TSQLGeneratorHelper.RenumberParams(Raw, Generator.Params,
+      AFirstParam, ASQL);
+  finally
+    Generator.Free;
+    ResetQueryFlags;
+  end;
+end;
+
 function TDbSet<T>.FromSql(const ASql: string; const AParams: array of TValue): TFluentQuery<T>;
 var
   i: Integer;
@@ -3787,6 +3855,21 @@ begin
     begin
       TDbSet<T>(SelfDbSet as TObject).ProjectTo(
         S as ISpecification<T>, ATypeInfo, ACreate, AAdd);
+    end);
+
+  Result := Result.WithSubqueryFactory(
+    function(const S: ISpecification): ISubquery
+    var
+      LSub: ISpecification<T>;
+    begin
+      LSub := S as ISpecification<T>;
+      Result := TDbSubquery.Create(
+        string(PTypeInfo(TypeInfo(T)).Name) + ':' + LSub.GetSignature,
+        function(AFirstParam: Integer; out ASQL: string): TArray<TSubqueryParam>
+        begin
+          Result := TDbSet<T>(SelfDbSet as TObject).BuildSubquery(
+            LSub, AFirstParam, ASQL);
+        end);
     end);
 end;
 

@@ -73,7 +73,9 @@ type
     FBaseTableName: string;
     FBaseOwner: string;
     FJoins: TArray<IJoin>;
+    FCorrelated: Boolean;
 
+    procedure ProcessSubquery(const C: TSubqueryExpression);
     procedure ProcessBinary(const C: TBinaryExpression);
     procedure ProcessArithmetic(const C: TArithmeticExpression);
     procedure ProcessLogical(const C: TLogicalExpression);
@@ -108,6 +110,9 @@ type
     ///   table of its entity (a prototype property) is qualified with the
     ///   alias of that table.</summary>
     property Joins: TArray<IJoin> read FJoins write FJoins;
+    /// <summary>True inside a subquery: a property of another table (the
+    ///   outer query) is qualified with the name of that table.</summary>
+    property Correlated: Boolean read FCorrelated write FCorrelated;
     /// <summary>The table of the entity the query reads from, as the
     ///   prototype properties name it.</summary>
     property BaseOwner: string read FBaseOwner write FBaseOwner;
@@ -131,6 +136,12 @@ type
 
   TSQLGeneratorHelper = class
   public
+    /// <summary>Renames the parameters of a statement to p(AFirst+1), p(AFirst+2)...
+    ///   keeping their relative order (p1, p2, ... p10), so a subquery can be
+    ///   embedded in another statement.</summary>
+    class function RenumberParams(const ASQL: string;
+      const AParams: IDictionary<string, TValue>; AFirst: Integer;
+      out ANewSQL: string): TArray<TSubqueryParam>; static;
     /// <summary>Mapped columns declared by the class of AMap itself (not inherited): used by TPH.</summary>
     class function GetDeclaredColumns(AMap: TEntityMap; ANamingStrategy: INamingStrategy): TArray<TDeclaredColumn>; static;
     class function GetCascadeSQL(AAction: TCascadeAction): string;
@@ -168,6 +179,7 @@ type
     // Properties to control filtering
     FIgnoreQueryFilters: Boolean;
     FOnlyDeleted: Boolean;
+    FCorrelated: Boolean;
     FSchema: string;
     FContext: IDbContext;
     FTenantProvider: ITenantProvider;
@@ -210,6 +222,9 @@ type
     
     property IgnoreQueryFilters: Boolean read FIgnoreQueryFilters write FIgnoreQueryFilters;
     property OnlyDeleted: Boolean read FOnlyDeleted write FOnlyDeleted;
+    /// <summary>True when the SELECT is a subquery of another statement: the
+    ///   columns are qualified with their table.</summary>
+    property Correlated: Boolean read FCorrelated write FCorrelated;
     property Schema: string read FSchema write FSchema;
     property NamingStrategy: INamingStrategy read FNamingStrategy write FNamingStrategy;
     
@@ -246,6 +261,7 @@ type
     procedure ProcessLogical(const C: TLogicalExpression);
     procedure ProcessUnary(const C: TUnaryExpression);
     procedure ProcessLiteral(const C: TLiteralExpression);
+    procedure ProcessSubquery(const C: TSubqueryExpression);
   public
     /// <param name="ADialect">The dialect the cached statement was generated
     ///   for: StartsWith / EndsWith / Contains escape their value per dialect.</param>
@@ -381,12 +397,28 @@ begin
     // No params
   else if Ex is TAggregateExpression then
     // No params
+  else if Ex is TSubqueryExpression then
+    ProcessSubquery(TSubqueryExpression(Ex))
   else if Ex is TJsonPropertyExpression then
     // No params
   else if Ex is TLiteralExpression then
     ProcessLiteral(TLiteralExpression(Ex))
   else
     raise Exception.Create('Unknown expression type in ParamCollector: ' + Ex.ToString);
+end;
+
+procedure TSQLParamCollector.ProcessSubquery(const C: TSubqueryExpression);
+var
+  SubSQL: string;
+  Items: TArray<TSubqueryParam>;
+  Item: TSubqueryParam;
+begin
+  if C.Operand <> nil then
+    Resolve(C.Operand);
+  Items := C.Subquery.Build(FParamCount, SubSQL);
+  for Item in Items do
+    FParams.Add(Item.Name, Item.Value);
+  Inc(FParamCount, Length(Items));
 end;
 
 procedure TSQLParamCollector.ProcessBinary(const C: TBinaryExpression);
@@ -460,6 +492,88 @@ begin
 end;
 
 { TSQLGeneratorHelper }
+
+class function TSQLGeneratorHelper.RenumberParams(const ASQL: string;
+  const AParams: IDictionary<string, TValue>; AFirst: Integer;
+  out ANewSQL: string): TArray<TSubqueryParam>;
+var
+  Names: TArray<string>;
+  Pair: TPair<string, TValue>;
+  Map: IDictionary<string, string>;
+  SB: TStringBuilder;
+  I, J, N: Integer;
+  Tmp, Name, NewName: string;
+  C: Char;
+
+  function Before(const A, B: string): Boolean;
+  begin
+    // p2 before p10: shorter first, then alphabetical
+    if Length(A) <> Length(B) then
+      Result := Length(A) < Length(B)
+    else
+      Result := A < B;
+  end;
+
+begin
+  SetLength(Names, 0);
+  for Pair in AParams do
+  begin
+    SetLength(Names, Length(Names) + 1);
+    Names[High(Names)] := Pair.Key;
+  end;
+  for I := 1 to High(Names) do
+  begin
+    Tmp := Names[I];
+    J := I - 1;
+    while (J >= 0) and Before(Tmp, Names[J]) do
+    begin
+      Names[J + 1] := Names[J];
+      Dec(J);
+    end;
+    Names[J + 1] := Tmp;
+  end;
+
+  Map := TCollections.CreateDictionary<string, string>;
+  SetLength(Result, Length(Names));
+  for I := 0 to High(Names) do
+  begin
+    NewName := 'p' + IntToStr(AFirst + I + 1);
+    Map.Add(Names[I], NewName);
+    Result[I].Name := NewName;
+    Result[I].Value := AParams[Names[I]];
+  end;
+
+  SB := TStringBuilder.Create;
+  try
+    I := 1;
+    N := Length(ASQL);
+    while I <= N do
+    begin
+      C := ASQL[I];
+      if (C = ':') and (I < N) and CharInSet(ASQL[I + 1], ['A'..'Z', 'a'..'z', '_']) and
+         ((I = 1) or (ASQL[I - 1] <> ':')) then
+      begin
+        J := I + 1;
+        while (J <= N) and CharInSet(ASQL[J], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+          Inc(J);
+        Name := Copy(ASQL, I + 1, J - I - 1);
+        if Map.TryGetValue(Name, NewName) then
+          SB.Append(':').Append(NewName)
+        else
+          SB.Append(Copy(ASQL, I, J - I));
+        I := J;
+      end
+      else
+      begin
+        SB.Append(C);
+        Inc(I);
+      end;
+    end;
+    ANewSQL := SB.ToString;
+  finally
+    SB.Free;
+  end;
+end;
 
 class function TSQLGeneratorHelper.ResolveDialect(const ADialect: ISQLDialect): TDatabaseDialect;
 begin
@@ -685,6 +799,8 @@ begin
     ProcessProperty(TPropertyExpression(AExpression))
   else if AExpression is TAggregateExpression then
     ProcessAggregate(TAggregateExpression(AExpression))
+  else if AExpression is TSubqueryExpression then
+    ProcessSubquery(TSubqueryExpression(AExpression))
   else if AExpression is TJsonPropertyExpression then
     ProcessJsonProperty(TJsonPropertyExpression(AExpression))
   else if AExpression is TLiteralExpression then
@@ -875,7 +991,7 @@ var
 begin
   Result := '';
   AIsBase := False;
-  if (AOwner = '') or (Length(FJoins) = 0) then
+  if (AOwner = '') or ((Length(FJoins) = 0) and not FCorrelated) then
     Exit;
   // The base table wins when a join reads the same table
   if (FBaseOwner <> '') and (FBaseTableName <> '') and SameText(AOwner, FBaseOwner) then
@@ -890,6 +1006,37 @@ begin
         Exit(FDialect.QuoteIdentifier(J.GetAlias));
       Exit(FDialect.QuoteIdentifier(J.GetTableName));
     end;
+  // Inside a subquery, any other table is the one of the outer query
+  if FCorrelated then
+    Result := FDialect.QuoteIdentifier(AOwner);
+end;
+
+procedure TSQLWhereGenerator.ProcessSubquery(const C: TSubqueryExpression);
+var
+  SubSQL: string;
+  Items: TArray<TSubqueryParam>;
+  Item: TSubqueryParam;
+begin
+  case C.Kind of
+    sqIn, sqNotIn:
+      begin
+        FSQL.Append('(');
+        ResolveSQL(C.Operand);
+        if C.Kind = sqIn then
+          FSQL.Append(' IN (')
+        else
+          FSQL.Append(' NOT IN (');
+      end;
+    sqExists: FSQL.Append('EXISTS (');
+    sqNotExists: FSQL.Append('NOT EXISTS (');
+  end;
+  Items := C.Subquery.Build(FParamCount, SubSQL);
+  FSQL.Append(SubSQL).Append(')');
+  if C.Kind in [sqIn, sqNotIn] then
+    FSQL.Append(')');
+  for Item in Items do
+    FParams.Add(Item.Name, Item.Value);
+  Inc(FParamCount, Length(Items));
 end;
 
 procedure TSQLWhereGenerator.ProcessProperty(const C: TPropertyExpression);
@@ -2448,7 +2595,7 @@ var
 begin
   FParams.Clear;
   FParamCount := 0;
-  HasJoins := Length(ASpec.GetJoins) > 0;
+  HasJoins := (Length(ASpec.GetJoins) > 0) or FCorrelated;
   BaseTableName := GetTableName;
   
   // 1. Check Cache
@@ -2458,9 +2605,9 @@ begin
     if Assigned(FTenantProvider) and Assigned(FTenantProvider.Tenant) then
       TenantId := FTenantProvider.Tenant.Id;
 
-    Sig := Format('%s:%s:%s:Ign:%d:Del:%d:Ten:%s', 
+    Sig := Format('%s:%s:%s:Ign:%d:Del:%d:Ten:%s:Cor:%d', 
       [(FDialect as TObject).ClassName, GetTableName, ASpec.GetSignature, 
-       Ord(FIgnoreQueryFilters), Ord(FOnlyDeleted), TenantId]);
+       Ord(FIgnoreQueryFilters), Ord(FOnlyDeleted), TenantId, Ord(FCorrelated)]);
     // Types of one hierarchy share the table: the SQL differs by type
     if FMap <> nil then
       Sig := Sig + ':Type:' + string(FMap.EntityType.Name) + ':Disc:' +
@@ -2491,6 +2638,7 @@ begin
     WhereGen.Joins := ASpec.GetJoins;
     if FMap <> nil then
       WhereGen.BaseOwner := FMap.TableName;
+    WhereGen.Correlated := FCorrelated;
     WhereSQL := WhereGen.Generate(ASpec.GetExpression);
     FParamCount := WhereGen.ParamCount;
     
@@ -2517,6 +2665,7 @@ begin
       HavingGen.Joins := ASpec.GetJoins;
       if FMap <> nil then
         HavingGen.BaseOwner := FMap.TableName;
+      HavingGen.Correlated := FCorrelated;
       HavingGen.ParamCount := FParamCount;
       HavingSQL := HavingGen.Generate(ASpec.GetHaving);
       FParamCount := HavingGen.ParamCount;
@@ -2546,6 +2695,7 @@ begin
         ItemGen.Joins := ASpec.GetJoins;
         if FMap <> nil then
           ItemGen.BaseOwner := FMap.TableName;
+        ItemGen.Correlated := FCorrelated;
         for i := 0 to High(SelectItems) do
         begin
           if i > 0 then SB.Append(', ');
@@ -2930,6 +3080,7 @@ begin
     WhereGen.Joins := ASpec.GetJoins;
     if FMap <> nil then
       WhereGen.BaseOwner := FMap.TableName;
+    WhereGen.Correlated := FCorrelated;
     WhereSQL := WhereGen.Generate(ASpec.GetExpression);
     FParamCount := WhereGen.ParamCount;
     
@@ -3453,6 +3604,7 @@ begin
            WhereGen.Joins := AJoins;
            if FMap <> nil then
              WhereGen.BaseOwner := FMap.TableName;
+    WhereGen.Correlated := FCorrelated;
            SB.Append(' ON ')
              .Append(WhereGen.Generate(JoinObj.GetCondition));
              

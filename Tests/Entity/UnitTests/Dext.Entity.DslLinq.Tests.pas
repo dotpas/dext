@@ -211,6 +211,20 @@ type
     procedure Aggregates_By_Name_With_Take_Use_The_Paged_Rows;
     [Test]
     procedure Aggregates_By_Name_Respect_The_Join_Filter;
+    [Test]
+    procedure In_Subquery_Filters_By_The_Values_Of_Another_Entity;
+    [Test]
+    procedure NotIn_Subquery_Is_The_Complement;
+    [Test]
+    procedure Correlated_Exists_Uses_The_Outer_Row;
+    [Test]
+    procedure Correlated_NotExists_Is_The_Complement;
+    [Test]
+    procedure Subquery_Params_Continue_The_Numbering_Of_The_Outer_Query;
+    [Test]
+    procedure Subquery_With_Other_Literals_Reuses_The_Cache_And_Refreshes;
+    [Test]
+    procedure Subquery_Works_Inside_A_Query_With_A_Join;
   end;
 
 implementation
@@ -1014,6 +1028,119 @@ begin
   Should(FDb.Orders.Where(C.City = 'SP')
     .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
     .Sum('Amount') = 600).BeTrue;
+end;
+
+procedure TDslLinqTests.In_Subquery_Filters_By_The_Values_Of_Another_Entity;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // LINQ: customers.Where(c => c.City == "SP").Select(c => c.Id)
+  //         .Contains(o.CustomerId)
+  Items := FDb.Orders.Where(
+    O.CustomerId.&In(FDb.Customers.Where(C.City = 'SP').Subquery(C.Id)))
+    .OrderBy(O.Id.Asc).ToList;
+  Should(Items.Count).Be(4);
+  Should(Items[0].Id).Be(1);
+  Should(Items[3].Id).Be(5);
+end;
+
+procedure TDslLinqTests.NotIn_Subquery_Is_The_Complement;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Items := FDb.Orders.Where(
+    O.CustomerId.NotIn(FDb.Customers.Where(C.City = 'SP').Subquery(C.Id)))
+    .ToList;
+  Should(Items.Count).Be(2);
+end;
+
+procedure TDslLinqTests.Correlated_Exists_Uses_The_Outer_Row;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlCustomer>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // LINQ: customers.Where(c => orders.Any(o => o.CustomerId == c.Id
+  //                                            && o.Amount > 250))
+  Items := FDb.Customers.Where(
+    FDb.Orders.Where((O.CustomerId = C.Id) and (O.Amount > 250)).Exists)
+    .ToList;
+  Should(Items.Count).Be(1);
+  Should(Items[0].Id).Be(3);
+end;
+
+procedure TDslLinqTests.Correlated_NotExists_Is_The_Complement;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlCustomer>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Items := FDb.Customers.Where(
+    FDb.Orders.Where((O.CustomerId = C.Id) and (O.Amount > 250)).NotExists)
+    .ToList;
+  Should(Items.Count).Be(2);
+end;
+
+procedure TDslLinqTests.Subquery_Params_Continue_The_Numbering_Of_The_Outer_Query;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // outer literal (100) + subquery literal ('SP'): orders 2, 4 and 5
+  Items := FDb.Orders.Where((O.Amount >= 100) and
+    O.CustomerId.&In(FDb.Customers.Where(C.City = 'SP').Subquery(C.Id)))
+    .ToList;
+  Should(Items.Count).Be(3);
+end;
+
+procedure TDslLinqTests.Subquery_With_Other_Literals_Reuses_The_Cache_And_Refreshes;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  A, B: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  A := FDb.Orders.Where((O.Amount >= 100) and
+    O.CustomerId.&In(FDb.Customers.Where(C.City = 'SP').Subquery(C.Id)))
+    .ToList;
+  B := FDb.Orders.Where((O.Amount >= 250) and
+    O.CustomerId.&In(FDb.Customers.Where(C.City = 'RJ').Subquery(C.Id)))
+    .ToList;
+  Should(A.Count).Be(3);
+  // customer 3 (RJ): orders 3 (150) and 6 (300); only 6 is >= 250
+  Should(B.Count).Be(1);
+  Should(B[0].Id).Be(6);
+end;
+
+procedure TDslLinqTests.Subquery_Works_Inside_A_Query_With_A_Join;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Items := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .Where(O.CustomerId.&In(FDb.Customers.Where(C.City = 'RJ').Subquery(C.Id)))
+    .ToList;
+  Should(Items.Count).Be(2);
 end;
 
 end.

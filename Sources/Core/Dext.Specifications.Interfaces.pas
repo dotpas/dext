@@ -73,6 +73,26 @@ type
     Alias: string;
   end;
 
+  /// <summary>One parameter of a subquery, already renamed to continue the
+  ///   numbering of the outer statement.</summary>
+  TSubqueryParam = record
+    Name: string;
+    Value: TValue;
+  end;
+
+  /// <summary>
+  ///   A query of another entity used inside a WHERE (IN / EXISTS). The
+  ///   DbSet that owns it knows how to turn it into SQL.
+  /// </summary>
+  ISubquery = interface
+    ['{3F1B7D52-9C4A-4E6B-8A21-5D0E7C93B1A4}']
+    /// <summary>Text that tells two subqueries apart in the SQL cache key.</summary>
+    function GetSignature: string;
+    /// <summary>Generates the SELECT. The parameters are numbered from
+    ///   AFirstParam + 1; the result lists them in that order.</summary>
+    function Build(AFirstParam: Integer; out ASQL: string): TArray<TSubqueryParam>;
+  end;
+
   /// <summary>
   ///   Represents a JOIN clause.
   /// </summary>

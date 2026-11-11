@@ -241,8 +241,12 @@ type
     function Contains(const Value: string): BooleanExpression;
 
     // Collection methods
-    function &In(const Values: TArray<T>): BooleanExpression;
-    function NotIn(const Values: TArray<T>): BooleanExpression;
+    function &In(const Values: TArray<T>): BooleanExpression; overload;
+    /// <summary>Is the value one of those returned by the subquery
+    ///   (LINQ: other.Select(..).Contains(x)).</summary>
+    function &In(const ASubquery: ISubquery): BooleanExpression; overload;
+    function NotIn(const ASubquery: ISubquery): BooleanExpression; overload;
+    function NotIn(const Values: TArray<T>): BooleanExpression; overload;
 
     // Null handling
     function IsNull: BooleanExpression;
@@ -759,6 +763,22 @@ begin
   Result.FExpression := nil;
   Result.FInfo := AInfo;
   Result.FValue := Default(T);
+end;
+
+function Prop<T>.&In(const ASubquery: ISubquery): BooleanExpression;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('In(subquery) needs a prototype property.');
+  Result := BooleanExpression.FromQuery(
+    TSubqueryExpression.Create(sqIn, GetExpression, ASubquery));
+end;
+
+function Prop<T>.NotIn(const ASubquery: ISubquery): BooleanExpression;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create('NotIn(subquery) needs a prototype property.');
+  Result := BooleanExpression.FromQuery(
+    TSubqueryExpression.Create(sqNotIn, GetExpression, ASubquery));
 end;
 
 function Prop<T>.&As(const AAlias: string): TSelectItem;
