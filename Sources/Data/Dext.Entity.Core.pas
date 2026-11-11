@@ -97,6 +97,9 @@ type
     function ListObjects(const AExpression: IExpression): IList<TObject>; overload;
     function ListObjects(const ASpec: ISpecification): IList<TObject>; overload;
 
+    // Eager loading of Include paths over entities that are already loaded
+    procedure LoadIncludesFor(const AEntities: TArray<TObject>; const AIncludes: TArray<string>);
+
     // Tracking Methods (Consistent with IDbSet<T>)
     procedure Update(const AEntity: TObject);
     procedure Remove(const AEntity: TObject);

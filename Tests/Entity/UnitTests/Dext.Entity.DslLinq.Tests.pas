@@ -168,6 +168,8 @@ type
     procedure Join_Works_With_A_Fluent_Only_Mapping;
     [Test]
     procedure Entry_Load_Works_With_Smart_Property_Keys;
+    [Test]
+    procedure Include_Follows_A_Nested_Path;
 
     // Select
     [Test]
@@ -1648,6 +1650,40 @@ constructor TFlAuthor.Create;
 begin
   inherited Create;
   FBooks := TCollections.CreateList<TFlBook>(False);
+end;
+
+procedure TDslLinqTests.Include_Follows_A_Nested_Path;
+var
+  Db: TFlDb;
+  A: TFlAuthor;
+  B: TFlBook;
+  Found: IList<TFlAuthor>;
+begin
+  Db := TFlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlAuthor>;
+    Db.Entities<TFlBook>;
+    Db.EnsureCreated;
+    A := TFlAuthor.Create;
+    A.Id := 1;
+    A.Name := 'Ana';
+    Db.Entities<TFlAuthor>.Add(A);
+    B := TFlBook.Create;
+    B.Id := 1;
+    B.AuthorId := 1;
+    B.Title := 'Dext';
+    Db.Entities<TFlBook>.Add(B);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Found := Db.Entities<TFlAuthor>.QueryAll.Include('Books.Author').ToList;
+    Should(Found.Count).Be(1);
+    Should(Found[0].Books.Count).Be(1);
+    Should(Found[0].Books[0].Author <> nil).BeTrue;
+    Should(Found[0].Books[0].Author.Name.Value).Be('Ana');
+  finally
+    Db.Free;
+  end;
 end;
 
 procedure TDslLinqTests.Entry_Load_Works_With_Smart_Property_Keys;

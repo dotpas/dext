@@ -230,6 +230,8 @@ type
     procedure ApplyTenantFilter(var ASpec: ISpecification<T>);
     procedure StampCurrentTenant(const AEntity: TObject);
     procedure DoLoadIncludes(const AEntities: IList<T>; const AIncludes: TArray<string>);
+    procedure LoadIncludesFlat(const AEntities: IList<T>; const AIncludes: TArray<string>);
+    procedure LoadNestedIncludes(const AEntities: IList<T>; const AHead: string; const ATails: TArray<string>);
   public
     constructor Create(const AContext: IDbContext); reintroduce;
     destructor Destroy; override;
@@ -270,6 +272,7 @@ type
     procedure Detach(const AEntity: TObject); overload;
     procedure LinkManyToMany(const AEntity: TObject; const APropertyName: string; const ARelatedEntity: TObject); overload;
     procedure UnlinkManyToMany(const AEntity: TObject; const APropertyName: string; const ARelatedEntity: TObject); overload;
+    procedure LoadIncludesFor(const AEntities: TArray<TObject>; const AIncludes: TArray<string>);
     
     /// <summary>
     ///   Adds a typed entity to the context.
@@ -3273,7 +3276,82 @@ begin
   end;
 end;
 
+procedure TDbSet<T>.LoadIncludesFor(const AEntities: TArray<TObject>; const AIncludes: TArray<string>);
+var
+  List: IList<T>;
+  E: TObject;
+begin
+  if (Length(AEntities) = 0) or (Length(AIncludes) = 0) then Exit;
+  List := TCollections.CreateList<T>(False);
+  for E in AEntities do
+    List.Add(T(E));
+  DoLoadIncludes(List, AIncludes);
+end;
+
+// A path such as 'Faturas.Cliente' (ThenInclude) loads the first level and then
+// the rest of the path over the entities that level just loaded.
 procedure TDbSet<T>.DoLoadIncludes(const AEntities: IList<T>; const AIncludes: TArray<string>);
+var
+  Path, Head: string;
+  DotPos, I: Integer;
+  Heads: IList<string>;
+  Tails: IList<string>;
+begin
+  if (AEntities = nil) or (AEntities.Count = 0) then Exit;
+  Heads := TCollections.CreateList<string>;
+  for Path in AIncludes do
+  begin
+    DotPos := Pos('.', Path);
+    if DotPos > 0 then Head := Copy(Path, 1, DotPos - 1) else Head := Path;
+    if not Heads.Contains(Head) then Heads.Add(Head);
+  end;
+  for Head in Heads do
+  begin
+    LoadIncludesFlat(AEntities, [Head]);
+    Tails := TCollections.CreateList<string>;
+    for Path in AIncludes do
+      if (Length(Path) > Length(Head) + 1) and (Copy(Path, 1, Length(Head) + 1) = Head + '.') then
+        Tails.Add(Copy(Path, Length(Head) + 2, MaxInt));
+    if Tails.Count > 0 then
+    begin
+      LoadNestedIncludes(AEntities, Head, Tails.ToArray);
+    end;
+  end;
+end;
+
+procedure TDbSet<T>.LoadNestedIncludes(const AEntities: IList<T>; const AHead: string; const ATails: TArray<string>);
+var
+  Prop: TRttiProperty;
+  Val: TValue;
+  Entity: T;
+  Children: IList<TObject>;
+  Obj: TObject;
+  Objs: IObjectList;
+  I: Integer;
+  ChildSet: IDbSet;
+begin
+  Prop := TReflection.Context.GetType(TypeInfo(T)).GetProperty(AHead);
+  if Prop = nil then Exit;
+  Children := TCollections.CreateList<TObject>(False);
+  for Entity in AEntities do
+  begin
+    Val := Prop.GetValue(Pointer(Entity));
+    if Val.IsEmpty then Continue;
+    if Val.Kind = tkClass then
+    begin
+      Obj := Val.AsObject;
+      if (Obj <> nil) and (Children.IndexOf(Obj) < 0) then Children.Add(Obj);
+    end
+    else if (Val.Kind = tkInterface) and Supports(Val.AsInterface, IObjectList, Objs) then
+      for I := 0 to Objs.Count - 1 do
+        if Children.IndexOf(Objs[I]) < 0 then Children.Add(Objs[I]);
+  end;
+  if Children.Count = 0 then Exit;
+  ChildSet := FContext.DataSet(Children[0].ClassInfo);
+  ChildSet.LoadIncludesFor(Children.ToArray, ATails);
+end;
+
+procedure TDbSet<T>.LoadIncludesFlat(const AEntities: IList<T>; const AIncludes: TArray<string>);
 var
   IncludePath: string;
   PropMap: TPropertyMap;
