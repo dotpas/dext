@@ -90,6 +90,8 @@ type
     [Test]
     procedure Test_Extractor_Unwraps_Smart_Types;
     [Test]
+    procedure Test_TableBuilder_ForeignKey_Becomes_An_Operation;
+    [Test]
     procedure Test_Builder_Rename_Operations;
     [Test]
     procedure Test_Json_RoundTrip_Rename_Operations;
@@ -359,6 +361,37 @@ begin
     end;
   finally
     Db.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_TableBuilder_ForeignKey_Becomes_An_Operation;
+var
+  Builder: TSchemaBuilder;
+  Fk: TAddForeignKeyOperation;
+begin
+  Builder := TSchemaBuilder.Create;
+  try
+    Builder.CreateTable('Orders',
+      procedure(T: TTableBuilder)
+      begin
+        T.Column('Id', 'INTEGER').PrimaryKey;
+        T.Column('UserId', 'INTEGER').NotNull;
+        T.ForeignKey('FK_Orders_Users', 'UserId', 'Users', 'Id');
+      end);
+
+    // The foreign key was silently dropped: it must follow the CREATE TABLE
+    // as its own operation.
+    Should(Builder.Operations.Count).Be(2);
+    Should(Builder.Operations[0] is TCreateTableOperation).BeTrue;
+    Should(Builder.Operations[1] is TAddForeignKeyOperation).BeTrue;
+    Fk := TAddForeignKeyOperation(Builder.Operations[1]);
+    Should(Fk.Table).Be('Orders');
+    Should(Fk.Name).Be('FK_Orders_Users');
+    Should(Fk.Columns[0]).Be('UserId');
+    Should(Fk.ReferencedTable).Be('Users');
+    Should(Fk.ReferencedColumns[0]).Be('Id');
+  finally
+    Builder.Free;
   end;
 end;
 

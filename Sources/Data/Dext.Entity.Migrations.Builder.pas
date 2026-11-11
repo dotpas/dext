@@ -78,6 +78,7 @@ type
   TTableBuilder = class
   private
     FOp: TCreateTableOperation;
+    FForeignKeys: IList<TMigrationOperation>;
   public
     constructor Create(AOp: TCreateTableOperation);
     
@@ -88,6 +89,12 @@ type
     function PrimaryKey(const AColumns: array of string): TTableBuilder;
     function ForeignKey(const AName: string; const AColumn: string; const ARefTable, ARefColumn: string): TTableBuilder; overload;
     // TODO: Composite FKs
+
+    /// <summary>
+    ///   Foreign keys declared with ForeignKey. TSchemaBuilder.CreateTable moves
+    ///   them to the operation list, right after the CREATE TABLE.
+    /// </summary>
+    property ForeignKeys: IList<TMigrationOperation> read FForeignKeys;
   end;
 
   /// <summary>
@@ -178,6 +185,7 @@ end;
 constructor TTableBuilder.Create(AOp: TCreateTableOperation);
 begin
   FOp := AOp;
+  FForeignKeys := TCollections.CreateList<TMigrationOperation>(True);
 end;
 
 function TTableBuilder.Column(const AName, AType: string): IColumnBuilder;
@@ -202,15 +210,10 @@ end;
 function TTableBuilder.ForeignKey(const AName, AColumn, ARefTable,
   ARefColumn: string): TTableBuilder;
 begin
-  // Note: CreateTableOperation doesn't hold FKs directly in this model yet,
-  // usually FKs are added as separate operations or inline constraints.
-  // For simplicity, let's assume we add a separate AddForeignKeyOperation to the schema builder?
-  // But TTableBuilder is scoped to CreateTableOperation.
-  // We should add FK definition to CreateTableOperation or allow it to register a side-effect.
-  // For now, let's ignore or store it in CreateTableOperation if we update it to support inline FKs.
-  
-  // Let's update TCreateTableOperation later to support inline constraints.
-  // For now, this is a placeholder.
+  // The foreign key is its own operation (ALTER TABLE ... ADD CONSTRAINT),
+  // emitted right after the CREATE TABLE by TSchemaBuilder.CreateTable.
+  FForeignKeys.Add(TAddForeignKeyOperation.Create(FOp.Name, AName, [AColumn],
+    ARefTable, [ARefColumn]));
   Result := Self;
 end;
 
@@ -285,15 +288,27 @@ function TSchemaBuilder.CreateTable(const AName: string;
 var
   Op: TCreateTableOperation;
   Builder: TTableBuilder;
+  Fk: TMigrationOperation;
 begin
   Op := TCreateTableOperation.Create(AName);
   Builder := TTableBuilder.Create(Op);
   try
-    ABuildProc(Builder);
+    try
+      ABuildProc(Builder);
+    except
+      Op.Free;
+      raise;
+    end;
+    FOperations.Add(Op);
+    while Builder.ForeignKeys.Count > 0 do
+    begin
+      Fk := Builder.ForeignKeys.First;
+      Builder.ForeignKeys.Extract(Fk);
+      FOperations.Add(Fk);
+    end;
   finally
     Builder.Free;
   end;
-  FOperations.Add(Op);
   Result := Self;
 end;
 
