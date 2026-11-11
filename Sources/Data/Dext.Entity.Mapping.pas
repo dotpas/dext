@@ -120,6 +120,7 @@ type
     function IsVersion(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsCreatedAt(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsUpdatedAt(AValue: Boolean = True): IPropertyBuilder<T>;
+    function IsDeletedAt(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsShadow(AValue: Boolean = True): IPropertyBuilder<T>;
     function HasDisplayLabel(const AValue: string): IPropertyBuilder<T>;
     function HasDisplayWidth(AValue: Integer): IPropertyBuilder<T>;
@@ -248,7 +249,13 @@ type
   public
     constructor Create(AEntityType: PTypeInfo);
     destructor Destroy; override;
-    
+
+    /// <summary>
+    ///   Marks a property as the deletion timestamp. A class without another soft delete
+    ///   rule becomes a soft delete class filtered by that column being null.
+    /// </summary>
+    procedure MarkDeletedAt(APropMap: TPropertyMap; AValue: Boolean = True);
+
     property EntityType: PTypeInfo read FEntityType;
     property TableName: string read FTableName write FTableName;
     property Schema: string read FSchema write FSchema;
@@ -329,6 +336,7 @@ type
     function IsVersion(AValue: Boolean = True): TEntityBuilder<T>;
     function IsCreatedAt(AValue: Boolean = True): TEntityBuilder<T>;
     function IsUpdatedAt(AValue: Boolean = True): TEntityBuilder<T>;
+    function IsDeletedAt(AValue: Boolean = True): TEntityBuilder<T>;
     function IsShadow(AValue: Boolean = True): TEntityBuilder<T>;
     function DisplayLabel(const AValue: string): TEntityBuilder<T>;
     function DisplayWidth(AValue: Integer): TEntityBuilder<T>;
@@ -388,8 +396,9 @@ type
   TPropertyBuilder<T: class> = class(TInterfacedObject, IPropertyBuilder<T>)
   private
     FPropMap: TPropertyMap;
+    FEntityMap: TEntityMap;
   public
-    constructor Create(APropMap: TPropertyMap);
+    constructor Create(APropMap: TPropertyMap; AEntityMap: TEntityMap = nil);
     function HasColumnName(const AName: string): IPropertyBuilder<T>;
     function IsRequired(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsAutoInc(AValue: Boolean = True): IPropertyBuilder<T>;
@@ -404,6 +413,7 @@ type
     function IsVersion(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsCreatedAt(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsUpdatedAt(AValue: Boolean = True): IPropertyBuilder<T>;
+    function IsDeletedAt(AValue: Boolean = True): IPropertyBuilder<T>;
     function IsShadow(AValue: Boolean = True): IPropertyBuilder<T>;
     function HasDisplayLabel(const AValue: string): IPropertyBuilder<T>;
     function HasDisplayWidth(AValue: Integer): IPropertyBuilder<T>;
@@ -505,6 +515,21 @@ begin
     Obj.Free;
     raise EEntityMappingException.CreateFmt(
       'Class "%s" does not implement ITypeConverter.', [AClass.ClassName]);
+  end;
+end;
+
+procedure TEntityMap.MarkDeletedAt(APropMap: TPropertyMap; AValue: Boolean);
+begin
+  APropMap.IsDeletedAt := AValue;
+  if not AValue then
+    Exit;
+  // Only assume the soft delete rule if the class does not define one already
+  if not FIsSoftDelete then
+  begin
+    FIsSoftDelete := True;
+    FSoftDeleteProp := APropMap.PropertyName;
+    FSoftDeleteDeletedValue := Null;
+    FSoftDeleteNotDeletedValue := Null;
   end;
 end;
 
@@ -661,17 +686,7 @@ begin
     if AAttr is CreatedAtAttribute then APropMap.IsCreatedAt := True;
     if AAttr is UpdatedAtAttribute then APropMap.IsUpdatedAt := True;
     if AAttr is DeletedAtAttribute then
-    begin
-      APropMap.IsDeletedAt := True;
-      // Only assume SoftDelete responsibility if not already defined by class attribute
-      if not FIsSoftDelete then
-      begin
-        FIsSoftDelete := True;
-        FSoftDeleteProp := APropMap.PropertyName;
-        FSoftDeleteDeletedValue := Null; 
-        FSoftDeleteNotDeletedValue := Null;
-      end;
-    end;
+      MarkDeletedAt(APropMap);
     
     // JSON Column
     if AAttr is JsonColumnAttribute then
@@ -1458,6 +1473,12 @@ begin
   Result := Self;
 end;
 
+function TEntityBuilder<T>.IsDeletedAt(AValue: Boolean): TEntityBuilder<T>;
+begin
+  FMap.MarkDeletedAt(GetCurrentProp, AValue);
+  Result := Self;
+end;
+
 function TEntityBuilder<T>.IsUpdatedAt(AValue: Boolean): TEntityBuilder<T>;
 begin
   GetCurrentProp.IsUpdatedAt := AValue;
@@ -1633,7 +1654,7 @@ end;
 function TEntityTypeBuilder<T>.Prop(const APropertyName: string): IPropertyBuilder<T>;
 begin
   FMap.RequireClassProperty(APropertyName);
-  Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropertyName));
+  Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropertyName), FMap);
 end;
 
 function TEntityTypeBuilder<T>.Prop(const AProp: IPropInfo): IPropertyBuilder<T>;
@@ -1643,7 +1664,7 @@ end;
 
 function TEntityTypeBuilder<T>.ShadowProperty(const APropName: string): IPropertyBuilder<T>;
 begin
-  Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropName))
+  Result := TPropertyBuilder<T>.Create(FMap.GetOrAddProperty(APropName), FMap)
     .IsShadow(True);
 end;
 
@@ -1727,9 +1748,10 @@ end;
 
 { TPropertyBuilder<T> }
 
-constructor TPropertyBuilder<T>.Create(APropMap: TPropertyMap);
+constructor TPropertyBuilder<T>.Create(APropMap: TPropertyMap; AEntityMap: TEntityMap);
 begin
   FPropMap := APropMap;
+  FEntityMap := AEntityMap;
 end;
 
 function TPropertyBuilder<T>.HasColumnName(const AName: string): IPropertyBuilder<T>;
@@ -1804,6 +1826,15 @@ end;
 function TPropertyBuilder<T>.IsCreatedAt(AValue: Boolean): IPropertyBuilder<T>;
 begin
   FPropMap.IsCreatedAt := AValue;
+  Result := Self;
+end;
+
+function TPropertyBuilder<T>.IsDeletedAt(AValue: Boolean): IPropertyBuilder<T>;
+begin
+  if FEntityMap <> nil then
+    FEntityMap.MarkDeletedAt(FPropMap, AValue)
+  else
+    FPropMap.IsDeletedAt := AValue;
   Result := Self;
 end;
 

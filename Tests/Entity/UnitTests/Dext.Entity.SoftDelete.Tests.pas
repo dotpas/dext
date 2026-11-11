@@ -81,6 +81,29 @@ type
     property CreatedOn: TDateTime read FCreatedOn write FCreatedOn;
     property ChangedOn: TDateTime read FChangedOn write FChangedOn;
   end;
+  // Scenario 5: deletion timestamp configured only through the fluent API
+  TGoneFluent = class
+  private
+    FId: Integer;
+    FGoneAt: Nullable<TDateTime>;
+  public
+    [PK]
+    property Id: Integer read FId write FId;
+    property GoneAt: Nullable<TDateTime> read FGoneAt write FGoneAt;
+  end;
+
+  // Scenario 6: fluent flag plus fluent timestamp (hybrid)
+  TGoneHybrid = class
+  private
+    FId: Integer;
+    FRemoved: Boolean;
+    FRemovedAt: Nullable<TDateTime>;
+  public
+    [PK]
+    property Id: Integer read FId write FId;
+    property Removed: Boolean read FRemoved write FRemoved;
+    property RemovedAt: Nullable<TDateTime> read FRemovedAt write FRemovedAt;
+  end;
   {$M-}
 
   TSoftDeleteTestContext = class(TDbContext)
@@ -88,6 +111,8 @@ type
     procedure OnModelCreating(Builder: TModelBuilder); override;
   public
     function Stamps: IDbSet<TStampFluent>;
+    function Gone: IDbSet<TGoneFluent>;
+    function Hybrids: IDbSet<TGoneHybrid>;
     function TasksBool: IDbSet<TTaskBool>;
     function TasksTimestamp: IDbSet<TTaskTimestamp>;
     function TasksHybrid: IDbSet<TTaskHybrid>;
@@ -116,6 +141,10 @@ type
     procedure Test_FluentTimestamps_ShouldBeStampedOnInsertAndUpdate;
     [Test]
     procedure Test_HardDelete_ThenSaveChanges_ShouldNotRevalidateDeletedEntity;
+    [Test]
+    procedure Test_FluentDeletedAt_ShouldActAsSoftDelete;
+    [Test]
+    procedure Test_FluentFlagAndDeletedAt_ShouldSetBoth;
   end;
 
   [Fixture]
@@ -172,6 +201,25 @@ begin
     .Prop('Name').IsRequired
     .Prop('CreatedOn').IsCreatedAt
     .Prop('ChangedOn').IsUpdatedAt;
+
+  Builder.Entity<TGoneFluent>
+    .Table('gone_fluent')
+    .Prop('GoneAt').IsDeletedAt;
+
+  Builder.Entity<TGoneHybrid>
+    .Table('gone_hybrid')
+    .HasSoftDelete('Removed')
+    .Prop('RemovedAt').IsDeletedAt;
+end;
+
+function TSoftDeleteTestContext.Gone: IDbSet<TGoneFluent>;
+begin
+  Result := Entities<TGoneFluent>;
+end;
+
+function TSoftDeleteTestContext.Hybrids: IDbSet<TGoneHybrid>;
+begin
+  Result := Entities<TGoneHybrid>;
 end;
 
 function TSoftDeleteTestContext.Stamps: IDbSet<TStampFluent>;
@@ -199,6 +247,8 @@ begin
   FConn.ExecSQL('CREATE TABLE tasks_bool (Id INTEGER PRIMARY KEY, IsDeleted BOOLEAN)');
   FConn.ExecSQL('CREATE TABLE tasks_ts (Id INTEGER PRIMARY KEY, DeletedAt DATETIME)');
   FConn.ExecSQL('CREATE TABLE tasks_hybrid (Id INTEGER PRIMARY KEY, IsDeleted BOOLEAN, DeletedAt DATETIME)');
+  FConn.ExecSQL('CREATE TABLE gone_fluent (Id INTEGER PRIMARY KEY, GoneAt DATETIME)');
+  FConn.ExecSQL('CREATE TABLE gone_hybrid (Id INTEGER PRIMARY KEY, Removed BOOLEAN, RemovedAt DATETIME)');
   FConn.ExecSQL('CREATE TABLE stamps_fluent (Id INTEGER PRIMARY KEY, Name TEXT, CreatedOn DATETIME, ChangedOn DATETIME)');
 end;
 
@@ -225,6 +275,46 @@ begin
   FContext.Clear;
   Item := FContext.Stamps.Find(401);
   Dext.Assertions.Should(Item.ChangedOn > EncodeDate(2020, 1, 1)).BeTrue;
+end;
+
+procedure TSoftDeleteIntegrationTests.Test_FluentDeletedAt_ShouldActAsSoftDelete;
+var
+  Item: TGoneFluent;
+begin
+  Item := TGoneFluent.Create;
+  Item.Id := 501;
+  FContext.Gone.Add(Item);
+  FContext.SaveChanges;
+  FContext.Clear;
+
+  FContext.Gone.Remove(FContext.Gone.Find(501));
+  FContext.SaveChanges;
+  FContext.Clear;
+
+  // The row stays, with the date filled, and the query hides it
+  Dext.Assertions.Should(Double(FConn.ExecSQLScalar(
+    'SELECT COUNT(*) FROM gone_fluent WHERE GoneAt IS NOT NULL'))).Be(1);
+  Dext.Assertions.Should(FContext.Gone.Find(501)).BeNil;
+  Dext.Assertions.Should(FContext.Gone.OnlyDeleted.ToList.Count).Be(1);
+end;
+
+procedure TSoftDeleteIntegrationTests.Test_FluentFlagAndDeletedAt_ShouldSetBoth;
+var
+  Item: TGoneHybrid;
+begin
+  Item := TGoneHybrid.Create;
+  Item.Id := 502;
+  FContext.Hybrids.Add(Item);
+  FContext.SaveChanges;
+  FContext.Clear;
+
+  FContext.Hybrids.Remove(FContext.Hybrids.Find(502));
+  FContext.SaveChanges;
+  FContext.Clear;
+
+  Dext.Assertions.Should(Double(FConn.ExecSQLScalar(
+    'SELECT COUNT(*) FROM gone_hybrid WHERE Removed = 1 AND RemovedAt IS NOT NULL'))).Be(1);
+  Dext.Assertions.Should(FContext.Hybrids.ToList.Count).Be(0);
 end;
 
 procedure TSoftDeleteIntegrationTests.Test_HardDelete_ThenSaveChanges_ShouldNotRevalidateDeletedEntity;
