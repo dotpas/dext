@@ -22,6 +22,7 @@ uses
   Dext.Entity,
   Dext.Entity.Attributes,
   Dext.Entity.Core,
+  Dext.Entity.Drivers.Interfaces,
   Dext.Entity.Mapping,
   Dext.Entity.Query,
   Dext.Entity.DbSet,
@@ -105,6 +106,34 @@ type
     procedure OnModelCreating(Builder: TModelBuilder); override;
   end;
 
+  // Many-to-many through the fluent API: keys that are not called Id and
+  // plain lists created by the entity itself
+  TFlTag = class
+  private
+    FTagNo: IntType;
+    FCaption: StringType;
+  public
+    property TagNo: IntType read FTagNo write FTagNo;
+    property Caption: StringType read FCaption write FCaption;
+  end;
+
+  TFlPost = class
+  private
+    FNumber: IntType;
+    FTitle: StringType;
+    FTags: IList<TFlTag>;
+  public
+    constructor Create;
+    property Number: IntType read FNumber write FNumber;
+    property Title: StringType read FTitle write FTitle;
+    property Tags: IList<TFlTag> read FTags write FTags;
+  end;
+
+  TFlM2mDb = class(TDbContext)
+  protected
+    procedure OnModelCreating(Builder: TModelBuilder); override;
+  end;
+
   TDlStatusTotal = class
   private
     FStatus: string;
@@ -172,6 +201,10 @@ type
     procedure Include_Follows_A_Nested_Path;
     [Test]
     procedure EnsureCreated_Declares_The_Fluent_Foreign_Key;
+    [Test]
+    procedure EnsureCreated_Creates_The_Many_To_Many_Join_Table;
+    [Test]
+    procedure Many_To_Many_Changes_On_A_Plain_List_Are_Saved;
     [Test]
     procedure Fluent_Foreign_Key_Is_Enforced_Orders_Writes_And_Cascades;
 
@@ -1654,6 +1687,131 @@ constructor TFlAuthor.Create;
 begin
   inherited Create;
   FBooks := TCollections.CreateList<TFlBook>(False);
+end;
+
+function FlCount(const Db: TDbContext; const ASql: string): Integer;
+var
+  Reader: IDbReader;
+begin
+  Reader := Db.Connection.CreateCommand(ASql).ExecuteQuery;
+  Reader.Next;
+  Result := StrToInt(Reader.GetValue(0).ToString);
+end;
+
+procedure TFlM2mDb.OnModelCreating(Builder: TModelBuilder);
+begin
+  Builder.Entity<TFlPost>
+    .Table('fl_posts')
+    .HasKey('Number');
+  Builder.Entity<TFlTag>
+    .Table('fl_tags')
+    .HasKey('TagNo');
+  Builder.Entity<TFlPost>
+    .HasManyToMany('Tags').UsingEntity('fl_post_tags', 'PostNumber', 'TagNo');
+end;
+
+constructor TFlPost.Create;
+begin
+  inherited Create;
+  FTags := TCollections.CreateList<TFlTag>(False);
+end;
+
+procedure TDslLinqTests.EnsureCreated_Creates_The_Many_To_Many_Join_Table;
+const
+  InsertPair =
+    'INSERT INTO "fl_post_tags" ("PostNumber", "TagNo") VALUES (1, 1)';
+var
+  Db: TFlM2mDb;
+  Raised: Boolean;
+begin
+  Db := TFlM2mDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlPost>;
+    Db.Entities<TFlTag>;
+    Db.EnsureCreated;
+    Should(Db.Connection.TableExists('fl_post_tags')).BeTrue;
+    Db.Connection.CreateCommand(
+      'INSERT INTO "fl_posts" ("Number", "Title") VALUES (1, ''p'')').ExecuteNonQuery;
+    Db.Connection.CreateCommand(
+      'INSERT INTO "fl_tags" ("TagNo", "Caption") VALUES (1, ''t'')').ExecuteNonQuery;
+    Db.Connection.CreateCommand(InsertPair).ExecuteNonQuery;
+
+    // The composite key refuses the same pair twice
+    Raised := False;
+    try
+      Db.Connection.CreateCommand(InsertPair).ExecuteNonQuery;
+    except
+      on Exception do Raised := True;
+    end;
+    Should(Raised).BeTrue;
+
+    // And the foreign keys refuse a pair whose rows do not exist
+    Raised := False;
+    try
+      Db.Connection.CreateCommand(
+        'INSERT INTO "fl_post_tags" ("PostNumber", "TagNo") VALUES (98, 99)').ExecuteNonQuery;
+    except
+      on Exception do Raised := True;
+    end;
+    Should(Raised).BeTrue;
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TDslLinqTests.Many_To_Many_Changes_On_A_Plain_List_Are_Saved;
+var
+  Db: TFlM2mDb;
+  P: TFlPost;
+  T1, T2, T3: TFlTag;
+  Loaded: IList<TFlPost>;
+begin
+  Db := TFlM2mDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlPost>;
+    Db.Entities<TFlTag>;
+    Db.EnsureCreated;
+
+    T1 := TFlTag.Create; T1.TagNo := 1; T1.Caption := 'dext';
+    T2 := TFlTag.Create; T2.TagNo := 2; T2.Caption := 'orm';
+    T3 := TFlTag.Create; T3.TagNo := 3; T3.Caption := 'linq';
+    Db.Entities<TFlTag>.Add(T1);
+    Db.Entities<TFlTag>.Add(T2);
+    Db.Entities<TFlTag>.Add(T3);
+    P := TFlPost.Create;
+    P.Number := 10;
+    P.Title := 'Relationships';
+    P.Tags.Add(T1);
+    P.Tags.Add(T2);
+    Db.Entities<TFlPost>.Add(P);
+    Db.SaveChanges;
+    Should(FlCount(Db, 'SELECT COUNT(*) FROM "fl_post_tags"')).Be(2);
+
+    // The key is not called Id, and Include reads the related rows
+    Db.Clear;
+    Loaded := Db.Entities<TFlPost>.QueryAll.Include('Tags').ToList;
+    Should(Loaded.Count).Be(1);
+    Should(Loaded[0].Tags.Count).Be(2);
+
+    // Adding and removing on a loaded post is saved without touching the post
+    T3 := Db.Entities<TFlTag>.Find(3);
+    Loaded[0].Tags.Add(T3);
+    Loaded[0].Tags.Remove(Loaded[0].Tags[0]);
+    Db.SaveChanges;
+    Should(FlCount(Db, 'SELECT COUNT(*) FROM "fl_post_tags"')).Be(2);
+    Should(FlCount(Db,
+      'SELECT COUNT(*) FROM "fl_post_tags" WHERE "TagNo" = 3')).Be(1);
+
+    // Nothing changed: nothing is written
+    Should(Db.SaveChanges).Be(0);
+
+    // Removing the post removes its rows of the join table
+    Db.Entities<TFlPost>.Remove(Loaded[0]);
+    Db.SaveChanges;
+    Should(FlCount(Db, 'SELECT COUNT(*) FROM "fl_post_tags"')).Be(0);
+  finally
+    Db.Free;
+  end;
 end;
 
 procedure TDslLinqTests.EnsureCreated_Declares_The_Fluent_Foreign_Key;

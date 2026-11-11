@@ -164,6 +164,14 @@ type
       const AJoinTable, ALeftColumn, ARightColumn: string): string;
     class function GenerateDeleteByLeft(ADialect: ISQLDialect;
       const AJoinTable, ALeftColumn: string): string;
+    /// <summary>
+    ///   CREATE TABLE of the join table: composite key and one foreign key
+    ///   per side. The referenced tables arrive already quoted.
+    /// </summary>
+    class function GenerateCreateTable(ADialect: ISQLDialect;
+      const AJoinTable, ALeftColumn, ALeftType, ARightColumn, ARightType,
+      ALeftRefTable, ALeftRefColumn, ARightRefTable,
+      ARightRefColumn: string): string;
   end;
 
   /// <summary>
@@ -713,6 +721,25 @@ begin
   Result := Format('DELETE FROM %s WHERE %s = :p1',
     [ADialect.QuoteIdentifier(AJoinTable),
      ADialect.QuoteIdentifier(ALeftColumn)]);
+end;
+
+class function TJoinTableSQLHelper.GenerateCreateTable(ADialect: ISQLDialect;
+  const AJoinTable, ALeftColumn, ALeftType, ARightColumn, ARightType,
+  ALeftRefTable, ALeftRefColumn, ARightRefTable,
+  ARightRefColumn: string): string;
+var
+  Body: string;
+  L, R: string;
+begin
+  L := ADialect.QuoteIdentifier(ALeftColumn);
+  R := ADialect.QuoteIdentifier(ARightColumn);
+  Body := Format('%s %s NOT NULL, %s %s NOT NULL, PRIMARY KEY (%s, %s), ' +
+    'FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE, ' +
+    'FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE',
+    [L, ALeftType, R, ARightType, L, R,
+     L, ALeftRefTable, ADialect.QuoteIdentifier(ALeftRefColumn),
+     R, ARightRefTable, ADialect.QuoteIdentifier(ARightRefColumn)]);
+  Result := ADialect.GetCreateTableSQL(ADialect.QuoteIdentifier(AJoinTable), Body);
 end;
 
 { TSQLWhereGenerator }

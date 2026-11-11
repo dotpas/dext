@@ -106,15 +106,15 @@ begin
   Map := TEntityMap(FContext.GetMapping(FOwner.ClassInfo));
   if (Map = nil) or (not Map.Properties.TryGetValue(FPropertyName, Prop)) then Exit;
 
+  // Many-to-many rows are written by SaveChanges, which compares the
+  // collection with the snapshot taken when it was loaded or last saved
+  if Prop.Relationship = rtManyToMany then Exit;
+
   case Action of
     cnAdded:
     begin
-       // Many-to-Many: Register the link in the context/DbSet
-       if Prop.Relationship = rtManyToMany then
-         FContext.DataSet(FOwner.ClassInfo).LinkManyToMany(FOwner, FPropertyName, Item)
-       
        // One-to-Many: Ensure item is tracked and set the back-reference (InverseProperty)
-       else if Prop.Relationship = rtOneToMany then
+       if Prop.Relationship = rtOneToMany then
        begin
          FContext.DataSet(Item.ClassInfo).Add(Item);
          SetInverseProperty(Item);
@@ -123,12 +123,8 @@ begin
     
     cnRemoved:
     begin
-       // Many-to-Many: Unlink
-       if Prop.Relationship = rtManyToMany then
-         FContext.DataSet(FOwner.ClassInfo).UnlinkManyToMany(FOwner, FPropertyName, Item)
-         
        // One-to-Many: Clear back-reference
-       else if Prop.Relationship = rtOneToMany then
+       if Prop.Relationship = rtOneToMany then
          ClearInverseProperty(Item);
     end;
   end;

@@ -56,6 +56,14 @@ type
   EOptimisticConcurrencyException = class(Exception);
 
   /// <summary>
+  ///   The DDL of the join table of a many-to-many relationship.
+  /// </summary>
+  TJoinTableScript = record
+    TableName: string;
+    Sql: string;
+  end;
+
+  /// <summary>
   ///   Represents the possible states of an entity within the Change Tracker lifecycle.
   /// </summary>
   TEntityState = (esDetached, esUnchanged, esAdded, esDeleted, esModified);
@@ -121,7 +129,16 @@ type
     // Many-to-Many link management (non-generic versions for TTrackingList)
     procedure LinkManyToMany(const AEntity: TObject; const APropertyName: string; const ARelatedEntity: TObject);
     procedure UnlinkManyToMany(const AEntity: TObject; const APropertyName: string; const ARelatedEntity: TObject);
-    
+
+    // Many-to-Many join tables: DDL, change detection and persistence.
+    // The join rows follow the collections of the entities: SaveChanges
+    // compares each collection with the snapshot taken when it was loaded.
+    function GetPKColumns: TArray<string>;
+    function GenerateJoinTableScripts: TArray<TJoinTableScript>;
+    function HasManyToManyChanges(const AEntity: TObject): Boolean;
+    function PersistManyToMany(const AEntity: TObject; const ADeleted: Boolean): Integer;
+    procedure SnapshotManyToMany(const AEntity: TObject);
+
     property EntityType: PTypeInfo read GetEntityType;
   end;
 

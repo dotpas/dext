@@ -236,6 +236,7 @@ type
     function GetModelBuilder: TModelBuilder;
     procedure EnsureSequence(const ASequenceName: string; AAllocationSize: Integer = 1);
     function FluentDependencies(const AType: PTypeInfo): TArray<PTypeInfo>;
+    function HasManyToManyChanges: Boolean;
     function GetSortedTypes(const ATypes: TArray<PTypeInfo>): IList<PTypeInfo>;
   protected
     // IDbContext Implementation
@@ -986,6 +987,8 @@ var
   RType: TRttiType;
   TableAttr: TableAttribute;
   PropMap: TPropertyMap;
+  JoinSets: IList<IDbSet>;
+  JoinScript: TJoinTableScript;
 begin
   Result := False;
   ApplyTenantConfig(True);
@@ -1172,14 +1175,36 @@ begin
         Break;
       end;
     end;
-    
+    // Join tables of the many-to-many relationships, once every table exists
+    JoinSets := TCollections.CreateList<IDbSet>;
+    for Pair in FCache do
+      if Supports(Pair.Value, IDbSet, DbSet) then
+        JoinSets.Add(DbSet);
+    for DbSet in JoinSets do
+      for JoinScript in DbSet.GenerateJoinTableScripts do
+        if not FConnection.TableExists(JoinScript.TableName) then
+        begin
+          if Assigned(FOnLog) then
+            FOnLog(JoinScript.Sql);
+          try
+            Cmd := FConnection.CreateCommand(JoinScript.Sql);
+            Cmd.ExecuteNonQuery;
+            Result := True;
+          except
+            on E: Exception do
+            begin
+              if Assigned(FOnLog) then
+                FOnLog('FAILED SQL: ' + JoinScript.Sql);
+              raise;
+            end;
+          end;
+        end;
+
   finally
     Created := nil;
     Nodes := nil;
   end;
 end;
-
-{ TEntityNode }
 
 { TEntityNode }
 
@@ -1333,6 +1358,19 @@ begin
   end;
 end;
 
+// A collection of a many-to-many relationship changed on an entity that is
+// otherwise unchanged: the entity has nothing to save, but its join rows do
+function TDbContext.HasManyToManyChanges: Boolean;
+var
+  Pair: TPair<TObject, TEntityState>;
+begin
+  Result := False;
+  for Pair in FChangeTracker.GetTrackedEntities do
+    if (Pair.Value in [esAdded, esModified, esUnchanged]) and
+       DataSet(Pair.Key.ClassInfo).HasManyToManyChanges(Pair.Key) then
+      Exit(True);
+end;
+
 function TDbContext.SaveChanges: Integer;
 var
   AddedGroups: IDictionary<PTypeInfo, IList<TObject>>;
@@ -1343,6 +1381,7 @@ var
   i: Integer;
   Item: TObject;
   ItemType: PTypeInfo;
+  JoinDeleted, JoinOwners: IList<TObject>;
   List: IList<TObject>;
   Map: TEntityMap;
   Meta: TTypeMetadata;
@@ -1362,7 +1401,7 @@ begin
   Span := TTracer.BeginSpan('DbContext.SaveChanges', 'SQL');
   ApplyTenantConfig(False);
   Result := 0;
-  if not FChangeTracker.HasChanges then Exit;
+  if (not FChangeTracker.HasChanges) and (not HasManyToManyChanges) then Exit;
  
   OwnsTransaction := not InTransaction;
   if OwnsTransaction then BeginTransaction;
@@ -1537,6 +1576,19 @@ begin
       ModifiedGroups := nil;
     end;
     
+    // 2b. Many-to-many join rows: each collection against its snapshot
+    JoinOwners := TCollections.CreateList<TObject>;
+    JoinDeleted := TCollections.CreateList<TObject>;
+    for Pair in FChangeTracker.GetTrackedEntities do
+      case Pair.Value of
+        esDeleted: JoinDeleted.Add(Pair.Key);
+        esAdded, esModified, esUnchanged: JoinOwners.Add(Pair.Key);
+      end;
+    for Entity in JoinDeleted do
+      Inc(Result, DataSet(Entity.ClassInfo).PersistManyToMany(Entity, True));
+    for Entity in JoinOwners do
+      Inc(Result, DataSet(Entity.ClassInfo).PersistManyToMany(Entity, False));
+
     // 3. Process Deletes
     DeletedGroups := TCollections.CreateDictionary<PTypeInfo, IList<TObject>>;
     try
@@ -1578,6 +1630,8 @@ begin
     end;
     
     if OwnsTransaction then Commit;
+    for Entity in JoinOwners do
+      DataSet(Entity.ClassInfo).SnapshotManyToMany(Entity);
     FChangeTracker.AcceptAllChanges;
     Span.SetStatus('Success');
     Span.SetAttribute('affected_rows', Result);
