@@ -317,6 +317,8 @@ type
     function HasForeignKey(const AColumnName: string): TEntityBuilder<T>;
     function IsRequired(AValue: Boolean = True): TEntityBuilder<T>;
     function IsAutoInc(AValue: Boolean = True): TEntityBuilder<T>;
+    /// <summary>The key of the current property comes from a database sequence (HiLo).</summary>
+    function UseSequence(const ASequenceName: string; AAllocationSize: Integer = 50): TEntityBuilder<T>;
     function MaxLength(ALength: Integer): TEntityBuilder<T>;
     function MinLength(ALength: Integer): TEntityBuilder<T>;
     function Precision(APrecision, AScale: Integer): TEntityBuilder<T>;
@@ -1392,6 +1394,14 @@ end;
 function TEntityBuilder<T>.IsAutoInc(AValue: Boolean): TEntityBuilder<T>;
 begin
   GetCurrentProp.IsAutoInc := AValue;
+  Result := Self;
+end;
+
+function TEntityBuilder<T>.UseSequence(const ASequenceName: string; AAllocationSize: Integer): TEntityBuilder<T>;
+begin
+  GetCurrentProp.IsSequenced := True;
+  GetCurrentProp.SequenceName := ASequenceName;
+  GetCurrentProp.SequenceAllocationSize := AAllocationSize;
   Result := Self;
 end;
 
