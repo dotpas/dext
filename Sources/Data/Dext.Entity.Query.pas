@@ -149,6 +149,8 @@ type
     class function CreatePropsSelector(const AProperties: TArray<string>): TFunc<T, T>; static;
     class function CreateSelectFactory<TResult>(const AFactory: TFunc<TQueryIterator<T>>; const ASelector: TFunc<T, TResult>): TFunc<TQueryIterator<TResult>>; static;
     class function JoinStringToEqualsExpression(const ACondition: string): IExpression; static;
+    function InMemory(const AWork: TFunc<IList<T>>): TFluentQuery<T>;
+    procedure RequireTracked(const AOperator: string);
   public
     property Connection: IDbConnection read GetConnection;
     property Specification: ISpecification read GetSpec;
@@ -307,7 +309,40 @@ type
     function First(const APredicate: TPredicate<T>): T; overload;
     function FirstOrDefault: T; overload;
     function FirstOrDefault(const APredicate: TPredicate<T>): T; overload;
-    
+
+    /// <summary>The only element of the sequence; raises when there is none or
+    ///   more than one.</summary>
+    function Single: T; overload;
+    function Single(const APredicate: TPredicate<T>): T; overload;
+    /// <summary>The only element, or the default when there is none; raises when
+    ///   there is more than one.</summary>
+    function SingleOrDefault: T; overload;
+    function SingleOrDefault(const APredicate: TPredicate<T>): T; overload;
+    function Last: T; overload;
+    function Last(const APredicate: TPredicate<T>): T; overload;
+    function LastOrDefault: T; overload;
+    function LastOrDefault(const APredicate: TPredicate<T>): T; overload;
+    /// <summary>The element at a zero-based index; raises when out of range.</summary>
+    function ElementAt(const AIndex: Integer): T;
+    function ElementAtOrDefault(const AIndex: Integer): T;
+    /// <summary>True when every element satisfies the predicate (true for an
+    ///   empty sequence).</summary>
+    function All(const APredicate: TPredicate<T>): Boolean;
+    /// <summary>True when the sequence has the element (compared as Distinct
+    ///   compares: entities by reference).</summary>
+    function Contains(const AItem: T): Boolean;
+
+    // Operators that read the sequence and build another one. The result is a
+    // sequence in memory: it has no SQL behind it anymore, and it needs tracked
+    // entities (the context owns them).
+    function Reverse: TFluentQuery<T>;
+    function TakeWhile(const APredicate: TPredicate<T>): TFluentQuery<T>;
+    function SkipWhile(const APredicate: TPredicate<T>): TFluentQuery<T>;
+    function Concat(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+    function Union(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+    function Intersect(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+    function &Except(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+
     function Sum(const ASelector: TFunc<T, Double>): Double; overload;
     function Sum(const APropertyName: string): Double; overload;
 
@@ -1735,6 +1770,365 @@ begin
     Enumerator := nil;
   end;
   Result := Default(T);
+end;
+
+function TFluentQuery<T>.InMemory(const AWork: TFunc<IList<T>>): TFluentQuery<T>;
+var
+  LFactory: TFunc<TQueryIterator<T>>;
+  LConn: IDbConnection;
+begin
+  RequireTracked('this operator');
+  LConn := FConnection;
+  LFactory := function: TQueryIterator<T>
+    begin
+      Result := TSpecificationQueryIterator<T>.Create(AWork);
+    end;
+  Result := TFluentQuery<T>.Create(LFactory, ISpecification(nil), LConn);
+end;
+
+procedure TFluentQuery<T>.RequireTracked(const AOperator: string);
+begin
+  if FNoTracking or ((FSpecification <> nil) and not FSpecification.IsTrackingEnabled) then
+    raise Exception.CreateFmt('%s needs a tracked query: it cannot follow AsNoTracking',
+      [AOperator]);
+end;
+
+function TFluentQuery<T>.Single: T;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Enumerator := GetEnumerator;
+  if not Enumerator.MoveNext then
+    raise Exception.Create('Sequence contains no elements');
+  Result := Enumerator.Current;
+  if Enumerator.MoveNext then
+    raise Exception.Create('Sequence contains more than one element');
+end;
+
+function TFluentQuery<T>.Single(const APredicate: TPredicate<T>): T;
+var
+  Enumerator: IEnumerator<T>;
+  Found: Boolean;
+begin
+  Found := False;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if APredicate(Enumerator.Current) then
+    begin
+      if Found then
+        raise Exception.Create('Sequence contains more than one matching element');
+      Result := Enumerator.Current;
+      Found := True;
+    end;
+  if not Found then
+    raise Exception.Create('Sequence contains no matching element');
+end;
+
+function TFluentQuery<T>.SingleOrDefault: T;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Enumerator := GetEnumerator;
+  if not Enumerator.MoveNext then
+    Exit(Default(T));
+  Result := Enumerator.Current;
+  if Enumerator.MoveNext then
+    raise Exception.Create('Sequence contains more than one element');
+end;
+
+function TFluentQuery<T>.SingleOrDefault(const APredicate: TPredicate<T>): T;
+var
+  Enumerator: IEnumerator<T>;
+  Found: Boolean;
+begin
+  Found := False;
+  Result := Default(T);
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if APredicate(Enumerator.Current) then
+    begin
+      if Found then
+        raise Exception.Create('Sequence contains more than one matching element');
+      Result := Enumerator.Current;
+      Found := True;
+    end;
+end;
+
+function TFluentQuery<T>.Last: T;
+var
+  Enumerator: IEnumerator<T>;
+  Found: Boolean;
+begin
+  Found := False;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+  begin
+    Result := Enumerator.Current;
+    Found := True;
+  end;
+  if not Found then
+    raise Exception.Create('Sequence contains no elements');
+end;
+
+function TFluentQuery<T>.Last(const APredicate: TPredicate<T>): T;
+var
+  Enumerator: IEnumerator<T>;
+  Found: Boolean;
+begin
+  Found := False;
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if APredicate(Enumerator.Current) then
+    begin
+      Result := Enumerator.Current;
+      Found := True;
+    end;
+  if not Found then
+    raise Exception.Create('Sequence contains no matching element');
+end;
+
+function TFluentQuery<T>.LastOrDefault: T;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Result := Default(T);
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    Result := Enumerator.Current;
+end;
+
+function TFluentQuery<T>.LastOrDefault(const APredicate: TPredicate<T>): T;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Result := Default(T);
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if APredicate(Enumerator.Current) then
+      Result := Enumerator.Current;
+end;
+
+function TFluentQuery<T>.ElementAt(const AIndex: Integer): T;
+var
+  Enumerator: IEnumerator<T>;
+  I: Integer;
+begin
+  if AIndex < 0 then
+    raise Exception.Create('Index was out of range');
+  Enumerator := GetEnumerator;
+  I := 0;
+  while Enumerator.MoveNext do
+  begin
+    if I = AIndex then
+      Exit(Enumerator.Current);
+    Inc(I);
+  end;
+  raise Exception.Create('Index was out of range');
+end;
+
+function TFluentQuery<T>.ElementAtOrDefault(const AIndex: Integer): T;
+var
+  Enumerator: IEnumerator<T>;
+  I: Integer;
+begin
+  Result := Default(T);
+  if AIndex < 0 then
+    Exit;
+  Enumerator := GetEnumerator;
+  I := 0;
+  while Enumerator.MoveNext do
+  begin
+    if I = AIndex then
+      Exit(Enumerator.Current);
+    Inc(I);
+  end;
+end;
+
+function TFluentQuery<T>.All(const APredicate: TPredicate<T>): Boolean;
+var
+  Enumerator: IEnumerator<T>;
+begin
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if not APredicate(Enumerator.Current) then
+      Exit(False);
+  Result := True;
+end;
+
+function TFluentQuery<T>.Contains(const AItem: T): Boolean;
+var
+  Wanted: IDictionary<T, Byte>;
+  Enumerator: IEnumerator<T>;
+begin
+  Wanted := TCollections.CreateDictionary<T, Byte>;
+  Wanted.Add(AItem, 0);
+  Enumerator := GetEnumerator;
+  while Enumerator.MoveNext do
+    if Wanted.ContainsKey(Enumerator.Current) then
+      Exit(True);
+  Result := False;
+end;
+
+function TFluentQuery<T>.Reverse: TFluentQuery<T>;
+var
+  LSource: TFluentQuery<T>;
+begin
+  LSource := Self;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Items: IList<T>;
+      I: Integer;
+    begin
+      Items := LSource.ToList;
+      Result := TList<T>.Create(False);
+      for I := Items.Count - 1 downto 0 do
+        Result.Add(Items[I]);
+    end);
+end;
+
+function TFluentQuery<T>.TakeWhile(const APredicate: TPredicate<T>): TFluentQuery<T>;
+var
+  LSource: TFluentQuery<T>;
+begin
+  LSource := Self;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+    begin
+      Result := TList<T>.Create(False);
+      for Item in LSource.ToList do
+      begin
+        if not APredicate(Item) then
+          Break;
+        Result.Add(Item);
+      end;
+    end);
+end;
+
+function TFluentQuery<T>.SkipWhile(const APredicate: TPredicate<T>): TFluentQuery<T>;
+var
+  LSource: TFluentQuery<T>;
+begin
+  LSource := Self;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+      Skipping: Boolean;
+    begin
+      Result := TList<T>.Create(False);
+      Skipping := True;
+      for Item in LSource.ToList do
+      begin
+        if Skipping and APredicate(Item) then
+          Continue;
+        Skipping := False;
+        Result.Add(Item);
+      end;
+    end);
+end;
+
+function TFluentQuery<T>.Concat(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+var
+  LSource, LOther: TFluentQuery<T>;
+begin
+  LSource := Self;
+  LOther := AOther;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+    begin
+      Result := TList<T>.Create(False);
+      for Item in LSource.ToList do
+        Result.Add(Item);
+      for Item in LOther.ToList do
+        Result.Add(Item);
+    end);
+end;
+
+function TFluentQuery<T>.Union(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+var
+  LSource, LOther: TFluentQuery<T>;
+begin
+  LSource := Self;
+  LOther := AOther;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+      Seen: IDictionary<T, Byte>;
+    begin
+      Result := TList<T>.Create(False);
+      Seen := TCollections.CreateDictionary<T, Byte>;
+      for Item in LSource.ToList do
+        if not Seen.ContainsKey(Item) then
+        begin
+          Seen.Add(Item, 0);
+          Result.Add(Item);
+        end;
+      for Item in LOther.ToList do
+        if not Seen.ContainsKey(Item) then
+        begin
+          Seen.Add(Item, 0);
+          Result.Add(Item);
+        end;
+    end);
+end;
+
+function TFluentQuery<T>.Intersect(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+var
+  LSource, LOther: TFluentQuery<T>;
+begin
+  LSource := Self;
+  LOther := AOther;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+      InOther, Emitted: IDictionary<T, Byte>;
+    begin
+      Result := TList<T>.Create(False);
+      InOther := TCollections.CreateDictionary<T, Byte>;
+      Emitted := TCollections.CreateDictionary<T, Byte>;
+      for Item in LOther.ToList do
+        if not InOther.ContainsKey(Item) then
+          InOther.Add(Item, 0);
+      for Item in LSource.ToList do
+        if InOther.ContainsKey(Item) and not Emitted.ContainsKey(Item) then
+        begin
+          Emitted.Add(Item, 0);
+          Result.Add(Item);
+        end;
+    end);
+end;
+
+function TFluentQuery<T>.&Except(const AOther: TFluentQuery<T>): TFluentQuery<T>;
+var
+  LSource, LOther: TFluentQuery<T>;
+begin
+  LSource := Self;
+  LOther := AOther;
+  Result := InMemory(
+    function: IList<T>
+    var
+      Item: T;
+      Excluded: IDictionary<T, Byte>;
+    begin
+      Result := TList<T>.Create(False);
+      Excluded := TCollections.CreateDictionary<T, Byte>;
+      for Item in LOther.ToList do
+        if not Excluded.ContainsKey(Item) then
+          Excluded.Add(Item, 0);
+      for Item in LSource.ToList do
+        if not Excluded.ContainsKey(Item) then
+        begin
+          Excluded.Add(Item, 0);
+          Result.Add(Item);
+        end;
+    end);
 end;
 
 function TFluentQuery<T>.Sum(const ASelector: TFunc<T, Double>): Double;

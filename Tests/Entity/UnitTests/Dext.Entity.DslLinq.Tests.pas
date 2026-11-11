@@ -18,6 +18,7 @@ uses
   Dext.Entity,
   Dext.Entity.Attributes,
   Dext.Entity.Core,
+  Dext.Entity.Query,
   Dext.Entity.Setup,
   FireDAC.Phys.SQLite;
 
@@ -95,6 +96,38 @@ type
     procedure Join_With_Prototype_Condition_Without_Filter;
     [Test]
     procedure Join_With_String_Condition_Still_Works;
+    [Test]
+    procedure Single_Returns_The_Only_Element;
+    [Test]
+    procedure Single_Raises_When_There_Is_More_Than_One;
+    [Test]
+    procedure Single_Raises_When_There_Is_None;
+    [Test]
+    procedure SingleOrDefault_Returns_Nil_When_There_Is_None;
+    [Test]
+    procedure SingleOrDefault_Raises_When_There_Is_More_Than_One;
+    [Test]
+    procedure Single_With_Predicate;
+    [Test]
+    procedure Last_Returns_The_Last_Element;
+    [Test]
+    procedure Last_With_Predicate_And_OrDefault;
+    [Test]
+    procedure ElementAt_Returns_The_Element_At_The_Index;
+    [Test]
+    procedure ElementAt_Raises_Out_Of_Range_And_OrDefault_Returns_Nil;
+    [Test]
+    procedure All_Checks_Every_Element;
+    [Test]
+    procedure Contains_Finds_An_Entity_Of_The_Sequence;
+    [Test]
+    procedure Reverse_Inverts_The_Order;
+    [Test]
+    procedure TakeWhile_And_SkipWhile_Split_The_Sequence;
+    [Test]
+    procedure Concat_Appends_The_Other_Sequence;
+    [Test]
+    procedure Union_Intersect_Except_Work_By_Entity;
   end;
 
 implementation
@@ -293,6 +326,225 @@ begin
     .Join('dl_customers', 'c', 'dl_orders.CustomerId = c.Id')
     .ToList;
   Should(Rows.Count).Be(6);
+end;
+
+procedure TDslLinqTests.Single_Returns_The_Only_Element;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id = 3).Single.Id).Be(3);
+end;
+
+procedure TDslLinqTests.Single_Raises_When_There_Is_More_Than_One;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    FDb.Orders.Where(O.Id > 0).Single;
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TDslLinqTests.Single_Raises_When_There_Is_None;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    FDb.Orders.Where(O.Id > 99).Single;
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TDslLinqTests.SingleOrDefault_Returns_Nil_When_There_Is_None;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 99).SingleOrDefault = nil).BeTrue;
+  Should(FDb.Orders.Where(O.Id = 2).SingleOrDefault.Id).Be(2);
+end;
+
+procedure TDslLinqTests.SingleOrDefault_Raises_When_There_Is_More_Than_One;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    FDb.Orders.Where(O.Id > 0).SingleOrDefault;
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TDslLinqTests.Single_With_Predicate;
+var
+  O: TDlOrder;
+  Item: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Item := FDb.Orders.Where(O.Id > 0).Single(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id = 4;
+    end);
+  Should(Item.Id).Be(4);
+end;
+
+procedure TDslLinqTests.Last_Returns_The_Last_Element;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).Last.Id).Be(6);
+end;
+
+procedure TDslLinqTests.Last_With_Predicate_And_OrDefault;
+var
+  O: TDlOrder;
+  Item: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Item := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).Last(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id < 4;
+    end);
+  Should(Item.Id).Be(3);
+  Should(FDb.Orders.Where(O.Id > 99).LastOrDefault = nil).BeTrue;
+  Should(FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).LastOrDefault.Id).Be(6);
+end;
+
+procedure TDslLinqTests.ElementAt_Returns_The_Element_At_The_Index;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).ElementAt(2).Id).Be(3);
+end;
+
+procedure TDslLinqTests.ElementAt_Raises_Out_Of_Range_And_OrDefault_Returns_Nil;
+var
+  O: TDlOrder;
+  Raised: Boolean;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Raised := False;
+  try
+    FDb.Orders.Where(O.Id > 0).ElementAt(10);
+  except
+    on Exception do Raised := True;
+  end;
+  Should(Raised).BeTrue;
+  Should(FDb.Orders.Where(O.Id > 0).ElementAtOrDefault(10) = nil).BeTrue;
+end;
+
+procedure TDslLinqTests.All_Checks_Every_Element;
+var
+  O: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Should(FDb.Orders.Where(O.Id > 0).All(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id > 0;
+    end)).BeTrue;
+  Should(FDb.Orders.Where(O.Id > 0).All(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id > 1;
+    end)).BeFalse;
+  // An empty sequence satisfies any predicate
+  Should(FDb.Orders.Where(O.Id > 99).All(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := False;
+    end)).BeTrue;
+end;
+
+procedure TDslLinqTests.Contains_Finds_An_Entity_Of_The_Sequence;
+var
+  O: TDlOrder;
+  Paid, Third: TDlOrder;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Third := FDb.Orders.Where(O.Id = 3).Single;
+  Paid := FDb.Orders.Where(O.Status = 'Paid').First;
+  Should(FDb.Orders.Where(O.Status = 'Open').Contains(Third)).BeTrue;
+  Should(FDb.Orders.Where(O.Status = 'Open').Contains(Paid)).BeFalse;
+end;
+
+procedure TDslLinqTests.Reverse_Inverts_The_Order;
+var
+  O: TDlOrder;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Items := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).Reverse.ToList;
+  Should(Items.Count).Be(6);
+  Should(Items[0].Id).Be(6);
+  Should(Items[5].Id).Be(1);
+end;
+
+procedure TDslLinqTests.TakeWhile_And_SkipWhile_Split_The_Sequence;
+var
+  O: TDlOrder;
+  Head, Tail: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Head := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).TakeWhile(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id < 4;
+    end).ToList;
+  Tail := FDb.Orders.Where(O.Id > 0).OrderBy(O.Id.Asc).SkipWhile(
+    function(Ord: TDlOrder): Boolean
+    begin
+      Result := Ord.Id < 4;
+    end).ToList;
+  Should(Head.Count).Be(3);
+  Should(Tail.Count).Be(3);
+  Should(Tail[0].Id).Be(4);
+end;
+
+procedure TDslLinqTests.Concat_Appends_The_Other_Sequence;
+var
+  O: TDlOrder;
+  Items: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  // Amounts <= 100: ids 1, 2; amounts >= 100: ids 2..6
+  Items := FDb.Orders.Where(O.Amount <= 100)
+    .Concat(FDb.Orders.Where(O.Amount >= 100)).ToList;
+  Should(Items.Count).Be(7);
+end;
+
+procedure TDslLinqTests.Union_Intersect_Except_Work_By_Entity;
+var
+  O: TDlOrder;
+  A, B: TFluentQuery<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  A := FDb.Orders.Where(O.Amount <= 100);
+  B := FDb.Orders.Where(O.Amount >= 100);
+  Should(A.Union(B).ToList.Count).Be(6);
+  Should(A.Intersect(B).ToList.Count).Be(1);
+  Should(A.Intersect(B).Single.Id).Be(2);
+  Should(A.&Except(B).ToList.Count).Be(1);
+  Should(A.&Except(B).Single.Id).Be(1);
 end;
 
 end.
