@@ -51,6 +51,10 @@ type
     procedure Test_Rename_Column_Detection;
     [Test]
     procedure Test_Extractor_ReadsRenamedFromAttributes;
+    [Test]
+    procedure Test_Rename_Column_Emits_Only_The_Rename;
+    [Test]
+    procedure Test_Leftover_RenamedFrom_Emits_Nothing;
   end;
 
 implementation
@@ -175,6 +179,87 @@ begin
     Differ.Free;
     OldModel.Free;
     NewModel.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Rename_Column_Emits_Only_The_Rename;
+var
+  OldModel, NewModel: TSnapshotModel;
+  OldTable, NewTable: TSnapshotTable;
+  OldCol, NewCol: TSnapshotColumn;
+  Ops: IList<TMigrationOperation>;
+begin
+  OldModel := TSnapshotModel.Create;
+  NewModel := TSnapshotModel.Create;
+  try
+    OldTable := TSnapshotTable.Create;
+    OldTable.Name := 'Users';
+    OldCol := TSnapshotColumn.Create;
+    OldCol.Name := 'Full_Name';
+    OldCol.ColumnType := 'VARCHAR';
+    OldCol.Length := 40;
+    OldTable.Columns.Add(OldCol);
+    OldModel.Tables.Add(OldTable);
+
+    NewTable := TSnapshotTable.Create;
+    NewTable.Name := 'Users';
+    NewCol := TSnapshotColumn.Create;
+    NewCol.Name := 'Name';
+    NewCol.ColumnType := 'VARCHAR';
+    NewCol.Length := 40;
+    NewCol.RenamedFrom := 'Full_Name';
+    NewTable.Columns.Add(NewCol);
+    NewModel.Tables.Add(NewTable);
+
+    Ops := TModelDiffer.Diff(NewModel, OldModel);
+
+    // A renamed column with the same definition is just a rename: no
+    // AlterColumn on top of it.
+    Should(Ops.Count).Be(1);
+    Should(Ops[0] is TRenameColumnOperation).BeTrue;
+  finally
+    NewModel.Free;
+    OldModel.Free;
+  end;
+end;
+
+procedure TMigrationTests.Test_Leftover_RenamedFrom_Emits_Nothing;
+var
+  OldModel, NewModel: TSnapshotModel;
+  OldTable, NewTable: TSnapshotTable;
+  OldCol, NewCol: TSnapshotColumn;
+  Ops: IList<TMigrationOperation>;
+begin
+  OldModel := TSnapshotModel.Create;
+  NewModel := TSnapshotModel.Create;
+  try
+    OldTable := TSnapshotTable.Create;
+    OldTable.Name := 'Users';
+    OldCol := TSnapshotColumn.Create;
+    OldCol.Name := 'Name';
+    OldCol.ColumnType := 'VARCHAR';
+    OldCol.Length := 40;
+    OldCol.RenamedFrom := 'Full_Name';
+    OldTable.Columns.Add(OldCol);
+    OldModel.Tables.Add(OldTable);
+
+    NewTable := TSnapshotTable.Create;
+    NewTable.Name := 'Users';
+    NewCol := TSnapshotColumn.Create;
+    NewCol.Name := 'Name';
+    NewCol.ColumnType := 'VARCHAR';
+    NewCol.Length := 40;
+    NewTable.Columns.Add(NewCol);
+    NewModel.Tables.Add(NewTable);
+
+    Ops := TModelDiffer.Diff(NewModel, OldModel);
+
+    // RenamedFrom is a mapping hint, not part of the column definition:
+    // dropping the attribute after the rename was applied changes nothing.
+    Should(Ops.Count).Be(0);
+  finally
+    NewModel.Free;
+    OldModel.Free;
   end;
 end;
 

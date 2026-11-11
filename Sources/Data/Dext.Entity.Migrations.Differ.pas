@@ -169,7 +169,7 @@ begin
           else
           begin
             // B. Changed Columns (or potentially changed after rename)
-            if not CurrCol.Equals(PrevCol) then
+            if not CurrCol.SameDefinition(PrevCol) then
             begin
               Ops.Add(TAlterColumnOperation.Create(CurrTable.Name, ToDef(CurrCol)));
             end;

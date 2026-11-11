@@ -51,6 +51,13 @@ type
     RenamedFrom: string;
     
     function Equals(Obj: TObject): Boolean; override;
+    /// <summary>
+    ///   Compares only the column definition (type, size, nullability, key,
+    ///   identity and default). Name and RenamedFrom are left out: the first
+    ///   is the identity the differ already matched, the second is a mapping
+    ///   hint, not part of the schema.
+    /// </summary>
+    function SameDefinition(Other: TSnapshotColumn): Boolean;
     function Clone: TSnapshotColumn;
   end;
 
@@ -137,6 +144,19 @@ begin
             (IsIdentity = Other.IsIdentity) and
             (DefaultValue = Other.DefaultValue) and
             (RenamedFrom = Other.RenamedFrom);
+end;
+
+function TSnapshotColumn.SameDefinition(Other: TSnapshotColumn): Boolean;
+begin
+  Result := (Other <> nil) and
+            (ColumnType = Other.ColumnType) and
+            (Length = Other.Length) and
+            (Precision = Other.Precision) and
+            (Scale = Other.Scale) and
+            (IsNullable = Other.IsNullable) and
+            (IsPrimaryKey = Other.IsPrimaryKey) and
+            (IsIdentity = Other.IsIdentity) and
+            (DefaultValue = Other.DefaultValue);
 end;
 
 { TSnapshotForeignKey }
