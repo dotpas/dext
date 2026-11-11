@@ -61,6 +61,44 @@ type
     property Orders: IDbSet<TDlOrder> read GetOrders;
   end;
 
+  TDlStatusTotal = class
+  private
+    FStatus: string;
+    FTotal: Currency;
+    FCnt: Integer;
+  public
+    property Status: string read FStatus write FStatus;
+    property Total: Currency read FTotal write FTotal;
+    property Cnt: Integer read FCnt write FCnt;
+  end;
+
+  TDlTotals = class
+  private
+    FCnt: Integer;
+    FBiggest: Currency;
+    FMean: Double;
+  public
+    property Cnt: Integer read FCnt write FCnt;
+    property Biggest: Currency read FBiggest write FBiggest;
+    property Mean: Double read FMean write FMean;
+  end;
+
+  TDlCityTotal = class
+  private
+    FCity: string;
+    FTotal: Currency;
+  public
+    property City: string read FCity write FCity;
+    property Total: Currency read FTotal write FTotal;
+  end;
+
+  TDlDistinct = class
+  private
+    FCustomers: Integer;
+  public
+    property Customers: Integer read FCustomers write FCustomers;
+  end;
+
   [TestFixture('DSL x LINQ')]
   TDslLinqTests = class
   private
@@ -149,6 +187,22 @@ type
     procedure OrderBy_Prop_Of_The_Joined_Table;
     [Test]
     procedure OrderBy_Base_Column_Still_Works_With_A_Join;
+    [Test]
+    procedure GroupBy_Projects_Key_And_Aggregates_To_A_Dto;
+    [Test]
+    procedure Having_Filters_The_Groups;
+    [Test]
+    procedure Where_Applies_Before_The_Grouping;
+    [Test]
+    procedure Aggregates_Without_GroupBy_Return_One_Row;
+    [Test]
+    procedure GroupBy_Column_Of_The_Joined_Table;
+    [Test]
+    procedure CountDistinct_Counts_Distinct_Values;
+    [Test]
+    procedure Same_Column_Name_In_Two_Tables_Does_Not_Share_The_Cached_SQL;
+    [Test]
+    procedure Having_With_Other_Literal_Reuses_The_SQL_And_Refreshes_Params;
   end;
 
 implementation
@@ -750,6 +804,160 @@ begin
     .ToList;
   Should(Items[0].Id).Be(6);
   Should(Items[5].Id).Be(1);
+end;
+
+procedure TDslLinqTests.GroupBy_Projects_Key_And_Aggregates_To_A_Dto;
+var
+  O: TDlOrder;
+  Rows: IList<TDlStatusTotal>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .GroupBy(O.Status)
+    .OrderBy(O.Status.Asc)
+    .Select<TDlStatusTotal>([
+      O.Status.&As('Status'),
+      Agg.Sum<Currency>(O.Amount).&As('Total'),
+      Agg.Count.&As('Cnt')])
+    .ToList;
+  Should(Rows.Count).Be(2);
+  Should(Rows[0].Status).Be('Open');
+  Should(Rows[0].Cnt).Be(3);
+  Should(Rows[0].Total = 450).BeTrue;
+  Should(Rows[1].Status).Be('Paid');
+  Should(Rows[1].Cnt).Be(3);
+  Should(Rows[1].Total = 600).BeTrue;
+end;
+
+procedure TDslLinqTests.Having_Filters_The_Groups;
+var
+  O: TDlOrder;
+  Rows: IList<TDlStatusTotal>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .GroupBy(O.Status)
+    .Having(Agg.Sum<Currency>(O.Amount) > 500)
+    .Select<TDlStatusTotal>([
+      O.Status.&As('Status'),
+      Agg.Sum<Currency>(O.Amount).&As('Total'),
+      Agg.Count.&As('Cnt')])
+    .ToList;
+  Should(Rows.Count).Be(1);
+  Should(Rows[0].Status).Be('Paid');
+  Should(Rows[0].Total = 600).BeTrue;
+end;
+
+procedure TDslLinqTests.Where_Applies_Before_The_Grouping;
+var
+  O: TDlOrder;
+  Rows: IList<TDlStatusTotal>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Amount >= 100)
+    .GroupBy(O.Status)
+    .OrderBy(O.Status.Asc)
+    .Select<TDlStatusTotal>([
+      O.Status.&As('Status'),
+      Agg.Sum<Currency>(O.Amount).&As('Total'),
+      Agg.Count.&As('Cnt')])
+    .ToList;
+  Should(Rows.Count).Be(2);
+  Should(Rows[0].Status).Be('Open');
+  Should(Rows[0].Cnt).Be(2);
+  Should(Rows[0].Total = 400).BeTrue;
+  Should(Rows[1].Cnt).Be(3);
+  Should(Rows[1].Total = 600).BeTrue;
+end;
+
+procedure TDslLinqTests.Aggregates_Without_GroupBy_Return_One_Row;
+var
+  O: TDlOrder;
+  Rows: IList<TDlTotals>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .Select<TDlTotals>([
+      Agg.Count.&As('Cnt'),
+      Agg.Max<Currency>(O.Amount).&As('Biggest'),
+      Agg.Avg<Currency>(O.Amount).&As('Mean')])
+    .ToList;
+  Should(Rows.Count).Be(1);
+  Should(Rows[0].Cnt).Be(6);
+  Should(Rows[0].Biggest = 300).BeTrue;
+  Should(Rows[0].Mean = 175).BeTrue;
+end;
+
+procedure TDslLinqTests.GroupBy_Column_Of_The_Joined_Table;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  Rows: IList<TDlCityTotal>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id)
+    .GroupBy(C.City)
+    .OrderBy(C.City.Asc)
+    .Select<TDlCityTotal>([
+      C.City.&As('City'),
+      Agg.Sum<Currency>(O.Amount).&As('Total')])
+    .ToList;
+  Should(Rows.Count).Be(2);
+  Should(Rows[0].City).Be('RJ');
+  Should(Rows[0].Total = 450).BeTrue;
+  Should(Rows[1].City).Be('SP');
+  Should(Rows[1].Total = 600).BeTrue;
+end;
+
+procedure TDslLinqTests.CountDistinct_Counts_Distinct_Values;
+var
+  O: TDlOrder;
+  Rows: IList<TDlDistinct>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  Rows := FDb.Orders.Where(O.Id > 0)
+    .Select<TDlDistinct>([
+      Agg.CountDistinct<Integer>(O.CustomerId).&As('Customers')])
+    .ToList;
+  Should(Rows.Count).Be(1);
+  Should(Rows[0].Customers).Be(3);
+end;
+
+procedure TDslLinqTests.Same_Column_Name_In_Two_Tables_Does_Not_Share_The_Cached_SQL;
+var
+  O: TDlOrder;
+  C: TDlCustomer;
+  A, B: IList<TDlOrder>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // Same shape, same column name (Id) on different tables.
+  A := FDb.Orders.Where(C.Id = 1)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id).ToList;
+  B := FDb.Orders.Where(O.Id = 1)
+    .JoinInner<TDlCustomer>('c', O.CustomerId = C.Id).ToList;
+  Should(A.Count).Be(2);
+  Should(B.Count).Be(1);
+end;
+
+procedure TDslLinqTests.Having_With_Other_Literal_Reuses_The_SQL_And_Refreshes_Params;
+var
+  O: TDlOrder;
+  A, B: IList<TDlStatusTotal>;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  A := FDb.Orders.Where(O.Id > 0).GroupBy(O.Status)
+    .Having(Agg.Sum<Currency>(O.Amount) > 500)
+    .Select<TDlStatusTotal>([O.Status.&As('Status'),
+      Agg.Count.&As('Cnt')]).ToList;
+  B := FDb.Orders.Where(O.Id > 0).GroupBy(O.Status)
+    .Having(Agg.Sum<Currency>(O.Amount) > 100)
+    .Select<TDlStatusTotal>([O.Status.&As('Status'),
+      Agg.Count.&As('Cnt')]).ToList;
+  Should(A.Count).Be(1);
+  Should(B.Count).Be(2);
 end;
 
 end.

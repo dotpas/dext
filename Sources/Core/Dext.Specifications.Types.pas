@@ -114,6 +114,29 @@ type
   end;
 
   /// <summary>
+  ///   The aggregate functions available in a projection or in Having.
+  /// </summary>
+  TAggregateKind = (akCount, akCountDistinct, akSum, akAvg, akMin, akMax);
+
+  /// <summary>
+  ///   An aggregate over a column (COUNT, SUM, AVG, MIN, MAX). With an empty
+  ///   property name it is COUNT(*).
+  /// </summary>
+  TAggregateExpression = class(TAbstractExpression)
+  private
+    FKind: TAggregateKind;
+    FPropertyName: string;
+    FOwner: string;
+  public
+    constructor Create(AKind: TAggregateKind; const APropertyName: string;
+      const AOwner: string = '');
+    property Kind: TAggregateKind read FKind;
+    property PropertyName: string read FPropertyName;
+    property Owner: string read FOwner;
+    function ToString: string; override;
+  end;
+
+  /// <summary>
   ///   Represents a reference to a property inside a JSON column.
   /// </summary>
   TJsonPropertyExpression = class(TAbstractExpression)
@@ -434,7 +457,34 @@ end;
 
 function TPropertyExpression.ToString: string;
 begin
-  Result := FPropertyName;
+  // The owner is part of the text: two tables can have a column with the
+  // same name and the SQL cache signature must tell them apart.
+  if FOwner <> '' then
+    Result := FOwner + '.' + FPropertyName
+  else
+    Result := FPropertyName;
+end;
+
+{ TAggregateExpression }
+
+constructor TAggregateExpression.Create(AKind: TAggregateKind;
+  const APropertyName, AOwner: string);
+begin
+  inherited Create;
+  FKind := AKind;
+  FPropertyName := APropertyName;
+  FOwner := AOwner;
+end;
+
+function TAggregateExpression.ToString: string;
+const
+  Names: array[TAggregateKind] of string =
+    ('COUNT', 'COUNT_DISTINCT', 'SUM', 'AVG', 'MIN', 'MAX');
+begin
+  if FOwner <> '' then
+    Result := Names[FKind] + '(' + FOwner + '.' + FPropertyName + ')'
+  else
+    Result := Names[FKind] + '(' + FPropertyName + ')';
 end;
 
 { TJsonPropertyExpression }

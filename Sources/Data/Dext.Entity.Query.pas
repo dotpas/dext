@@ -129,6 +129,15 @@ type
   end;
 
   /// <summary>
+  ///   Runs a specification whose projection is made of expressions (Select
+  ///   with aggregates) and delivers each row as an object of the DTO class.
+  ///   The DbSet provides it; the query only forwards the call.
+  /// </summary>
+  TProjectionExecutor = reference to procedure(const ASpec: ISpecification;
+    ATypeInfo: PTypeInfo; const ACreate: TFunc<TObject>;
+    const AAdd: TProc<TObject>);
+
+  /// <summary>
   ///   Orchestrator for fluent queries (LINQ-like). 
   ///   Implemented as a record for automatic lifecycle management and low overhead.
   /// </summary>
@@ -140,6 +149,7 @@ type
     FExecuteCount: TFunc<ISpecification, Integer>;
     FExecuteAny: TFunc<ISpecification, Boolean>;
     FExecuteFirstOrDefault: TFunc<ISpecification, T>;
+    FExecuteProjection: TProjectionExecutor;
     FConnection: IDbConnection; // Track connection for async safety
     FNoTracking: Boolean;
     FStreamingIteratorFactory: TFunc<IEnumerator<T>>;
@@ -187,6 +197,16 @@ type
     function Select<TResult>(const AProp: Prop<TResult>): TFluentQuery<TResult>; overload;
     function Select<TResult>(const AProp: TPropExpression): TFluentQuery<TResult>; overload;
     function Select(const AProperties: array of string): TFluentQuery<T>; overload;
+    /// <summary>
+    ///   Projects the rows into DTOs from expressions: columns and aggregates
+    ///   (Agg.Sum, Agg.Count...), each one named by As(). Combined with GroupBy
+    ///   and Having it is the LINQ "group by ... select new { Key, Sum, Count }".
+    ///   The alias is the property of the DTO that receives the column.
+    /// </summary>
+    function Select<TDto: class, constructor>(
+      const AItems: array of TSelectItem): TFluentQuery<TDto>; overload;
+    /// <summary>The executor of projections (set by the DbSet).</summary>
+    function WithProjection(const AExecutor: TProjectionExecutor): TFluentQuery<T>;
 
     /// <summary>
     ///   Filters a sequence of values based on a predicate.
@@ -302,6 +322,10 @@ type
     function GroupBy<TProp>(const AProp: Prop<TProp>): TFluentQuery<T>; overload;
     function GroupBy(const AProp: IPropInfo): TFluentQuery<T>; overload;
     function GroupBy(const AProp: StringType): TFluentQuery<T>; overload;
+    /// <summary>Filters the groups (SQL HAVING), usually by an aggregate:
+    ///   Having(Agg.Sum(O.Amount) &gt; 500).</summary>
+    function Having(const AExpression: BooleanExpression): TFluentQuery<T>; overload;
+    function Having(const AExpression: IExpression): TFluentQuery<T>; overload;
     
     // Aggregations
     function Count: Integer; overload;
@@ -1654,13 +1678,83 @@ begin
 end;
 
 function TFluentQuery<T>.GroupBy(const AProp: IPropInfo): TFluentQuery<T>;
+var
+  LColumn: string;
 begin
   if AProp = nil then
     raise Exception.Create('GroupBy: the property is not a prototype property');
   if AProp.ColumnName <> '' then
-    Result := GroupBy(AProp.ColumnName)
+    LColumn := AProp.ColumnName
   else
-    Result := GroupBy(AProp.PropertyName);
+    LColumn := AProp.PropertyName;
+  // The owner table travels with the column: with joins, the generator
+  // groups by the column of the right table.
+  if AProp.Owner <> '' then
+    Result := GroupBy(AProp.Owner + SpecOwnerSeparator + LColumn)
+  else
+    Result := GroupBy(LColumn);
+end;
+
+function TFluentQuery<T>.Having(const AExpression: BooleanExpression): TFluentQuery<T>;
+begin
+  Result := Having(AExpression.Expression);
+end;
+
+function TFluentQuery<T>.Having(const AExpression: IExpression): TFluentQuery<T>;
+begin
+  if FSpecification = nil then
+    raise Exception.Create('Having needs a query from a DbSet.');
+  FSpecification.Having(AExpression);
+  Result := Self;
+end;
+
+function TFluentQuery<T>.WithProjection(
+  const AExecutor: TProjectionExecutor): TFluentQuery<T>;
+begin
+  Result := Self;
+  Result.FExecuteProjection := AExecutor;
+end;
+
+function TFluentQuery<T>.Select<TDto>(
+  const AItems: array of TSelectItem): TFluentQuery<TDto>;
+var
+  LSpec: ISpecification;
+  LExecutor: TProjectionExecutor;
+  LFactory: TFunc<TQueryIterator<TDto>>;
+  I: Integer;
+begin
+  LSpec := GetSpec;
+  LExecutor := FExecuteProjection;
+  if (LSpec = nil) or not Assigned(LExecutor) then
+    raise Exception.Create(
+      'Select with expressions needs a query from a DbSet.');
+  if Length(AItems) = 0 then
+    raise Exception.Create('Select needs at least one item.');
+  for I := 0 to High(AItems) do
+    LSpec.SelectItem(AItems[I].Expression, AItems[I].Alias);
+
+  LFactory := function: TQueryIterator<TDto>
+    begin
+      Result := TSpecificationQueryIterator<TDto>.Create(
+        function: IList<TDto>
+        var
+          LList: TList<TDto>;
+        begin
+          LList := TList<TDto>.Create(True);
+          Result := LList;
+          LExecutor(LSpec, TypeInfo(TDto),
+            function: TObject
+            begin
+              Result := TDto.Create;
+            end,
+            procedure(AObject: TObject)
+            begin
+              LList.Add(TDto(AObject));
+            end);
+        end);
+    end;
+
+  Result := TFluentQuery<TDto>.Create(LFactory, ISpecification(nil), FConnection);
 end;
 
 function TFluentQuery<T>.GroupBy(const AProp: StringType): TFluentQuery<T>;

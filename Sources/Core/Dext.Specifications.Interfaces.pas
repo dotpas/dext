@@ -30,6 +30,11 @@ interface
 uses
   System.Rtti;
 
+const
+  /// <summary>Separates the owner table from the column in a GroupBy entry
+  ///   (Owner + SpecOwnerSeparator + Column).</summary>
+  SpecOwnerSeparator = #1;
+
 type
   TMatchMode = (mmExact, mmStart, mmEnd, mmAnywhere);
   TJoinType = (jtInner, jtLeft, jtRight, jtFull, jtCross);
@@ -60,6 +65,15 @@ type
   end;
 
   /// <summary>
+  ///   One item of a projection that is not a plain column: an expression
+  ///   (a column or an aggregate) and the alias of the result column.
+  /// </summary>
+  TSelectItem = record
+    Expression: IExpression;
+    Alias: string;
+  end;
+
+  /// <summary>
   ///   Represents a JOIN clause.
   /// </summary>
   IJoin = interface
@@ -85,6 +99,8 @@ type
     function IsTrackingEnabled: Boolean;
     function GetJoins: TArray<IJoin>;
     function GetGroupBy: TArray<string>;
+    function GetHaving: IExpression;
+    function GetSelectItems: TArray<TSelectItem>;
     function IsIgnoringFilters: Boolean;
     function IsOnlyDeleted: Boolean;
     function GetLockMode: TLockMode;
@@ -101,6 +117,8 @@ type
     procedure Where(const AExpression: IExpression);
     procedure Join(const ATable: string; const AAlias: string; AType: TJoinType; const ACondition: IExpression);
     procedure GroupBy(const AColumn: string);
+    procedure Having(const AExpression: IExpression);
+    procedure SelectItem(const AExpression: IExpression; const AAlias: string);
     procedure IgnoreQueryFilters(const AValue: Boolean = True);
     procedure OnlyDeleted(const AValue: Boolean = True);
     procedure WithLock(const ALockMode: TLockMode);

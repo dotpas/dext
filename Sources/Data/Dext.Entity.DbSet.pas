@@ -298,6 +298,11 @@ type
     /// </summary>
     function ToList: IList<T>; overload;
     function ToList(const ASpec: ISpecification<T>): IList<T>; overload;
+    /// <summary>Runs a specification with expression projection (Select with
+    ///   aggregates) and hands each row, hydrated into a new object of the
+    ///   DTO class, to AAdd.</summary>
+    procedure ProjectTo(const ASpec: ISpecification<T>; ATypeInfo: PTypeInfo;
+      const ACreate: TFunc<TObject>; const AAdd: TProc<TObject>);
     function ToList(const AExpression: IExpression): IList<T>; overload;
 
     // FastPath Direct Streaming (S57)
@@ -2874,6 +2879,61 @@ begin
   end;
 end;
 
+procedure TDbSet<T>.ProjectTo(const ASpec: ISpecification<T>;
+  ATypeInfo: PTypeInfo; const ACreate: TFunc<TObject>;
+  const AAdd: TProc<TObject>);
+var
+  Cmd: IDbCommand;
+  Generator: TSqlGenerator<T>;
+  Hydrator: TDextDtoHydrator;
+  LSpec: ISpecification<T>;
+  Pair: TPair<string, TValue>;
+  ParamType: TFieldType;
+  Reader: IDbReader;
+  Row: TObject;
+  Sql: string;
+begin
+  LSpec := ASpec;
+  if (LSpec <> nil) and LSpec.IsIgnoringFilters then
+    FIgnoreQueryFilters := True;
+  if (LSpec <> nil) and LSpec.IsOnlyDeleted then
+    FOnlyDeleted := True;
+  ApplyTenantFilter(LSpec);
+
+  Generator := CreateGenerator;
+  try
+    Sql := Generator.GenerateSelect(LSpec);
+    Cmd := FContext.Connection.CreateCommand(Sql);
+    for Pair in Generator.Params do
+    begin
+      if Generator.ParamTypes.TryGetValue(Pair.Key, ParamType) then
+        Cmd.AddParam(Pair.Key, Pair.Value, ParamType)
+      else
+        Cmd.AddParam(Pair.Key, Pair.Value);
+    end;
+    Reader := Cmd.ExecuteQuery;
+    Hydrator := TDextDtoHydrator.Create(ATypeInfo, Reader);
+    try
+      while Reader.Next do
+      begin
+        Row := ACreate();
+        try
+          Hydrator.Hydrate(Row, Reader);
+        except
+          Row.Free;
+          raise;
+        end;
+        AAdd(Row);
+      end;
+    finally
+      Hydrator.Free;
+    end;
+  finally
+    Generator.Free;
+    ResetQueryFlags;
+  end;
+end;
+
 function TDbSet<T>.FromSql(const ASql: string; const AParams: array of TValue): TFluentQuery<T>;
 var
   i: Integer;
@@ -3720,6 +3780,14 @@ begin
       begin
         Result := SelfDbSet.RequestStreamingIterator(Spec);
       end));
+
+  Result := Result.WithProjection(
+    procedure(const S: ISpecification; ATypeInfo: PTypeInfo;
+      const ACreate: TFunc<TObject>; const AAdd: TProc<TObject>)
+    begin
+      TDbSet<T>(SelfDbSet as TObject).ProjectTo(
+        S as ISpecification<T>, ATypeInfo, ACreate, AAdd);
+    end);
 end;
 
 function TDbSet<T>.Query(const AExpression: IExpression): TFluentQuery<T>;

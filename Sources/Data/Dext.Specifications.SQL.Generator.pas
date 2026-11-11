@@ -80,6 +80,7 @@ type
     procedure ProcessUnary(const C: TUnaryExpression);
     procedure ProcessConstant(const C: TConstantExpression);
     procedure ProcessProperty(const C: TPropertyExpression);
+    procedure ProcessAggregate(const C: TAggregateExpression);
     procedure ProcessJsonProperty(const C: TJsonPropertyExpression);
     procedure ProcessLiteral(const C: TLiteralExpression);
 
@@ -193,7 +194,8 @@ type
     ///   table is AOwner, in a query with joins; '' when AOwner is unknown.</summary>
     function QualifierForOwner(const AOwner, ABaseTableName: string;
       const AJoins: TArray<IJoin>; out AIsBase: Boolean): string;
-    function GenerateGroupBy(const AGroupBy: TArray<string>): string;
+    function GenerateGroupBy(const AGroupBy: TArray<string>;
+      const ABaseTableName: string; const AJoins: TArray<IJoin>): string;
     function QuoteColumnOrAlias(const AName: string): string;
     function QualifyBaseColumn(const AColumnName, ABaseTableName: string; AHasJoins: Boolean): string;
     function TryUnwrapSmartValue(var AValue: TValue): Boolean;
@@ -376,6 +378,8 @@ begin
   else if Ex is TConstantExpression then
     // No params
   else if Ex is TPropertyExpression then
+    // No params
+  else if Ex is TAggregateExpression then
     // No params
   else if Ex is TJsonPropertyExpression then
     // No params
@@ -679,6 +683,8 @@ begin
     ProcessConstant(TConstantExpression(AExpression))
   else if AExpression is TPropertyExpression then
     ProcessProperty(TPropertyExpression(AExpression))
+  else if AExpression is TAggregateExpression then
+    ProcessAggregate(TAggregateExpression(AExpression))
   else if AExpression is TJsonPropertyExpression then
     ProcessJsonProperty(TJsonPropertyExpression(AExpression))
   else if AExpression is TLiteralExpression then
@@ -900,6 +906,26 @@ begin
     // A joined table: the name is already the column of that entity, which the
     // mapper of the base entity must not translate
     FSQL.Append(Qualifier).Append('.').Append(FDialect.QuoteIdentifier(C.PropertyName));
+end;
+
+procedure TSQLWhereGenerator.ProcessAggregate(const C: TAggregateExpression);
+const
+  Funcs: array[TAggregateKind] of string =
+    ('COUNT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX');
+var
+  Operand: IExpression;
+begin
+  FSQL.Append(Funcs[C.Kind]).Append('(');
+  if C.PropertyName = '' then
+    FSQL.Append('*')
+  else
+  begin
+    if C.Kind = akCountDistinct then
+      FSQL.Append('DISTINCT ');
+    Operand := TPropertyExpression.Create(C.PropertyName, C.Owner);
+    ResolveSQL(Operand);
+  end;
+  FSQL.Append(')');
 end;
 
 procedure TSQLWhereGenerator.ProcessJsonProperty(const C: TJsonPropertyExpression);
@@ -2415,6 +2441,10 @@ var
   LKind: TTypeKind;
   HasJoins: Boolean;
   BaseTableName: string;
+  HavingGen: TSQLWhereGenerator;
+  HavingSQL: string;
+  SelectItems: TArray<TSelectItem>;
+  ItemGen: TSQLWhereGenerator;
 begin
   FParams.Clear;
   FParamCount := 0;
@@ -2441,6 +2471,8 @@ begin
       Collector := TSQLParamCollector.Create(FParams, TSQLGeneratorHelper.ResolveDialect(FDialect));
       try
         Collector.Collect(ASpec.GetExpression);
+        // Same order as the generation below: WHERE, then HAVING
+        Collector.Collect(ASpec.GetHaving);
       finally
         Collector.Free;
       end;
@@ -2470,13 +2502,62 @@ begin
   finally
     WhereGen.Free;
   end;
-  
+
+  // HAVING: its parameters continue the numbering of the WHERE
+  HavingSQL := '';
+  if ASpec.GetHaving <> nil then
+  begin
+    HavingGen := TSQLWhereGenerator.Create(
+      FDialect,
+      TSQLColumnMapper<T>.Create(FNamingStrategy),
+      HasJoins,
+      BaseTableName
+    );
+    try
+      HavingGen.Joins := ASpec.GetJoins;
+      if FMap <> nil then
+        HavingGen.BaseOwner := FMap.TableName;
+      HavingGen.ParamCount := FParamCount;
+      HavingSQL := HavingGen.Generate(ASpec.GetHaving);
+      FParamCount := HavingGen.ParamCount;
+      for Pair in HavingGen.Params do
+        FParams.AddOrSetValue(Pair.Key, Pair.Value);
+    finally
+      HavingGen.Free;
+    end;
+  end;
+
   SB := TStringBuilder.Create;
   try
     SB.Append('SELECT ');
     
     SelectedCols := ASpec.GetSelectedColumns;
-    if Length(SelectedCols) > 0 then
+    SelectItems := ASpec.GetSelectItems;
+    if Length(SelectItems) > 0 then
+    begin
+      // Projection with expressions: columns and aggregates, each one named
+      ItemGen := TSQLWhereGenerator.Create(
+        FDialect,
+        TSQLColumnMapper<T>.Create(FNamingStrategy),
+        HasJoins,
+        BaseTableName
+      );
+      try
+        ItemGen.Joins := ASpec.GetJoins;
+        if FMap <> nil then
+          ItemGen.BaseOwner := FMap.TableName;
+        for i := 0 to High(SelectItems) do
+        begin
+          if i > 0 then SB.Append(', ');
+          SB.Append(ItemGen.Generate(SelectItems[i].Expression));
+          if SelectItems[i].Alias <> '' then
+            SB.Append(' AS ').Append(FDialect.QuoteIdentifier(SelectItems[i].Alias));
+        end;
+      finally
+        ItemGen.Free;
+      end;
+    end
+    else if Length(SelectedCols) > 0 then
     begin
       // Custom projection - translate property names to column names
       Typ := TReflection.Context.GetType(T);
@@ -2619,7 +2700,9 @@ begin
       SB.Append(' WHERE ').Append(SoftDeleteFilter);
       
     // Group By
-    SB.Append(GenerateGroupBy(ASpec.GetGroupBy));
+    SB.Append(GenerateGroupBy(ASpec.GetGroupBy, BaseTableName, ASpec.GetJoins));
+    if HavingSQL <> '' then
+      SB.Append(' HAVING ').Append(HavingSQL);
 
     // Order By
     OrderBy := ASpec.GetOrderBy;
@@ -3411,10 +3494,13 @@ begin
     end;
 end;
 
-function TSQLGenerator<T>.GenerateGroupBy(const AGroupBy: TArray<string>): string;
+function TSQLGenerator<T>.GenerateGroupBy(const AGroupBy: TArray<string>;
+  const ABaseTableName: string; const AJoins: TArray<IJoin>): string;
 var
   SB: TStringBuilder;
-  i: Integer;
+  i, Sep: Integer;
+  Qualifier: string;
+  IsBase: Boolean;
 begin
   if Length(AGroupBy) = 0 then Exit('');
   
@@ -3424,7 +3510,20 @@ begin
     for i := 0 to High(AGroupBy) do
     begin
       if i > 0 then SB.Append(', ');
-      SB.Append(QuoteColumnOrAlias(AGroupBy[i]));
+      Sep := Pos(SpecOwnerSeparator, AGroupBy[i]);
+      if Sep > 0 then
+      begin
+        // Owner + separator + column: a prototype property of some table
+        Qualifier := QualifierForOwner(Copy(AGroupBy[i], 1, Sep - 1),
+          ABaseTableName, AJoins, IsBase);
+        if Qualifier <> '' then
+          SB.Append(Qualifier).Append('.').Append(FDialect.QuoteIdentifier(
+            Copy(AGroupBy[i], Sep + 1, MaxInt)))
+        else
+          SB.Append(QuoteColumnOrAlias(Copy(AGroupBy[i], Sep + 1, MaxInt)));
+      end
+      else
+        SB.Append(QuoteColumnOrAlias(AGroupBy[i]));
     end;
     Result := SB.ToString;
   finally

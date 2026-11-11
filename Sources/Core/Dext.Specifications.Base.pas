@@ -68,6 +68,8 @@ type
     
     FJoins: TVector<IJoin>;
     FGroupBy: TVector<string>;
+    FHaving: IExpression;
+    FSelectItems: TVector<TSelectItem>;
     FIgnoreQueryFilters: Boolean;
     FOnlyDeleted: Boolean;
     FLockMode: TLockMode;
@@ -84,6 +86,8 @@ type
     function GetSelectedColumns: TArray<string>;
     function GetJoins: TArray<IJoin>;
     function GetGroupBy: TArray<string>;
+    function GetHaving: IExpression;
+    function GetSelectItems: TArray<TSelectItem>;
     function IsIgnoringFilters: Boolean;
     function IsOnlyDeleted: Boolean;
     function GetLockMode: TLockMode;
@@ -102,6 +106,9 @@ type
     procedure Select(const AColumn: string); virtual;
     procedure Join(const ATable: string; const AAlias: string; AType: TJoinType; const ACondition: IExpression); virtual;
     procedure GroupBy(const AColumn: string); virtual;
+    procedure Having(const AExpression: IExpression); virtual;
+    procedure SelectItem(const AExpression: IExpression;
+      const AAlias: string); virtual;
     procedure IgnoreQueryFilters(const AValue: Boolean = True); virtual;
     procedure OnlyDeleted(const AValue: Boolean = True); virtual;
     procedure WithLock(const ALockMode: TLockMode); virtual;
@@ -157,6 +164,8 @@ begin
   FOrderBy.Clear;
   FJoins.Clear;
   FGroupBy.Clear;
+  FHaving := nil;
+  FSelectItems.Clear;
   inherited;
 end;
 
@@ -293,6 +302,34 @@ begin
   FGroupBy.Add(AColumn);
 end;
 
+procedure TSpecification<T>.Having(const AExpression: IExpression);
+begin
+  if FHaving = nil then
+    FHaving := AExpression
+  else
+    FHaving := TLogicalExpression.Create(FHaving, AExpression, loAnd);
+end;
+
+procedure TSpecification<T>.SelectItem(const AExpression: IExpression;
+  const AAlias: string);
+var
+  Item: TSelectItem;
+begin
+  Item.Expression := AExpression;
+  Item.Alias := AAlias;
+  FSelectItems.Add(Item);
+end;
+
+function TSpecification<T>.GetHaving: IExpression;
+begin
+  Result := FHaving;
+end;
+
+function TSpecification<T>.GetSelectItems: TArray<TSelectItem>;
+begin
+  Result := FSelectItems.ToArray;
+end;
+
 procedure TSpecification<T>.IgnoreQueryFilters(const AValue: Boolean);
 begin
   FIgnoreQueryFilters := AValue;
@@ -396,6 +433,18 @@ begin
       SB.Append(']');
     end;
 
+    // 8b. Projection items and Having
+    if FSelectItems.Count > 0 then
+    begin
+      SB.Append(':SEL[');
+      for I := 0 to FSelectItems.Count - 1 do
+        SB.Append(FSelectItems[I].Expression.ToString).Append(' AS ')
+          .Append(FSelectItems[I].Alias).Append(',');
+      SB.Append(']');
+    end;
+    if FHaving <> nil then
+      SB.Append(':HAV[').Append(FHaving.ToString).Append(']');
+
     // 9. Tracking & Filters
     SB.Append(':TRK[').Append(Ord(FIsTracking)).Append(']');
     SB.Append(':IGN[').Append(Ord(FIgnoreQueryFilters)).Append(']');
@@ -448,6 +497,8 @@ begin
   NewSpec.FOrderBy := FOrderBy;
   NewSpec.FJoins := FJoins;
   NewSpec.FGroupBy := FGroupBy;
+  NewSpec.FHaving := FHaving;
+  NewSpec.FSelectItems := FSelectItems;
   NewSpec.FSkip := FSkip;
   NewSpec.FTake := FTake;
   NewSpec.FIsPagingEnabled := FIsPagingEnabled;

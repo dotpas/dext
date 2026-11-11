@@ -255,6 +255,10 @@ type
     function Asc: IOrderBy;
     function Desc: IOrderBy;
 
+    /// <summary>Gives a name to the result column of a projection item
+    ///   (Select&lt;TDto&gt;): the alias is the property of the DTO.</summary>
+    function &As(const AAlias: string): TSelectItem;
+
     property Name: string read GetPropertyName;
     /// <summary>The table of the entity that declares the property ('' for a
     ///   value or an expression).</summary>
@@ -295,6 +299,25 @@ type
   DateTimeType = Prop<TDateTime>;
   DateType = Prop<TDate>;
   TimeType = Prop<TTime>;
+
+  /// <summary>
+  ///   Aggregate functions of the query DSL (LINQ: Count, Sum, Average, Min,
+  ///   Max). They return a Smart Property that stands for the aggregate, so it
+  ///   can be compared (Having) or projected (Select).
+  /// </summary>
+  Agg = record
+  public
+    /// <summary>COUNT(*)</summary>
+    class function Count: Prop<Integer>; overload; static;
+    /// <summary>COUNT(column)</summary>
+    class function Count<T>(const AProp: Prop<T>): Prop<Integer>; overload; static;
+    /// <summary>COUNT(DISTINCT column)</summary>
+    class function CountDistinct<T>(const AProp: Prop<T>): Prop<Integer>; static;
+    class function Sum<T>(const AProp: Prop<T>): Prop<T>; static;
+    class function Avg<T>(const AProp: Prop<T>): Prop<Double>; static;
+    class function Min<T>(const AProp: Prop<T>): Prop<T>; static;
+    class function Max<T>(const AProp: Prop<T>): Prop<T>; static;
+  end;
 
   /// <summary>
   ///   Short alias for BooleanExpression.
@@ -736,6 +759,90 @@ begin
   Result.FExpression := nil;
   Result.FInfo := AInfo;
   Result.FValue := Default(T);
+end;
+
+function Prop<T>.&As(const AAlias: string): TSelectItem;
+begin
+  if not IsQueryMode then
+    raise EArgumentException.Create(
+      'As() only applies to a prototype property or an aggregate.');
+  Result.Expression := GetExpression;
+  Result.Alias := AAlias;
+end;
+
+{ Agg }
+
+class function Agg.Count: Prop<Integer>;
+begin
+  Result := Prop<Integer>.FromExpression(
+    TAggregateExpression.Create(akCount, ''));
+end;
+
+class function Agg.Count<T>(const AProp: Prop<T>): Prop<Integer>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create('Count(prop) needs a prototype property.');
+  Result := Prop<Integer>.FromExpression(
+    TAggregateExpression.Create(akCount, Info.ColumnName, Info.Owner));
+end;
+
+class function Agg.CountDistinct<T>(const AProp: Prop<T>): Prop<Integer>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create(
+      'CountDistinct(prop) needs a prototype property.');
+  Result := Prop<Integer>.FromExpression(
+    TAggregateExpression.Create(akCountDistinct, Info.ColumnName, Info.Owner));
+end;
+
+class function Agg.Sum<T>(const AProp: Prop<T>): Prop<T>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create('Sum(prop) needs a prototype property.');
+  Result := Prop<T>.FromExpression(
+    TAggregateExpression.Create(akSum, Info.ColumnName, Info.Owner));
+end;
+
+class function Agg.Avg<T>(const AProp: Prop<T>): Prop<Double>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create('Avg(prop) needs a prototype property.');
+  Result := Prop<Double>.FromExpression(
+    TAggregateExpression.Create(akAvg, Info.ColumnName, Info.Owner));
+end;
+
+class function Agg.Min<T>(const AProp: Prop<T>): Prop<T>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create('Min(prop) needs a prototype property.');
+  Result := Prop<T>.FromExpression(
+    TAggregateExpression.Create(akMin, Info.ColumnName, Info.Owner));
+end;
+
+class function Agg.Max<T>(const AProp: Prop<T>): Prop<T>;
+var
+  Info: IPropInfo;
+begin
+  Info := AProp;
+  if Info = nil then
+    raise EArgumentException.Create('Max(prop) needs a prototype property.');
+  Result := Prop<T>.FromExpression(
+    TAggregateExpression.Create(akMax, Info.ColumnName, Info.Owner));
 end;
 
 function Prop<T>.IsQueryMode: Boolean;
