@@ -565,6 +565,11 @@ begin
       // name), the builder is not cached and nobody owns it yet: free it here.
       try
         OnModelCreating(FModelBuilder);
+        // Prototype.Entity<T> and the join helpers read the global builder,
+        // not this context's one. Apply the same model there once, so a
+        // fluent-only mapping (no [Table]) reaches them too.
+        if FModelBuilder <> TModelBuilder.Instance then
+          OnModelCreating(TModelBuilder.Instance);
       except
         FModelBuilder.Free;
         FModelBuilder := nil;

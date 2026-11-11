@@ -22,6 +22,7 @@ uses
   Dext.Entity,
   Dext.Entity.Attributes,
   Dext.Entity.Core,
+  Dext.Entity.Mapping,
   Dext.Entity.Query,
   Dext.Entity.DbSet,
   Dext.Entity.Setup,
@@ -69,6 +70,32 @@ type
   public
     property Customers: IDbSet<TDlCustomer> read GetCustomers;
     property Orders: IDbSet<TDlOrder> read GetOrders;
+  end;
+
+  // Entities mapped only through the fluent API: no [Table], no [PrimaryKey]
+  TFlAuthor = class
+  private
+    FId: IntType;
+    FName: StringType;
+  public
+    property Id: IntType read FId write FId;
+    property Name: StringType read FName write FName;
+  end;
+
+  TFlBook = class
+  private
+    FId: IntType;
+    FAuthorId: IntType;
+    FTitle: StringType;
+  public
+    property Id: IntType read FId write FId;
+    property AuthorId: IntType read FAuthorId write FAuthorId;
+    property Title: StringType read FTitle write FTitle;
+  end;
+
+  TFlDb = class(TDbContext)
+  protected
+    procedure OnModelCreating(Builder: TModelBuilder); override;
   end;
 
   TDlStatusTotal = class
@@ -128,6 +155,10 @@ type
     procedure Setup;
     [TearDown]
     procedure TearDown;
+
+    // Fluent-only mapping reaching prototypes and joins
+    [Test]
+    procedure Join_Works_With_A_Fluent_Only_Mapping;
 
     // Select
     [Test]
@@ -1587,6 +1618,53 @@ begin
     Should(R.Id).Be(5);
   finally
     R.Free;
+  end;
+end;
+
+procedure TFlDb.OnModelCreating(Builder: TModelBuilder);
+begin
+  Builder.Entity<TFlAuthor>
+    .Table('fl_authors')
+    .HasKey('Id');
+  Builder.Entity<TFlBook>
+    .Table('fl_books')
+    .HasKey('Id');
+end;
+
+procedure TDslLinqTests.Join_Works_With_A_Fluent_Only_Mapping;
+var
+  Db: TFlDb;
+  A: TFlAuthor;
+  B: TFlBook;
+  PA: TFlAuthor;
+  PB: TFlBook;
+  Rows: IList<TFlBook>;
+begin
+  Db := TFlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  try
+    Db.Entities<TFlAuthor>;
+    Db.Entities<TFlBook>;
+    Db.EnsureCreated;
+    A := TFlAuthor.Create;
+    A.Id := 1;
+    A.Name := 'Ana';
+    Db.Entities<TFlAuthor>.Add(A);
+    B := TFlBook.Create;
+    B.Id := 1;
+    B.AuthorId := 1;
+    B.Title := 'Dext';
+    Db.Entities<TFlBook>.Add(B);
+    Db.SaveChanges;
+
+    PB := Prototype.Entity<TFlBook>;
+    PA := Prototype.Entity<TFlAuthor>;
+    Rows := Db.Entities<TFlBook>.Where(PB.Id > 0)
+      .JoinInner<TFlAuthor>('a', PB.AuthorId = PA.Id)
+      .Where(PA.Name = 'Ana')
+      .ToList;
+    Should(Rows.Count).Be(1);
+  finally
+    Db.Free;
   end;
 end;
 
