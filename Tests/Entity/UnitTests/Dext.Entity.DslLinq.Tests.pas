@@ -57,6 +57,9 @@ type
     property Amount: CurrencyType read FAmount write FAmount;
     property Status: StringType read FStatus write FStatus;
     property CreatedAt: DateTimeType read FCreatedAt write FCreatedAt;
+    class var Live: Integer;
+    procedure AfterConstruction; override;
+    procedure BeforeDestruction; override;
   end;
 
   TDlDb = class(TDbContext)
@@ -269,6 +272,12 @@ type
     procedure Untracked_Last_Hands_The_Object_To_The_Caller;
     [Test]
     procedure Untracked_ElementAt_Hands_The_Object_To_The_Caller;
+    [Test]
+    procedure FromSql_ToList_Frees_What_It_Created;
+    [Test]
+    procedure FromSql_Count_Frees_What_It_Created;
+    [Test]
+    procedure FromSql_First_Hands_The_Object_To_The_Caller;
   end;
 
 implementation
@@ -1468,6 +1477,70 @@ begin
   finally
     R.Free;
   end;
+end;
+
+procedure TDlOrder.AfterConstruction;
+begin
+  inherited;
+  Inc(Live);
+end;
+
+procedure TDlOrder.BeforeDestruction;
+begin
+  Dec(Live);
+  inherited;
+end;
+
+procedure TDslLinqTests.FromSql_ToList_Frees_What_It_Created;
+var
+  Before: Integer;
+
+  procedure Consume;
+  var
+    Rows: IList<TDlOrder>;
+  begin
+    Rows := FDb.Orders.FromSql('SELECT * FROM dl_orders').ToList;
+    Should(Rows.Count).Be(6);
+  end;
+
+begin
+  Before := TDlOrder.Live;
+  Consume;
+  // The list owns what FromSql hydrates without tracking
+  Should(TDlOrder.Live).Be(Before);
+end;
+
+procedure TDslLinqTests.FromSql_Count_Frees_What_It_Created;
+var
+  Before: Integer;
+
+  procedure Consume;
+  begin
+    Should(FDb.Orders.FromSql('SELECT * FROM dl_orders').Count).Be(6);
+  end;
+
+begin
+  Before := TDlOrder.Live;
+  Consume;
+  Should(TDlOrder.Live).Be(Before);
+end;
+
+procedure TDslLinqTests.FromSql_First_Hands_The_Object_To_The_Caller;
+var
+  Order: TDlOrder;
+  Before: Integer;
+begin
+  Before := TDlOrder.Live;
+  Order := FDb.Orders.FromSql(
+    'SELECT * FROM dl_orders ORDER BY "Id"').First;
+  try
+    Should(Order.Id).Be(1);
+    // Only the one the caller holds is alive
+    Should(TDlOrder.Live).Be(Before + 1);
+  finally
+    Order.Free;
+  end;
+  Should(TDlOrder.Live).Be(Before);
 end;
 
 procedure TDslLinqTests.Untracked_ElementAt_Hands_The_Object_To_The_Caller;

@@ -210,6 +210,7 @@ type
     function CreateGenerator: TSqlGenerator<T>;
     function BuildHydrationPlan(const Reader: IDbReader): THydrationPlan;
     function Hydrate(const Reader: IDbReader; const Plan: THydrationPlan; const Tracking: Boolean = True): T;
+    function ExecuteFromSql(const ASql: string; const AParams: TArray<TValue>): IList<T>;
 
     procedure ExtractForeignKeys(const AEntities: IList<T>; PropertyToCheck: string; out IDs: IList<TValue>; out FKMap: IDictionary<T, TValue>);
     procedure HandleTimestamps(const AEntity: TObject; AIsInsert: Boolean);
@@ -3050,12 +3051,52 @@ begin
   for i := 0 to Length(AParams) - 1 do
     LParams[i] := AParams[i];
 
+  // The rows are hydrated without tracking, so the list the iterator builds owns
+  // them (same rule as AsNoTracking): nothing leaks, and Count, First and ToList
+  // all go through the same path.
   Result := TFluentQuery<T>.Create(
     TFunc<TQueryIterator<T>>(function: TQueryIterator<T>
       begin
-        Result := TSqlQueryIterator<T>.Create(Self, ASql, LParams);
+        Result := TSpecificationQueryIterator<T>.Create(
+          TFunc<IList<T>>(function: IList<T>
+            begin
+              Result := ExecuteFromSql(ASql, LParams);
+            end));
       end),
-      FContext.Connection);
+      FContext.Connection).AsNoTracking;
+end;
+
+function TDbSet<T>.ExecuteFromSql(const ASql: string; const AParams: TArray<TValue>): IList<T>;
+var
+  Cmd: IDbCommand;
+  Reader: IDbReader;
+  Plan: THydrationPlan;
+  List: TList<T>;
+  SW: TStopwatch;
+begin
+  SW := TStopwatch.StartNew;
+  List := TList<T>.Create(True);
+  try
+    try
+      Cmd := FContext.Connection.CreateCommand(ASql);
+      Cmd.BindSequentialParams(AParams);
+      Reader := Cmd.ExecuteQuery;
+      Plan := BuildHydrationPlan(Reader);
+      TDiagnosticSource.Instance.Write('SQL.Query', TJSONObject.Create(TJSONPair.Create('sql', ASql)), 'SQL', SW.ElapsedMilliseconds);
+    except
+      on E: Exception do
+      begin
+        TDiagnosticSource.Instance.Write('SQL.Query', TJSONObject.Create(TJSONPair.Create('sql', ASql)), 'SQL', SW.ElapsedMilliseconds, 'Error', E.Message);
+        raise;
+      end;
+    end;
+    while Reader.Next do
+      List.Add(Hydrate(Reader, Plan, False));
+    Result := List;
+  except
+    List.Free;
+    raise;
+  end;
 end;
 
 function TDbSet<T>.FromSql(const ASql: string): TFluentQuery<T>;
