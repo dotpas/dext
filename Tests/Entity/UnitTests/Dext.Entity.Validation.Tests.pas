@@ -42,6 +42,10 @@ type
     [Test]
     [Description('Verify Auto-Validation on SaveChanges using rich DI Fluent Validator')]
     procedure TestFluentValidatorIntegration;
+
+    [Test]
+    [Description('Verify the DI validator adds to the mapping rules instead of replacing them')]
+    procedure TestFluentValidatorKeepsMappingRules;
   end;
 
 implementation
@@ -125,6 +129,51 @@ begin
         Ctx.Entities<TValidatedEntity>.Add(Entity);
 
         // Verify that SaveChanges triggers TValidatedEntityValidator and throws EValidationException
+        Assert.WillRaise(procedure
+          begin
+            Ctx.SaveChanges;
+          end, EValidationException);
+      finally
+        Ctx.Free;
+      end;
+    finally
+      Options.Free;
+    end;
+  finally
+    TDextServices.DefaultProvider := OldDefaultProvider;
+  end;
+end;
+
+procedure TEntityValidationTests.TestFluentValidatorKeepsMappingRules;
+var
+  Options: TDbContextOptions;
+  Ctx: TDbContext;
+  Entity: TValidatedEntity;
+  Services: IServiceCollection;
+  Provider: IServiceProvider;
+  OldDefaultProvider: IServiceProvider;
+begin
+  Services := TDextDIFactory.CreateServiceCollection;
+  Services.AddSingleton(TServiceType.FromInterface(TypeInfo(IValidator<TValidatedEntity>)), TValidatedEntityValidator);
+  Provider := Services.BuildServiceProvider;
+
+  OldDefaultProvider := TDextServices.DefaultProvider;
+  TDextServices.DefaultProvider := Provider;
+  try
+    Options := TDbContextOptions.Create;
+    try
+      Options.UseSQLite(':memory:');
+      Ctx := TDbContext.Create(Options, nil);
+      try
+        Ctx.ModelBuilder.Entity<TValidatedEntity>();
+        Ctx.EnsureCreated;
+
+        Entity := TValidatedEntity.Create;
+        Entity.Id := 3;
+        Entity.Name := ''; // [Required] in the mapping; the fluent validator does not check it
+        Entity.Email := 'valid@example.com';
+        Ctx.Entities<TValidatedEntity>.Add(Entity);
+
         Assert.WillRaise(procedure
           begin
             Ctx.SaveChanges;

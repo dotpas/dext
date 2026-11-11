@@ -1466,6 +1466,9 @@ begin
              end;
            end;
            
+           // Mapping rules always apply; a registered validator adds to them.
+           TEntityValidator.Validate(Entity, Map);
+
            if (ValidatorIntf <> nil) and 
               Supports(ValidatorIntf, IValidator, Validator) then
            begin
@@ -1477,9 +1480,7 @@ begin
              finally
                ValRes.Free;
              end;
-           end
-           else
-             TEntityValidator.Validate(Entity, Map);
+           end;
  
            AddedGroups[Entity.ClassInfo].Add(Entity);
         end;
@@ -1536,6 +1537,9 @@ begin
           end;
           
           Validator := nil;
+          // Mapping rules always apply; a registered validator adds to them.
+          TEntityValidator.Validate(Entity, Map);
+
           if (ValidatorIntf <> nil) and 
              Supports(ValidatorIntf, IValidator, Validator) then
           begin
@@ -1547,9 +1551,7 @@ begin
             finally
               ValRes.Free;
             end;
-          end
-          else
-            TEntityValidator.Validate(Entity, Map);
+          end;
  
           if not ModifiedGroups.ContainsKey(Entity.ClassInfo) then
             ModifiedGroups.Add(Entity.ClassInfo, TCollections.CreateList<TObject>);
