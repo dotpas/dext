@@ -158,6 +158,11 @@ type
   /// </summary>
   TJoinTableSQLHelper = class
   public
+    /// <summary>
+    ///   The columns of one side of a join table. A composite key lists its
+    ///   columns separated by commas, in the order of the key properties.
+    /// </summary>
+    class function SplitColumns(const AList: string): TArray<string>;
     class function GenerateInsert(ADialect: ISQLDialect; 
       const AJoinTable, ALeftColumn, ARightColumn: string): string;
     class function GenerateDelete(ADialect: ISQLDialect;
@@ -165,13 +170,35 @@ type
     class function GenerateDeleteByLeft(ADialect: ISQLDialect;
       const AJoinTable, ALeftColumn: string): string;
     /// <summary>
+    ///   SELECT of the right key columns of the rows of one owner.
+    /// </summary>
+    class function GenerateSelectRight(ADialect: ISQLDialect;
+      const AJoinTable, ALeftColumn, ARightColumn: string): string;
+    /// <summary>
+    ///   SELECT of the left and right key columns of the rows of AOwnerCount
+    ///   owners; the parameters :p1.. follow the owners, column by column.
+    /// </summary>
+    class function GenerateSelectByLeft(ADialect: ISQLDialect;
+      const AJoinTable, ALeftColumn, ARightColumn: string;
+      AOwnerCount: Integer): string;
+    /// <summary>
     ///   CREATE TABLE of the join table: composite key and one foreign key
     ///   per side. The referenced tables arrive already quoted.
     /// </summary>
     class function GenerateCreateTable(ADialect: ISQLDialect;
       const AJoinTable, ALeftColumn, ALeftType, ARightColumn, ARightType,
       ALeftRefTable, ALeftRefColumn, ARightRefTable,
-      ARightRefColumn: string): string;
+      ARightRefColumn: string): string; overload;
+    /// <summary>
+    ///   The same for keys of any number of columns: each side lists its
+    ///   columns, their types and the referenced columns, in key order.
+    /// </summary>
+    class function GenerateCreateTable(ADialect: ISQLDialect;
+      const AJoinTable: string;
+      const ALeftColumns, ALeftTypes, ARightColumns,
+      ARightTypes: TArray<string>; const ALeftRefTable: string;
+      const ALeftRefColumns: TArray<string>; const ARightRefTable: string;
+      const ARightRefColumns: TArray<string>): string; overload;
   end;
 
   /// <summary>
@@ -694,51 +721,175 @@ end;
 
 { TJoinTableSQLHelper }
 
+class function TJoinTableSQLHelper.SplitColumns(const AList: string): TArray<string>;
+var
+  Parts: TArray<string>;
+  i: Integer;
+begin
+  Parts := AList.Split([',']);
+  SetLength(Result, Length(Parts));
+  for i := 0 to High(Parts) do
+    Result[i] := Parts[i].Trim;
+end;
+
+// "a", "b"
+function QuoteJoinColumns(ADialect: ISQLDialect; const AColumns: TArray<string>): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := 0 to High(AColumns) do
+  begin
+    if i > 0 then Result := Result + ', ';
+    Result := Result + ADialect.QuoteIdentifier(AColumns[i]);
+  end;
+end;
+
+// "a" = :p1 AND "b" = :p2, numbering the parameters from AFirst
+function JoinColumnsCondition(ADialect: ISQLDialect;
+  const AColumns: TArray<string>; AFirst: Integer): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := 0 to High(AColumns) do
+  begin
+    if i > 0 then Result := Result + ' AND ';
+    Result := Result + Format('%s = :p%d',
+      [ADialect.QuoteIdentifier(AColumns[i]), AFirst + i]);
+  end;
+end;
+
 class function TJoinTableSQLHelper.GenerateInsert(ADialect: ISQLDialect;
   const AJoinTable, ALeftColumn, ARightColumn: string): string;
+var
+  Columns: TArray<string>;
+  Params: string;
+  i: Integer;
 begin
   // INSERT INTO "JoinTable" ("left_col", "right_col") VALUES (:p1, :p2)
-  Result := Format('INSERT INTO %s (%s, %s) VALUES (:p1, :p2)',
+  Columns := SplitColumns(ALeftColumn + ',' + ARightColumn);
+  Params := '';
+  for i := 0 to High(Columns) do
+  begin
+    if i > 0 then Params := Params + ', ';
+    Params := Params + ':p' + IntToStr(i + 1);
+  end;
+  Result := Format('INSERT INTO %s (%s) VALUES (%s)',
     [ADialect.QuoteIdentifier(AJoinTable),
-     ADialect.QuoteIdentifier(ALeftColumn),
-     ADialect.QuoteIdentifier(ARightColumn)]);
+     QuoteJoinColumns(ADialect, Columns), Params]);
 end;
 
 class function TJoinTableSQLHelper.GenerateDelete(ADialect: ISQLDialect;
   const AJoinTable, ALeftColumn, ARightColumn: string): string;
 begin
   // DELETE FROM "JoinTable" WHERE "left_col" = :p1 AND "right_col" = :p2
-  Result := Format('DELETE FROM %s WHERE %s = :p1 AND %s = :p2',
+  Result := Format('DELETE FROM %s WHERE %s',
     [ADialect.QuoteIdentifier(AJoinTable),
-     ADialect.QuoteIdentifier(ALeftColumn),
-     ADialect.QuoteIdentifier(ARightColumn)]);
+     JoinColumnsCondition(ADialect,
+       SplitColumns(ALeftColumn + ',' + ARightColumn), 1)]);
 end;
 
 class function TJoinTableSQLHelper.GenerateDeleteByLeft(ADialect: ISQLDialect;
   const AJoinTable, ALeftColumn: string): string;
 begin
   // DELETE FROM "JoinTable" WHERE "left_col" = :p1
-  Result := Format('DELETE FROM %s WHERE %s = :p1',
+  Result := Format('DELETE FROM %s WHERE %s',
     [ADialect.QuoteIdentifier(AJoinTable),
-     ADialect.QuoteIdentifier(ALeftColumn)]);
+     JoinColumnsCondition(ADialect, SplitColumns(ALeftColumn), 1)]);
+end;
+
+class function TJoinTableSQLHelper.GenerateSelectRight(ADialect: ISQLDialect;
+  const AJoinTable, ALeftColumn, ARightColumn: string): string;
+begin
+  // SELECT "right_col" FROM "JoinTable" WHERE "left_col" = :p1
+  Result := Format('SELECT %s FROM %s WHERE %s',
+    [QuoteJoinColumns(ADialect, SplitColumns(ARightColumn)),
+     ADialect.QuoteIdentifier(AJoinTable),
+     JoinColumnsCondition(ADialect, SplitColumns(ALeftColumn), 1)]);
+end;
+
+class function TJoinTableSQLHelper.GenerateSelectByLeft(ADialect: ISQLDialect;
+  const AJoinTable, ALeftColumn, ARightColumn: string;
+  AOwnerCount: Integer): string;
+var
+  Left: TArray<string>;
+  Where: string;
+  i: Integer;
+begin
+  Left := SplitColumns(ALeftColumn);
+  Where := '';
+  if Length(Left) = 1 then
+  begin
+    // "left_col" IN (:p1, :p2)
+    for i := 1 to AOwnerCount do
+    begin
+      if i > 1 then Where := Where + ', ';
+      Where := Where + ':p' + IntToStr(i);
+    end;
+    Where := ADialect.QuoteIdentifier(Left[0]) + ' IN (' + Where + ')';
+  end
+  else
+    // ("a" = :p1 AND "b" = :p2) OR ("a" = :p3 AND "b" = :p4)
+    for i := 0 to AOwnerCount - 1 do
+    begin
+      if i > 0 then Where := Where + ' OR ';
+      Where := Where + '(' +
+        JoinColumnsCondition(ADialect, Left, i * Length(Left) + 1) + ')';
+    end;
+  Result := Format('SELECT %s, %s FROM %s WHERE %s',
+    [QuoteJoinColumns(ADialect, Left),
+     QuoteJoinColumns(ADialect, SplitColumns(ARightColumn)),
+     ADialect.QuoteIdentifier(AJoinTable), Where]);
 end;
 
 class function TJoinTableSQLHelper.GenerateCreateTable(ADialect: ISQLDialect;
   const AJoinTable, ALeftColumn, ALeftType, ARightColumn, ARightType,
   ALeftRefTable, ALeftRefColumn, ARightRefTable,
   ARightRefColumn: string): string;
+begin
+  Result := GenerateCreateTable(ADialect, AJoinTable,
+    SplitColumns(ALeftColumn), TArray<string>.Create(ALeftType),
+    SplitColumns(ARightColumn), TArray<string>.Create(ARightType),
+    ALeftRefTable, SplitColumns(ALeftRefColumn),
+    ARightRefTable, SplitColumns(ARightRefColumn));
+end;
+
+class function TJoinTableSQLHelper.GenerateCreateTable(ADialect: ISQLDialect;
+  const AJoinTable: string;
+  const ALeftColumns, ALeftTypes, ARightColumns,
+  ARightTypes: TArray<string>; const ALeftRefTable: string;
+  const ALeftRefColumns: TArray<string>; const ARightRefTable: string;
+  const ARightRefColumns: TArray<string>): string;
 var
   Body: string;
-  L, R: string;
+  i: Integer;
 begin
-  L := ADialect.QuoteIdentifier(ALeftColumn);
-  R := ADialect.QuoteIdentifier(ARightColumn);
-  Body := Format('%s %s NOT NULL, %s %s NOT NULL, PRIMARY KEY (%s, %s), ' +
+  if (Length(ALeftColumns) <> Length(ALeftTypes)) or
+     (Length(ALeftColumns) <> Length(ALeftRefColumns)) or
+     (Length(ARightColumns) <> Length(ARightTypes)) or
+     (Length(ARightColumns) <> Length(ARightRefColumns)) then
+    raise Exception.CreateFmt('Join table %s: the columns, their types and ' +
+      'the referenced columns must have the same count on each side',
+      [AJoinTable]);
+
+  Body := '';
+  for i := 0 to High(ALeftColumns) do
+    Body := Body + Format('%s %s NOT NULL, ',
+      [ADialect.QuoteIdentifier(ALeftColumns[i]), ALeftTypes[i]]);
+  for i := 0 to High(ARightColumns) do
+    Body := Body + Format('%s %s NOT NULL, ',
+      [ADialect.QuoteIdentifier(ARightColumns[i]), ARightTypes[i]]);
+
+  Body := Body + Format('PRIMARY KEY (%s, %s), ' +
     'FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE, ' +
     'FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE',
-    [L, ALeftType, R, ARightType, L, R,
-     L, ALeftRefTable, ADialect.QuoteIdentifier(ALeftRefColumn),
-     R, ARightRefTable, ADialect.QuoteIdentifier(ARightRefColumn)]);
+    [QuoteJoinColumns(ADialect, ALeftColumns),
+     QuoteJoinColumns(ADialect, ARightColumns),
+     QuoteJoinColumns(ADialect, ALeftColumns), ALeftRefTable,
+     QuoteJoinColumns(ADialect, ALeftRefColumns),
+     QuoteJoinColumns(ADialect, ARightColumns), ARightRefTable,
+     QuoteJoinColumns(ADialect, ARightRefColumns)]);
   Result := ADialect.GetCreateTableSQL(ADialect.QuoteIdentifier(AJoinTable), Body);
 end;
 

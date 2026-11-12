@@ -599,7 +599,6 @@ end;
 procedure TLazyLoader.LoadManyToMany(Prop: TRttiProperty; const PropMap: TPropertyMap);
 var
   AddMethod: TRttiMethod;
-  Cmd: IDbCommand;
   EntityId: string;
   IntfType: TRttiType;
   ItemType: TRttiType;
@@ -607,20 +606,14 @@ var
   ListIntf: IInterface;
   ListObj: TObject;
   Obj: TObject;
-  Reader: IDbReader;
-  RelatedDbSet: IDbSet;
-  RelatedIds: Dext.Collections.TList<TValue>;
+  Found: TArray<TObject>;
   ResList: Dext.Collections.IList<TObject>;
-  SB: TStringBuilder;
-  SQL: string;
   StartPos, EndPos: Integer;
   TypeName: string;
   UseExistingInterface: Boolean;
   SearchName: string;
   T: TRttiType;
   IntfName: string;
-  IntVal: Integer;
-  V: TValue;
   i: Integer;
   m: TRttiMethod;
   ListRtti: TRttiType;
@@ -632,21 +625,6 @@ begin
   ListObj := nil;
   UseExistingInterface := False;
   ResList := nil;
-  
-  // Build SQL to query join table
-  SB := TStringBuilder.Create;
-  try
-    SB.Append('SELECT ');
-    SB.Append(TDbContext(FContext).Dialect.QuoteIdentifier(PropMap.RightKeyColumn));
-    SB.Append(' FROM ');
-    SB.Append(TDbContext(FContext).Dialect.QuoteIdentifier(PropMap.JoinTableName));
-    SB.Append(' WHERE ');
-    SB.Append(TDbContext(FContext).Dialect.QuoteIdentifier(PropMap.LeftKeyColumn));
-    SB.Append(' = :p1');
-    SQL := SB.ToString;
-  finally
-    SB.Free;
-  end;
   
   // Prop.PropertyType is Lazy<IList<T>>. We need IList<T>.
   TypeName := Prop.PropertyType.Name;
@@ -698,26 +676,12 @@ begin
      end;
   end;
 
-  // Execute query
-  RelatedIds := Dext.Collections.TList<TValue>.Create;
-  try
-    Cmd := TDbContext(FContext).Connection.CreateCommand(SQL);
-    
-    // Try to pass PK with correct type (Integer if possible)
-    if TryStrToInt(EntityId, IntVal) then
-      Cmd.AddParam('p1', TValue.From<Integer>(IntVal))
-    else
-      Cmd.AddParam('p1', TValue.From<string>(EntityId));
-      
-    Reader := Cmd.ExecuteQuery;
-    
-    while Reader.Next do
-    begin
-      V := Reader.GetValue(0);
-      RelatedIds.Add(V);
-    end;
-      
-    if (RelatedIds.Count = 0) then
+  // The DbSet reads the join rows, whatever the key, and takes the snapshot
+  // that SaveChanges compares the collection with
+  Found := TDbContext(FContext).DataSet(FEntity.ClassInfo)
+    .LoadManyToManyTargets(FEntity, FPropName);
+  begin
+    if Length(Found) = 0 then
     begin
        // Initialize empty list to avoid returning nil to the property
        if (not UseExistingInterface) and (ListObj = nil) and (not FValue.IsEmpty) then
@@ -750,18 +714,9 @@ begin
 
     if ItemType = nil then Exit;
     
-    // Load related objects
-    RelatedDbSet := TDbContext(FContext).DataSet(ItemType.Handle);
-
-    // Each target is read by its own key: the related entity does not have to
-    // call it Id (the identity map answers the ones already loaded)
     ResList := Dext.Collections.TCollections.CreateList<TObject>(False);
-    for i := 0 to RelatedIds.Count - 1 do
-    begin
-      Obj := RelatedDbSet.FindObject(RelatedIds[i].AsVariant);
-      if Obj <> nil then
-        ResList.Add(Obj);
-    end;
+    for Obj in Found do
+      ResList.Add(Obj);
     
     // Resolve collection object
     UseExistingInterface := False;
@@ -843,8 +798,6 @@ begin
         FOwnsValue := True;
       end;
     end;
-  finally
-    RelatedIds.Free;
   end;
   FLoaded := True;
 end;

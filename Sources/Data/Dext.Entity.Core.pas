@@ -138,6 +138,20 @@ type
     function HasManyToManyChanges(const AEntity: TObject): Boolean;
     function PersistManyToMany(const AEntity: TObject; const ADeleted: Boolean): Integer;
     procedure SnapshotManyToMany(const AEntity: TObject);
+    /// <summary>
+    ///   The values of the key columns of an entity, in key order. A Smart
+    ///   Property is read through its inner value.
+    /// </summary>
+    function GetKeyParts(const AEntity: TObject): TArray<TValue>;
+    /// <summary>The types of the key columns, in key order.</summary>
+    function GetKeyTypes: TArray<PTypeInfo>;
+    /// <summary>
+    ///   Reads the join rows of one many-to-many collection of an entity,
+    ///   takes the snapshot that SaveChanges compares the collection with
+    ///   and returns the related entities. Used by the lazy loader.
+    /// </summary>
+    function LoadManyToManyTargets(const AEntity: TObject;
+      const APropertyName: string): TArray<TObject>;
 
     property EntityType: PTypeInfo read GetEntityType;
   end;
