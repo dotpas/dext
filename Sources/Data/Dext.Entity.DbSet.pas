@@ -225,6 +225,8 @@ type
     function UnwrapKey(const AValue: TValue): TValue;
     function GetManyToManyTarget(const ANavProp: TRttiProperty): TRttiType;
     function GetManyToManyProps: TArray<TPropertyMap>;
+    procedure Adopt(const AEntity: TObject);
+    procedure RegisterPersisted(const AEntity: T);
     function RequireManyToMany(const APropertyName: string): TPropertyMap;
     procedure NormalizeJoin(const APropMap: TPropertyMap);
     function GetJoinList(const AEntity: TObject; const APropMap: TPropertyMap): IObjectList;
@@ -1346,6 +1348,33 @@ begin
       Copy(TypeName, StartPos + 1, EndPos - StartPos - 1));
 end;
 
+// The DbSet owns what is persisted through it, as in PersistUpdate: the
+// instance is adopted up front, so it is freed with the DbSet whether the
+// statement succeeds or raises
+procedure TDbSet<T>.Adopt(const AEntity: TObject);
+var
+  Tracked: T;
+begin
+  if FIdentityMap.TryGetValue(GetEntityId(T(AEntity)), Tracked) and
+     (TObject(Tracked) = AEntity) then
+    Exit;
+  if not FOrphans.Contains(T(AEntity)) then
+    FOrphans.Add(T(AEntity));
+end;
+
+// After a successful write the instance belongs to the identity map
+procedure TDbSet<T>.RegisterPersisted(const AEntity: T);
+var
+  Id: string;
+begin
+  Id := GetEntityId(AEntity);
+  if FIdentityMap.ContainsKey(Id) then Exit;
+  if FOrphans.Contains(AEntity) then
+    FIdentityMap.Add(Id, FOrphans.Extract(AEntity))
+  else
+    FIdentityMap.Add(Id, AEntity);
+end;
+
 function TDbSet<T>.GetManyToManyProps: TArray<TPropertyMap>;
 var
   PM: TPropertyMap;
@@ -2456,6 +2485,10 @@ var
   Val: TValue;
 begin
   if Length(AEntities) = 0 then Exit;
+  for i := 0 to High(AEntities) do
+    Adopt(AEntities[i]);
+  for i := 0 to High(AEntities) do
+    FContext.ValidateForPersist(AEntities[i]);
   SetLength(EntitiesT, Length(AEntities));
   for i := 0 to High(AEntities) do
   begin
@@ -2524,6 +2557,8 @@ begin
         Cmd.SetParamArray(ParamName, ParamValues);
       end;
       Cmd.ExecuteBatch(Length(EntitiesT));
+      for i := 0 to High(EntitiesT) do
+        RegisterPersisted(EntitiesT[i]);
     finally
       Props := nil;
     end;
@@ -2541,12 +2576,15 @@ var
   Sql: string;
   ChunkSize: Integer;
   TotalCount: Integer;
-  EntityIdStr: string;
 begin
   if Length(AEntities) = 0 then Exit;
   ChunkSize := FContext.BulkBatchSize;
   if ChunkSize <= 0 then ChunkSize := 100;
   TotalCount := Length(AEntities);
+  for i := 0 to High(AEntities) do
+    Adopt(AEntities[i]);
+  for i := 0 to High(AEntities) do
+    FContext.ValidateForPersist(AEntities[i]);
   SetLength(EntitiesT, TotalCount);
   for i := 0 to High(AEntities) do
   begin
@@ -2564,16 +2602,7 @@ begin
       TDextBatchStrategyFactory.ExecuteUpdateBatch(FContext, GetTableName, SetProps, WhereProps, AEntities, ChunkSize);
       
       for i := 0 to High(EntitiesT) do
-      begin
-        EntityIdStr := GetEntityId(EntitiesT[i]);
-        if not FIdentityMap.ContainsKey(EntityIdStr) then
-        begin
-           if FOrphans.Contains(EntitiesT[i]) then
-             FIdentityMap.Add(EntityIdStr, FOrphans.Extract(EntitiesT[i]))
-           else
-             FIdentityMap.Add(EntityIdStr, EntitiesT[i]);
-        end;
-      end;
+        RegisterPersisted(EntitiesT[i]);
     finally
       SetProps := nil;
       WhereProps := nil;
@@ -2601,6 +2630,7 @@ begin
   for i := 0 to High(AEntities) do
   begin
     EntitiesT[i] := T(Pointer(AEntities[i]));
+    Adopt(AEntities[i]);
     StampCurrentTenant(AEntities[i]);
   end;
     

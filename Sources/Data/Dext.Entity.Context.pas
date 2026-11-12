@@ -231,6 +231,7 @@ type
     FTenantProvider: ITenantProvider;
     FInterceptors: IList<ISaveChangesInterceptor>;
     FInterceptorRunning: Boolean;
+    FSavingChanges: Boolean;
     FTenantConfigApplied: Boolean;
     FLastAppliedTenantId: string;
     FOnLog: TProc<string>;
@@ -244,6 +245,7 @@ type
     procedure EnsureSequence(const ASequenceName: string; AAllocationSize: Integer = 1);
     function FluentDependencies(const AType: PTypeInfo): TArray<PTypeInfo>;
     function HasManyToManyChanges: Boolean;
+    procedure ValidateEntity(const AEntity: TObject);
     function GetSortedTypes(const ATypes: TArray<PTypeInfo>): IList<PTypeInfo>;
     function SaveChangesCore: Integer;
   protected
@@ -300,6 +302,7 @@ type
     function NamingStrategy: INamingStrategy;
     function ModelBuilder: TModelBuilder; // Expose ModelBuilder
     function GetTenantProvider: ITenantProvider;
+    procedure ValidateForPersist(const AEntity: TObject);
     function BulkBatchSize: Integer;
     procedure SetBulkBatchSize(const AValue: Integer);
     
@@ -1415,6 +1418,58 @@ begin
     FInterceptors.Remove(AInterceptor);
 end;
 
+procedure TDbContext.ValidateEntity(const AEntity: TObject);
+var
+  DIProvider: IServiceProvider;
+  Map: TEntityMap;
+  Meta: TTypeMetadata;
+  Validator: IValidator;
+  ValidatorIntf: IInterface;
+  ValRes: TValidationResult;
+begin
+  Map := nil;
+  if FModelBuilder <> nil then
+    Map := FModelBuilder.GetMap(AEntity.ClassInfo);
+
+  Meta := TReflection.GetMetadata(AEntity.ClassInfo);
+  ValidatorIntf := nil;
+  if Meta.ValidatorInterfaceType <> nil then
+  begin
+    DIProvider := TDextServices.DefaultProvider;
+    if DIProvider <> nil then
+    begin
+      try
+        ValidatorIntf := DIProvider.GetServiceAsInterface(
+          TServiceType.FromInterface(Meta.ValidatorInterfaceType));
+      except
+      end;
+    end;
+  end;
+
+  // Mapping rules always apply; a registered validator adds to them.
+  TEntityValidator.Validate(AEntity, Map);
+
+  if (ValidatorIntf <> nil) and
+     Supports(ValidatorIntf, IValidator, Validator) then
+  begin
+    ValRes := Validator.ValidateInstance(TValue.From<TObject>(AEntity));
+    try
+      if not ValRes.IsValid then
+        raise EValidationException.Create(
+          'Validation failed: ' + ValRes.Errors[0].ErrorMessage);
+    finally
+      ValRes.Free;
+    end;
+  end;
+end;
+
+procedure TDbContext.ValidateForPersist(const AEntity: TObject);
+begin
+  // SaveChanges validates every entity it persists, before the DbSet sees it
+  if FSavingChanges then Exit;
+  ValidateEntity(AEntity);
+end;
+
 function TDbContext.SaveChanges: Integer;
 var
   Ctx: IDbContext;
@@ -1435,7 +1490,12 @@ begin
   end;
 
   try
-    Result := SaveChangesCore;
+    FSavingChanges := True;
+    try
+      Result := SaveChangesCore;
+    finally
+      FSavingChanges := False;
+    end;
   except
     on E: Exception do
     begin
@@ -1539,37 +1599,9 @@ begin
              end;
            end;
              
-           Meta := TReflection.GetMetadata(Entity.ClassInfo);
-           ValidatorIntf := nil;
-           if Meta.ValidatorInterfaceType <> nil then
-           begin
-             DIProvider := TDextServices.DefaultProvider;
-             if DIProvider <> nil then
-             begin
-               try
-                 ValidatorIntf := DIProvider.GetServiceAsInterface(
-                   TServiceType.FromInterface(Meta.ValidatorInterfaceType));
-               except
-               end;
-             end;
-           end;
-           
            // Mapping rules always apply; a registered validator adds to them.
-           TEntityValidator.Validate(Entity, Map);
+           ValidateEntity(Entity);
 
-           if (ValidatorIntf <> nil) and 
-              Supports(ValidatorIntf, IValidator, Validator) then
-           begin
-             ValRes := Validator.ValidateInstance(TValue.From<TObject>(Entity));
-             try
-               if not ValRes.IsValid then
-                 raise EValidationException.Create(
-                   'Validation failed: ' + ValRes.Errors[0].ErrorMessage);
-             finally
-               ValRes.Free;
-             end;
-           end;
- 
            AddedGroups[Entity.ClassInfo].Add(Entity);
         end;
       end;
@@ -1604,42 +1636,8 @@ begin
         begin
           Entity := Pair.Key;
           
-          // Validate Entity
-          Map := nil;
-          if FModelBuilder <> nil then
-            Map := FModelBuilder.GetMap(Entity.ClassInfo);
-             
-          Meta := TReflection.GetMetadata(Entity.ClassInfo);
-          ValidatorIntf := nil;
-          if Meta.ValidatorInterfaceType <> nil then
-          begin
-            DIProvider := TDextServices.DefaultProvider;
-            if DIProvider <> nil then
-            begin
-              try
-                ValidatorIntf := DIProvider.GetServiceAsInterface(
-                  TServiceType.FromInterface(Meta.ValidatorInterfaceType));
-              except
-              end;
-            end;
-          end;
-          
-          Validator := nil;
           // Mapping rules always apply; a registered validator adds to them.
-          TEntityValidator.Validate(Entity, Map);
-
-          if (ValidatorIntf <> nil) and 
-             Supports(ValidatorIntf, IValidator, Validator) then
-          begin
-            ValRes := Validator.ValidateInstance(TValue.From<TObject>(Entity));
-            try
-              if not ValRes.IsValid then
-                raise EValidationException.Create(
-                  'Validation failed: ' + ValRes.Errors[0].ErrorMessage);
-            finally
-              ValRes.Free;
-            end;
-          end;
+          ValidateEntity(Entity);
  
           if not ModifiedGroups.ContainsKey(Entity.ClassInfo) then
             ModifiedGroups.Add(Entity.ClassInfo, TCollections.CreateList<TObject>);

@@ -114,6 +114,7 @@ begin
         TEntitySequencesTests,
         TSaveChangesTests,
         TPersistUpdateOwnershipTests,
+        TPersistRangeTests,
         TBatchDeleteTests,
         TChangeTrackerSnapshotTests,
         TSmartAttributesTests,

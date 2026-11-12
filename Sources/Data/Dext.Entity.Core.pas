@@ -546,6 +546,15 @@ type
     function GetTenantProvider: ITenantProvider;
     property TenantProvider: ITenantProvider read GetTenantProvider;
 
+    /// <summary>
+    ///   Runs the validation of one entity: the mapping rules and, when one is
+    ///   registered, the entity's IValidator. The persistence methods that can
+    ///   be called outside SaveChanges (PersistAddRange, PersistUpdateRange) call
+    ///   it. It does nothing while SaveChanges runs, which validates every entity
+    ///   before it reaches the DbSet.
+    /// </summary>
+    procedure ValidateForPersist(const AEntity: TObject);
+
     function GetModelBuilder: TModelBuilder;
     property ModelBuilder: TModelBuilder read GetModelBuilder;
 
