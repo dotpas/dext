@@ -80,6 +80,7 @@ begin
         THtmxResponseTests,
         TEntityDataSetStoreTests,
         TEntityDataSetStoreTypesTests,
+        TEntityDataSetStoreRequiredTests,
         TAPMSinksTests,
         TWebSocketTests,
         THttpSysSslBindingTests,

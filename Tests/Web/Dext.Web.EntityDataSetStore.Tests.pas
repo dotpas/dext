@@ -162,6 +162,51 @@ type
     procedure TestUnconvertibleValueFailsTheItem;
   end;
 
+  {$M+}
+  [Table('eds_required')]
+  TEdsRequired = class
+  private
+    FCode: string;
+    FName: string;
+    FNote: string;
+  public
+    [PK, Column('code')]
+    property Code: string read FCode write FCode;
+    [Required, Column('name')]
+    property Name: string read FName write FName;
+    [Column('note')]
+    property Note: string read FNote write FNote;
+  end;
+  {$M-}
+
+  /// <summary>
+  ///   A modified item changes only some columns. The entity SaveChanges
+  ///   validates must still be complete: with a [Required] property that the
+  ///   item does not carry, a bare stub would be rejected.
+  /// </summary>
+  [TestFixture('EntityDataSet store - partial update of a required entity')]
+  TEntityDataSetStoreRequiredTests = class
+  private
+    FConn: TFDConnection;
+    FContext: TDbContext;
+    function Apply(const AJson: string): IList<TApplyItemResult>;
+    function Scalar(const ASql: string): Variant;
+  public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
+    [Test('Should update one column of an entity that has a required property')]
+    procedure TestPartialUpdateKeepsTheRequiredColumn;
+
+    [Test('Should still fail a modified item whose row does not exist')]
+    procedure TestModifiedItemOfAMissingRowFails;
+
+    [Test('Should still reject a value that breaks a rule of the stored entity')]
+    procedure TestPartialUpdateIsStillValidated;
+  end;
+
 implementation
 
 { TEntityDataSetStoreTests }
@@ -505,6 +550,82 @@ begin
     .Because('"abc" is not a number: it must not be written as 0');
   Should(Results[0].ErrorMessage).Contain('Qty');
   Should(Int64(Scalar('SELECT qty FROM eds_typed WHERE id = 1'))).Be(1);
+end;
+
+{ TEntityDataSetStoreRequiredTests }
+
+procedure TEntityDataSetStoreRequiredTests.Setup;
+begin
+  FConn := TFDConnection.Create(nil);
+  FConn.DriverName := 'SQLite';
+  FConn.Params.Add('Database=:memory:');
+  FConn.Connected := True;
+  FConn.ExecSQL('CREATE TABLE eds_required (code VARCHAR(20) PRIMARY KEY, ' +
+    'name VARCHAR(50) NOT NULL, note VARCHAR(50))');
+  FConn.ExecSQL('INSERT INTO eds_required (code, name, note) ' +
+    'VALUES (''r1'', ''Seed'', ''first'')');
+
+  FContext := TDbContext.Create(TFireDACConnection.Create(FConn, False),
+    TSQLiteDialect.Create);
+  FContext.Entities<TEdsRequired>;
+end;
+
+procedure TEntityDataSetStoreRequiredTests.TearDown;
+begin
+  FreeAndNil(FContext);
+  FreeAndNil(FConn);
+end;
+
+function TEntityDataSetStoreRequiredTests.Apply(
+  const AJson: string): IList<TApplyItemResult>;
+var
+  Store: IEntityDataSetStore;
+  Changes: IDextJsonArray;
+begin
+  Store := TDbContextEntityDataSetStore.Create;
+  Changes := (TDextJson.Provider.Parse(AJson) as IDextJsonObject).GetArray('changes');
+  Result := Store.ApplyChanges(TEdsRequired, Changes, FContext);
+end;
+
+function TEntityDataSetStoreRequiredTests.Scalar(const ASql: string): Variant;
+begin
+  Result := FConn.ExecSQLScalar(ASql);
+end;
+
+procedure TEntityDataSetStoreRequiredTests.TestPartialUpdateKeepsTheRequiredColumn;
+var
+  Results: IList<TApplyItemResult>;
+begin
+  Results := Apply('{"changes":[{"state":"modified","key":{"Code":"r1"},' +
+    '"values":{"Note":"changed"}}]}');
+
+  Should(Results[0].ErrorMessage).BeEmpty;
+  Should(Results[0].Success).BeTrue;
+  Should(string(Scalar('SELECT note FROM eds_required'))).Be('changed');
+  Should(string(Scalar('SELECT name FROM eds_required'))).Be('Seed');
+end;
+
+procedure TEntityDataSetStoreRequiredTests.TestModifiedItemOfAMissingRowFails;
+var
+  Results: IList<TApplyItemResult>;
+begin
+  Results := Apply('{"changes":[{"state":"modified","key":{"Code":"nope"},' +
+    '"values":{"Note":"x"}}]}');
+
+  Should(Results[0].Success).BeFalse;
+  Should(Integer(Scalar('SELECT COUNT(*) FROM eds_required'))).Be(1);
+end;
+
+procedure TEntityDataSetStoreRequiredTests.TestPartialUpdateIsStillValidated;
+var
+  Results: IList<TApplyItemResult>;
+begin
+  // Blanking a required column is still refused.
+  Results := Apply('{"changes":[{"state":"modified","key":{"Code":"r1"},' +
+    '"values":{"Name":""}}]}');
+
+  Should(Results[0].Success).BeFalse;
+  Should(string(Scalar('SELECT name FROM eds_required'))).Be('Seed');
 end;
 
 end.

@@ -65,6 +65,8 @@ type
       PropMap: TPropertyMap; out Value: Variant): Boolean;
     procedure SetPropertyValue(AEntity: TObject;
       PropMap: TPropertyMap; const Value: Variant);
+    function FindExisting(AEntityClass: TClass; Map: TEntityMap;
+      const AKeys: IDextJsonObject; ADbContext: TDbContext): TObject;
     function StageChange(AEntityClass: TClass; Map: TEntityMap;
       const AChange: IDextJsonObject; ADbContext: TDbContext): TObject;
     function ApplyAtomic(AEntityClass: TClass; const AChanges: IDextJsonArray;
@@ -372,6 +374,41 @@ begin
   FContinueOnError := AContinueOnError;
 end;
 
+/// <summary>
+///   The row a "modified" item refers to, loaded and tracked, or nil when
+///   there is none to load (no key, a composite key, or no such row).
+///   SaveChanges validates the whole entity, so a bare stub that carries only
+///   the key and the changed values fails on any other [Required] property.
+/// </summary>
+function TDbContextEntityDataSetStore.FindExisting(AEntityClass: TClass;
+  Map: TEntityMap; const AKeys: IDextJsonObject;
+  ADbContext: TDbContext): TObject;
+var
+  Pair: TPair<string, TPropertyMap>;
+  KeyMap: TPropertyMap;
+  KeyName: string;
+  KeyCount: Integer;
+  KeyValue: Variant;
+begin
+  Result := nil;
+  if (AKeys = nil) or (Map = nil) then Exit;
+
+  KeyCount := 0;
+  KeyMap := nil;
+  for Pair in Map.Properties do
+    if Pair.Value.IsPK then
+    begin
+      Inc(KeyCount);
+      KeyMap := Pair.Value;
+      KeyName := Pair.Key;
+    end;
+  if (KeyCount <> 1) or not AKeys.Contains(KeyName) then Exit;
+
+  KeyValue := ConvertToPropertyType(JsonMemberValue(AKeys, KeyName),
+    KeyMap.PropertyType, KeyMap.PropertyName);
+  Result := ADbContext.DataSet(AEntityClass.ClassInfo).FindObject(KeyValue);
+end;
+
 function TDbContextEntityDataSetStore.StageChange(AEntityClass: TClass;
   Map: TEntityMap; const AChange: IDextJsonObject;
   ADbContext: TDbContext): TObject;
@@ -380,6 +417,7 @@ var
   KeysObj: IDextJsonObject;
   ValuesObj: IDextJsonObject;
   EntityObj: TObject;
+  Existing: TObject;
   Pair: TPair<string, TPropertyMap>;
 begin
   Result := nil;
@@ -394,6 +432,31 @@ begin
   ValuesObj := nil;
   if AChange.Contains('values') then
     ValuesObj := AChange.GetObject('values');
+
+  // A modified item is applied to the stored row, so the entity that is
+  // validated and saved is complete.
+  if SameText(StateStr, 'modified') then
+  begin
+    Existing := FindExisting(AEntityClass, Map, KeysObj, ADbContext);
+    if Existing <> nil then
+    begin
+      try
+        if (ValuesObj <> nil) and (Map <> nil) then
+          for Pair in Map.Properties do
+            if ValuesObj.Contains(Pair.Key) then
+            begin
+              SetPropertyValue(Existing, Pair.Value,
+                JsonMemberValue(ValuesObj, Pair.Key));
+              ADbContext.Entry(Existing).Member(Pair.Key).IsModified := True;
+            end;
+      except
+        // It is tracked, and half written: leave nothing of it behind.
+        ADbContext.Detach(Existing);
+        raise;
+      end;
+      Exit(Existing);
+    end;
+  end;
 
   EntityObj := AEntityClass.Create;
   try
