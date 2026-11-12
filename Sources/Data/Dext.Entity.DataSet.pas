@@ -414,8 +414,12 @@ procedure TEntityDataSet.Refresh;
 begin
   if Active then
   begin
+    // BeforeRefresh and AfterRefresh are published; a Refresh that hides
+    // TDataSet.Refresh still has to fire them.
+    DoBeforeRefresh;
     ApplyFilterAndSort(Filtered);
     Resync([]);
+    DoAfterRefresh;
   end;
 end;
 

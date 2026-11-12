@@ -57,7 +57,10 @@ type
   TEntityDataSetFeaturesTests = class
   private
     FDataSet: TEntityDataSet;
+    FRefreshLog: string;
     procedure DoPrepareField(Sender: TObject; AField: TField);
+    procedure DoBeforeRefresh(ADataSet: TDataSet);
+    procedure DoAfterRefresh(ADataSet: TDataSet);
   public
     [Setup]
     procedure Setup;
@@ -84,6 +87,8 @@ type
     procedure Test_ChangesAsJson_Contract;
     [Test]
     procedure Test_ChangesAsJson_EscapesControlCharacters;
+    [Test]
+    procedure Test_Refresh_Fires_BeforeRefresh_And_AfterRefresh;
   end;
 
 implementation
@@ -104,6 +109,33 @@ procedure TEntityDataSetFeaturesTests.DoPrepareField(Sender: TObject; AField: TF
 begin
   if AField.FieldName = 'Name' then
     AField.ReadOnly := True;
+end;
+
+procedure TEntityDataSetFeaturesTests.DoBeforeRefresh(ADataSet: TDataSet);
+begin
+  FRefreshLog := FRefreshLog + 'B';
+end;
+
+procedure TEntityDataSetFeaturesTests.DoAfterRefresh(ADataSet: TDataSet);
+begin
+  FRefreshLog := FRefreshLog + 'A';
+end;
+
+procedure TEntityDataSetFeaturesTests.Test_Refresh_Fires_BeforeRefresh_And_AfterRefresh;
+var
+  LList: IList<TProductFeaturesTest>;
+begin
+  // BeforeRefresh and AfterRefresh are published events; Refresh must fire
+  // them like any TDataSet, before and after the rows are read again.
+  LList := TCollections.CreateList<TProductFeaturesTest>;
+  FDataSet.Load<TProductFeaturesTest>(LList);
+  FDataSet.BeforeRefresh := DoBeforeRefresh;
+  FDataSet.AfterRefresh := DoAfterRefresh;
+  FRefreshLog := '';
+
+  FDataSet.Refresh;
+
+  Should(FRefreshLog).Be('BA');
 end;
 
 procedure TEntityDataSetFeaturesTests.Test_DisplayAttributes_Mapping;
