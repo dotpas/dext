@@ -78,6 +78,12 @@ type
     procedure Test_RejectChanges_Rollback;
     [Test]
     procedure Test_LoadFromJson_PlainDTO_Regression;
+    [Test]
+    procedure Test_ChangesAsJson_Empty;
+    [Test]
+    procedure Test_ChangesAsJson_Contract;
+    [Test]
+    procedure Test_ChangesAsJson_EscapesControlCharacters;
   end;
 
 implementation
@@ -259,6 +265,78 @@ begin
   // 5. AcceptChanges
   FDataSet.AcceptChanges;
   Should(FDataSet.Changes.Count).Be(0);
+end;
+
+procedure TEntityDataSetFeaturesTests.Test_ChangesAsJson_Empty;
+var
+  List: IList<TProductFeaturesTest>;
+begin
+  List := TCollections.CreateList<TProductFeaturesTest>(True);
+  FDataSet.Load<TProductFeaturesTest>(List);
+  FDataSet.Open;
+  Should(FDataSet.ChangesAsJson).Be('{"changes":[]}');
+end;
+
+procedure TEntityDataSetFeaturesTests.Test_ChangesAsJson_Contract;
+var
+  List: IList<TProductFeaturesTest>;
+  Prod: TProductFeaturesTest;
+  I: Integer;
+begin
+  List := TCollections.CreateList<TProductFeaturesTest>(True);
+  for I := 1 to 3 do
+  begin
+    Prod := TProductFeaturesTest.Create;
+    Prod.Id := I;
+    Prod.Name := 'P' + IntToStr(I);
+    List.Add(Prod);
+  end;
+  FDataSet.Load<TProductFeaturesTest>(List);
+  FDataSet.Open;
+
+  FDataSet.Locate('Id', 1, []);
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Renamed';
+  FDataSet.Post;
+
+  FDataSet.Append;
+  FDataSet.FieldByName('Name').AsString := 'New';
+  FDataSet.FieldByName('Price').AsFloat := 2.5;
+  FDataSet.FieldByName('Stock').AsInteger := 3;
+  FDataSet.FieldByName('Status').AsInteger := 4;
+  FDataSet.Post;
+
+  FDataSet.Locate('Id', 3, []);
+  FDataSet.Delete;
+
+  Should(FDataSet.ChangesAsJson).Be(
+    '{"changes":[' +
+    '{"state":"modified","key":{"Id":1},"values":{"Name":"Renamed"}},' +
+    '{"state":"inserted","values":{"Name":"New","Price":2.5,' +
+    '"Stock":3,"Status":4}},' +
+    '{"state":"deleted","key":{"Id":3}}]}');
+end;
+
+procedure TEntityDataSetFeaturesTests.Test_ChangesAsJson_EscapesControlCharacters;
+var
+  List: IList<TProductFeaturesTest>;
+  Prod: TProductFeaturesTest;
+begin
+  List := TCollections.CreateList<TProductFeaturesTest>(True);
+  Prod := TProductFeaturesTest.Create;
+  Prod.Id := 1;
+  Prod.Name := 'x';
+  List.Add(Prod);
+  FDataSet.Load<TProductFeaturesTest>(List);
+  FDataSet.Open;
+
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Say "hi"'#10 + Chr(92) + #9;
+  FDataSet.Post;
+
+  Should(FDataSet.ChangesAsJson).Be(
+    '{"changes":[{"state":"modified","key":{"Id":1},' +
+    '"values":{"Name":"Say \"hi\"\n\\\t"}}]}');
 end;
 
 procedure TEntityDataSetFeaturesTests.Test_RejectChanges_Rollback;

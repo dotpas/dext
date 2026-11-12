@@ -238,6 +238,13 @@ type
     function ReadPropertyValue(AEntity: TObject;
       PropMap: TPropertyMap; out AValue: Variant): Boolean;
     property Changes: IList<TEntityChange> read GetChanges;
+    /// <summary>
+    ///   The change log as the body the server route accepts
+    ///   ({"changes":[{"state":"inserted|modified|deleted", ...}]}).
+    ///   An insert carries every mapped value except an auto-increment key,
+    ///   a modification only its changed fields, a delete only the key.
+    /// </summary>
+    function ChangesAsJson: string;
 
     function AsJsonArray: string;
     function AsJsonObject: string;
@@ -4396,6 +4403,145 @@ procedure TEntityDataSet.ClearChanges;
 begin
   if FTrackedChanges <> nil then
     FTrackedChanges.Clear;
+end;
+
+function JsonText(const S: string): string;
+var
+  Sb: TStringBuilder;
+  C: Char;
+begin
+  Sb := TStringBuilder.Create;
+  try
+    Sb.Append('"');
+    for C in S do
+      case C of
+        '"': Sb.Append('\"');
+        '\': Sb.Append('\\');
+        #8: Sb.Append('\b');
+        #9: Sb.Append('\t');
+        #10: Sb.Append('\n');
+        #12: Sb.Append('\f');
+        #13: Sb.Append('\r');
+      else
+        if C < ' ' then
+          Sb.Append('\u').Append(IntToHex(Ord(C), 4))
+        else
+          Sb.Append(C);
+      end;
+    Sb.Append('"');
+    Result := Sb.ToString;
+  finally
+    Sb.Free;
+  end;
+end;
+
+function VariantAsJson(const AValue: Variant): string;
+var
+  Fs: TFormatSettings;
+begin
+  Fs := TFormatSettings.Invariant;
+  case VarType(AValue) and varTypeMask of
+    varEmpty, varNull:
+      Result := 'null';
+    varBoolean:
+      if Boolean(AValue) then
+        Result := 'true'
+      else
+        Result := 'false';
+    varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord,
+    varInt64, varUInt64:
+      Result := IntToStr(Int64(AValue));
+    varSingle, varDouble:
+      Result := FloatToStr(Double(AValue), Fs);
+    varCurrency:
+      Result := CurrToStr(Currency(AValue), Fs);
+    varDate:
+      Result := JsonText(FormatDateTime('yyyy-mm-dd"T"hh:nn:ss',
+        VarToDateTime(AValue), Fs));
+  else
+    Result := JsonText(VarToStr(AValue));
+  end;
+end;
+
+function TEntityDataSet.ChangesAsJson: string;
+var
+  Sb: TStringBuilder;
+  Change: TEntityChange;
+  PropMap: TPropertyMap;
+  Value: Variant;
+  Name, Item, Values: string;
+  First: Boolean;
+  I: Integer;
+
+  procedure AddValue(const AName: string; AMap: TPropertyMap);
+  begin
+    if not ReadPropertyValue(Change.Entity, AMap, Value) then
+      Exit;
+    if Values <> '' then
+      Values := Values + ',';
+    Values := Values + JsonText(AName) + ':' + VariantAsJson(Value);
+  end;
+
+begin
+  Sb := TStringBuilder.Create;
+  try
+    Sb.Append('{"changes":[');
+    First := True;
+    for Change in Changes do
+    begin
+      Item := '';
+      Values := '';
+      case Change.State of
+        ersInserted:
+          begin
+            if FEntityMap <> nil then
+              for PropMap in FEntityMap.OrderedProperties do
+                if not (PropMap.IsIgnored or PropMap.IsNavigation or
+                  PropMap.IsShadow or PropMap.IsAutoInc) then
+                  AddValue(PropMap.PropertyName, PropMap);
+            Item := '{"state":"inserted","values":{' + Values + '}}';
+          end;
+        ersModified:
+          begin
+            if FEntityMap <> nil then
+              for Name in Change.DirtyFields do
+                if FEntityMap.Properties.TryGetValue(Name, PropMap) then
+                  AddValue(Name, PropMap);
+            Item := '{"state":"modified","key":{';
+            for I := 0 to High(Change.Key) do
+            begin
+              if I > 0 then
+                Item := Item + ',';
+              Item := Item + JsonText(Change.Key[I].Key) + ':' +
+                VariantAsJson(Change.Key[I].Value);
+            end;
+            Item := Item + '},"values":{' + Values + '}}';
+          end;
+        ersDeleted:
+          begin
+            Item := '{"state":"deleted","key":{';
+            for I := 0 to High(Change.Key) do
+            begin
+              if I > 0 then
+                Item := Item + ',';
+              Item := Item + JsonText(Change.Key[I].Key) + ':' +
+                VariantAsJson(Change.Key[I].Value);
+            end;
+            Item := Item + '}}';
+          end;
+      end;
+      if Item = '' then
+        Continue;
+      if not First then
+        Sb.Append(',');
+      First := False;
+      Sb.Append(Item);
+    end;
+    Sb.Append(']}');
+    Result := Sb.ToString;
+  finally
+    Sb.Free;
+  end;
 end;
 
 function TEntityDataSet.GetEntityKeys(AEntity: TObject):
