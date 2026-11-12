@@ -43,10 +43,24 @@ begin
   // Register your job classes in DI
   Services.AddTransient<TEmailService>;
 
-  // Registers job client and storage based on appsettings.json
+  // Registers job client, storage and the job server (worker pool)
   Services.AddBackgroundJobs;
+
+  // The server runs as a hosted service: add it to the host
+  Services.AddBackgroundServices.AddHostedService(TJobServer).Build;
 end;
 ```
+
+Options (all fluent, e.g. `Services.AddBackgroundJobs(procedure(O: TBackgroundJobsOptions) begin ... end)`):
+
+| Option | Default | Meaning |
+| :--- | :--- | :--- |
+| `Workers(n)` | 4 | Jobs that run at the same time (worker threads). |
+| `PollInterval(s)` | 5 | Seconds an idle worker waits before looking for jobs again. |
+| `Retries(max, backoff)` | 3, 5 s | Total tries per job (1 = never retry) and the first backoff. |
+| `Recovery(heartbeat, orphan)` | 15 s, 120 s | Heartbeat period and the silence after which a Processing job is recovered. |
+| `UseQueues([...])` | `default` | Queues polled, in priority order. |
+
 
 ---
 
@@ -110,8 +124,12 @@ var JobId := TDextJobs.Schedule<TEmailService>(
 
 ## Resiliency and Retries
 
-If a job throws an exception during execution, the background job engine will:
-1. Mark the job as failed.
-2. Increment the `AttemptCount`.
-3. In a future wave, exponential backoff retries will automatically retry the job execution.
-4. Keep the exception details and stack trace in the `ErrorLog` column for troubleshooting.
+If a job throws an exception during execution, the job server:
+1. Records the exception message in the job's `ErrorLog`.
+2. Counts the attempt (`AttemptCount`).
+3. Retries it with exponential backoff (`RetryBackoffSeconds`, doubling on each retry, capped at one hour) until `MaxAttempts` tries were made; after that the job stays `jsFailed`.
+   Retries need a storage that implements `IJobStorageEx` (the InMemory and SQLite providers do); with any other storage a failure is final.
+
+While a job runs, the server records a heartbeat for it. A job left in `jsProcessing` with no heartbeat for `OrphanTimeoutSeconds` (a worker died, or the process was killed) is recovered: it goes back to the queue, counting the lost attempt, or becomes `jsFailed` when no attempts are left.
+
+Each job runs on a fresh instance of its class (constructor-injected from the container) that the server frees afterwards. `Stop` lets running jobs finish (up to the service's `StopTimeoutMs`); jobs are not interrupted.

@@ -50,13 +50,27 @@ type
   public
     Provider: string; // SQLite, InMemory
     ConnectionString: string; // Database path for SQLite
+    /// <summary>Number of jobs that can run at the same time (worker threads).</summary>
     WorkerCount: Integer;
     PollIntervalInSeconds: Integer;
+    /// <summary>Total tries of a job, the first one included (1 = never retry).</summary>
+    MaxAttempts: Integer;
+    /// <summary>Wait before the first retry; it doubles on each further retry (max 1 hour).</summary>
+    RetryBackoffSeconds: Integer;
+    /// <summary>How often a running job reports that its worker is alive.</summary>
+    HeartbeatSeconds: Integer;
+    /// <summary>A Processing job silent for this long is considered orphan and is recovered.</summary>
+    OrphanTimeoutSeconds: Integer;
+    /// <summary>Queues the server polls, in priority order.</summary>
+    Queues: TArray<string>;
     constructor Create;
     function UseSQLite(const AConnectionString: string = 'dext_jobs.db'): TBackgroundJobsOptions;
     function UseInMemory: TBackgroundJobsOptions;
     function Workers(Value: Integer): TBackgroundJobsOptions;
     function PollInterval(Seconds: Integer): TBackgroundJobsOptions;
+    function Retries(AMaxAttempts: Integer; ABackoffSeconds: Integer = 5): TBackgroundJobsOptions;
+    function Recovery(AHeartbeatSeconds, AOrphanTimeoutSeconds: Integer): TBackgroundJobsOptions;
+    function UseQueues(const ANames: array of string): TBackgroundJobsOptions;
   end;
 
   /// <summary>
@@ -68,6 +82,11 @@ type
     FConnectionString: string;
     FWorkerCount: Integer;
     FPollIntervalInSeconds: Integer;
+    FMaxAttempts: Integer;
+    FRetryBackoffSeconds: Integer;
+    FHeartbeatSeconds: Integer;
+    FOrphanTimeoutSeconds: Integer;
+    FQueues: TArray<string>;
   public
     class function Create: TBackgroundJobsOptionsBuilder; static;
     function Provider(const Value: string): TBackgroundJobsOptionsBuilder;
@@ -78,6 +97,9 @@ type
     function WorkerCount(Value: Integer): TBackgroundJobsOptionsBuilder;
     function PollInterval(Seconds: Integer): TBackgroundJobsOptionsBuilder;
     function PollIntervalInSeconds(Seconds: Integer): TBackgroundJobsOptionsBuilder;
+    function Retries(AMaxAttempts: Integer; ABackoffSeconds: Integer = 5): TBackgroundJobsOptionsBuilder;
+    function Recovery(AHeartbeatSeconds, AOrphanTimeoutSeconds: Integer): TBackgroundJobsOptionsBuilder;
+    function UseQueues(const ANames: array of string): TBackgroundJobsOptionsBuilder;
 
     function Build: TBackgroundJobsOptions;
     class operator Implicit(const ABuilder: TBackgroundJobsOptionsBuilder): TBackgroundJobsOptions;
@@ -125,7 +147,8 @@ function BackgroundJobsOptions(const AProvider: string; const AConnectionString:
 implementation
 
 uses
-  System.Generics.Defaults;
+  System.Generics.Defaults,
+  Dext.BackgroundJobs.Server;
 
 class constructor TJobStorageRegistry.Create;
 begin
@@ -163,6 +186,35 @@ begin
   ConnectionString := '';
   WorkerCount := 4;
   PollIntervalInSeconds := 5;
+  MaxAttempts := 3;
+  RetryBackoffSeconds := 5;
+  HeartbeatSeconds := 15;
+  OrphanTimeoutSeconds := 120;
+  Queues := ['default'];
+end;
+
+function TBackgroundJobsOptions.Retries(AMaxAttempts, ABackoffSeconds: Integer): TBackgroundJobsOptions;
+begin
+  Result := Self;
+  MaxAttempts := AMaxAttempts;
+  RetryBackoffSeconds := ABackoffSeconds;
+end;
+
+function TBackgroundJobsOptions.Recovery(AHeartbeatSeconds, AOrphanTimeoutSeconds: Integer): TBackgroundJobsOptions;
+begin
+  Result := Self;
+  HeartbeatSeconds := AHeartbeatSeconds;
+  OrphanTimeoutSeconds := AOrphanTimeoutSeconds;
+end;
+
+function TBackgroundJobsOptions.UseQueues(const ANames: array of string): TBackgroundJobsOptions;
+var
+  I: Integer;
+begin
+  Result := Self;
+  SetLength(Queues, Length(ANames));
+  for I := 0 to High(ANames) do
+    Queues[I] := ANames[I];
 end;
 
 function TBackgroundJobsOptions.UseSQLite(const AConnectionString: string): TBackgroundJobsOptions;
@@ -199,6 +251,35 @@ begin
   Result.FConnectionString := '';
   Result.FWorkerCount := 4;
   Result.FPollIntervalInSeconds := 5;
+  Result.FMaxAttempts := 3;
+  Result.FRetryBackoffSeconds := 5;
+  Result.FHeartbeatSeconds := 15;
+  Result.FOrphanTimeoutSeconds := 120;
+  Result.FQueues := ['default'];
+end;
+
+function TBackgroundJobsOptionsBuilder.Retries(AMaxAttempts, ABackoffSeconds: Integer): TBackgroundJobsOptionsBuilder;
+begin
+  Result := Self;
+  Result.FMaxAttempts := AMaxAttempts;
+  Result.FRetryBackoffSeconds := ABackoffSeconds;
+end;
+
+function TBackgroundJobsOptionsBuilder.Recovery(AHeartbeatSeconds, AOrphanTimeoutSeconds: Integer): TBackgroundJobsOptionsBuilder;
+begin
+  Result := Self;
+  Result.FHeartbeatSeconds := AHeartbeatSeconds;
+  Result.FOrphanTimeoutSeconds := AOrphanTimeoutSeconds;
+end;
+
+function TBackgroundJobsOptionsBuilder.UseQueues(const ANames: array of string): TBackgroundJobsOptionsBuilder;
+var
+  I: Integer;
+begin
+  Result := Self;
+  SetLength(Result.FQueues, Length(ANames));
+  for I := 0 to High(ANames) do
+    Result.FQueues[I] := ANames[I];
 end;
 
 function TBackgroundJobsOptionsBuilder.Provider(const Value: string): TBackgroundJobsOptionsBuilder;
@@ -258,6 +339,11 @@ begin
   Result.ConnectionString := FConnectionString;
   Result.WorkerCount := FWorkerCount;
   Result.PollIntervalInSeconds := FPollIntervalInSeconds;
+  Result.MaxAttempts := FMaxAttempts;
+  Result.RetryBackoffSeconds := FRetryBackoffSeconds;
+  Result.HeartbeatSeconds := FHeartbeatSeconds;
+  Result.OrphanTimeoutSeconds := FOrphanTimeoutSeconds;
+  Result.Queues := Copy(FQueues);
 end;
 
 class operator TBackgroundJobsOptionsBuilder.Implicit(const ABuilder: TBackgroundJobsOptionsBuilder): TBackgroundJobsOptions;
@@ -408,6 +494,22 @@ begin
       Intf := Provider.GetServiceAsInterface(TypeInfo(IJobStorage));
       Supports(Intf, IJobStorage, Storage);
       Result := TJobClient.Create(Storage);
+    end
+  );
+
+  // Register the job server (the worker pool). It runs as a hosted service: add it with
+  // Services.AddBackgroundServices.AddHostedService(TJobServer).Build
+  Services.AddSingleton(
+    TServiceType.FromClass(TJobServer),
+    TJobServer,
+    function(Provider: IServiceProvider): TObject
+    var
+      Storage: IJobStorage;
+      Intf: IInterface;
+    begin
+      Intf := Provider.GetServiceAsInterface(TypeInfo(IJobStorage));
+      Supports(Intf, IJobStorage, Storage);
+      Result := TJobServer.Create(Storage, Provider, AOptions);
     end
   );
 end;

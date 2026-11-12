@@ -1,3 +1,4 @@
+
 {***************************************************************************}
 {                                                                           }
 {           Dext Framework                                                  }
@@ -25,7 +26,10 @@ interface
 
 uses
   System.SysUtils,
+  System.Classes,
   System.Rtti,
+  System.SyncObjs,
+  System.Generics.Collections,
   Dext.Threading.CancellationToken,
   Dext.Hosting.BackgroundService,
   Dext.DI.Interfaces,
@@ -33,24 +37,78 @@ uses
   Dext.BackgroundJobs.Config;
 
 type
+  /// <summary>
+  ///   The job worker pool, run as a hosted service. It starts WorkerCount worker
+  ///   threads that poll the configured queues, a heartbeat thread that keeps running
+  ///   jobs alive and recovers orphans, and retries failed jobs with exponential backoff
+  ///   (when the storage implements IJobStorageEx).
+  ///   Each job runs on a fresh instance of its class, created with constructor
+  ///   injection and freed by the server after the call.
+  ///   Stop lets running jobs finish (up to StopTimeoutMs): a job is not interrupted.
+  /// </summary>
   TJobServer = class(TBackgroundService)
   private
     FStorage: IJobStorage;
-    FServiceProvider: IServiceProvider;
+    FStorageEx: IJobStorageEx;
+    // Weak: the container owns this server (a singleton), so a strong reference
+    // back to the container would be a cycle that keeps both alive forever.
+    [weak] FServiceProvider: IServiceProvider;
     FOptions: TBackgroundJobsOptions;
+    FActiveLock: TCriticalSection;
+    FActive: TList<string>;
+    procedure WorkerLoop(const Token: ICancellationToken);
+    procedure HeartbeatLoop(const Token: ICancellationToken);
+    function RunNextJob: Boolean;
+    function PollIntervalMs: Cardinal;
+    function RetryDelayDays(AAttempts: Integer): Double;
+    procedure MarkFailed(const Job: TJobInfo; const AMessage: string);
+    procedure LogError(const AMsg: string; const AArgs: array of const);
     procedure ProcessJob(const Job: TJobInfo);
     function ResolveJobInstance(const AClassName: string): TObject;
   protected
     procedure Execute(Token: ICancellationToken); override;
   public
     constructor Create(const AStorage: IJobStorage; const AServiceProvider: IServiceProvider; const AOptions: TBackgroundJobsOptions);
+    destructor Destroy; override;
   end;
 
 implementation
 
 uses
-  System.Classes,
   Dext.Core.Activator;
+
+type
+  /// <summary>A thread running one procedure; owned (and freed) by the server's Execute.</summary>
+  TJobHelperThread = class(TThread)
+  private
+    FBody: TProc;
+    FOnError: TProc<string>;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const ABody: TProc; const AOnError: TProc<string>);
+  end;
+
+{ TJobHelperThread }
+
+constructor TJobHelperThread.Create(const ABody: TProc; const AOnError: TProc<string>);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FBody := ABody;
+  FOnError := AOnError;
+end;
+
+procedure TJobHelperThread.Execute;
+begin
+  try
+    FBody();
+  except
+    on E: Exception do
+      if Assigned(FOnError) then
+        FOnError(E.Message);
+  end;
+end;
 
 { TJobServer }
 
@@ -58,45 +116,175 @@ constructor TJobServer.Create(const AStorage: IJobStorage; const AServiceProvide
 begin
   inherited Create;
   FStorage := AStorage;
+  Supports(AStorage, IJobStorageEx, FStorageEx);
   FServiceProvider := AServiceProvider;
   FOptions := AOptions;
+  FActiveLock := TCriticalSection.Create;
+  FActive := TList<string>.Create;
+end;
+
+destructor TJobServer.Destroy;
+begin
+  // A server destroyed while running must not leave its threads behind.
+  Stop;
+  FActive.Free;
+  FActiveLock.Free;
+  inherited;
+end;
+
+procedure TJobServer.LogError(const AMsg: string; const AArgs: array of const);
+begin
+  if Assigned(FLogger) then
+    FLogger.LogError(AMsg, AArgs);
+end;
+
+function TJobServer.PollIntervalMs: Cardinal;
+begin
+  if FOptions.PollIntervalInSeconds <= 0 then
+    Result := 500
+  else
+    Result := Cardinal(FOptions.PollIntervalInSeconds) * 1000;
+end;
+
+function TJobServer.RetryDelayDays(AAttempts: Integer): Double;
+var
+  LSeconds: Double;
+  I: Integer;
+begin
+  // Delay before retry number AAttempts: backoff, 2x backoff, 4x ... capped at 1 hour.
+  LSeconds := FOptions.RetryBackoffSeconds;
+  if LSeconds < 0 then
+    LSeconds := 0;
+  for I := 2 to AAttempts do
+  begin
+    LSeconds := LSeconds * 2;
+    if LSeconds >= 3600 then
+      Break;
+  end;
+  if LSeconds > 3600 then
+    LSeconds := 3600;
+  Result := LSeconds / 86400.0;
 end;
 
 procedure TJobServer.Execute(Token: ICancellationToken);
 var
-  Job: TJobInfo;
-  SleepCount: Integer;
-  MaxSleep: Integer;
+  LHelpers: TObjectList<TJobHelperThread>;
+  LThread: TJobHelperThread;
+  LToken: ICancellationToken;
+  LOnError: TProc<string>;
+  I: Integer;
 begin
-  MaxSleep := FOptions.PollIntervalInSeconds * 10; // PollIntervalInSeconds * 1000ms divided by 100ms
-  if MaxSleep <= 0 then
-    MaxSleep := 50;
+  LToken := Token;
+  LOnError :=
+    procedure(AMessage: string)
+    begin
+      LogError('Background job helper thread failed: {0}', [AMessage]);
+    end;
+
+  LHelpers := TObjectList<TJobHelperThread>.Create(True);
+  try
+    // WorkerCount - 1 extra workers; this thread is the last worker.
+    for I := 2 to FOptions.WorkerCount do
+    begin
+      LThread := TJobHelperThread.Create(
+        procedure
+        begin
+          WorkerLoop(LToken);
+        end, LOnError);
+      LHelpers.Add(LThread);
+    end;
+    LHelpers.Add(TJobHelperThread.Create(
+      procedure
+      begin
+        HeartbeatLoop(LToken);
+      end, LOnError));
+
+    for LThread in LHelpers do
+      LThread.Start;
+
+    try
+      WorkerLoop(LToken);
+    finally
+      // The token is cancelled: every helper leaves its loop after its current job.
+      for LThread in LHelpers do
+        LThread.WaitFor;
+    end;
+  finally
+    LHelpers.Free;
+  end;
+end;
+
+procedure TJobServer.WorkerLoop(const Token: ICancellationToken);
+begin
+  while not Token.IsCancellationRequested do
+  begin
+    try
+      if not RunNextJob then
+        // Idle: wait for the poll interval, but wake up at once on cancellation.
+        Token.WaitForCancellation(PollIntervalMs);
+    except
+      on E: Exception do
+      begin
+        LogError('Error in background job server execution loop: {0}', [E.Message]);
+        Token.WaitForCancellation(1000);
+      end;
+    end;
+  end;
+end;
+
+function TJobServer.RunNextJob: Boolean;
+var
+  Job: TJobInfo;
+  LQueue: string;
+begin
+  for LQueue in FOptions.Queues do
+  begin
+    if FStorage.GetNextJob(LQueue, Job) then
+    begin
+      ProcessJob(Job);
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+procedure TJobServer.HeartbeatLoop(const Token: ICancellationToken);
+var
+  LIds: TArray<string>;
+  LId: string;
+  LHeartbeatMs: Cardinal;
+  LTimeoutDays: Double;
+  LHeartbeatSec, LOrphanSec: Integer;
+begin
+  LHeartbeatSec := FOptions.HeartbeatSeconds;
+  if LHeartbeatSec < 1 then
+    LHeartbeatSec := 15;
+  LOrphanSec := FOptions.OrphanTimeoutSeconds;
+  // The timeout must leave room for at least two missed beats.
+  if LOrphanSec < LHeartbeatSec * 2 then
+    LOrphanSec := LHeartbeatSec * 2;
+  LHeartbeatMs := Cardinal(LHeartbeatSec) * 1000;
+  LTimeoutDays := LOrphanSec / 86400.0;
 
   while not Token.IsCancellationRequested do
   begin
     try
-      if FStorage.GetNextJob('default', Job) then
-      begin
-        ProcessJob(Job);
-      end
-      else
-      begin
-        // Wait gracefully checking token every 100ms
-        SleepCount := 0;
-        while (SleepCount < MaxSleep) and (not Token.IsCancellationRequested) do
-        begin
-          Sleep(100);
-          Inc(SleepCount);
-        end;
+      FActiveLock.Enter;
+      try
+        LIds := FActive.ToArray;
+      finally
+        FActiveLock.Leave;
       end;
+      for LId in LIds do
+        FStorage.RecordHeartbeat(LId);
+
+      if Assigned(FStorageEx) then
+        FStorageEx.RecoverOrphans(Now - LTimeoutDays, FOptions.MaxAttempts);
     except
       on E: Exception do
-      begin
-        if Assigned(FLogger) then
-          FLogger.LogError('Error in background job server execution loop: {0}', [E.Message]);
-        Sleep(1000);
-      end;
+        LogError('Background job heartbeat failed: {0}', [E.Message]);
     end;
+    Token.WaitForCancellation(LHeartbeatMs);
   end;
 end;
 
@@ -130,6 +318,23 @@ begin
   end;
 end;
 
+procedure TJobServer.MarkFailed(const Job: TJobInfo; const AMessage: string);
+var
+  LAttempts: Integer;
+begin
+  // Whatever happens here, it must not escape: the worker has to keep working.
+  try
+    LAttempts := Job.AttemptCount + 1; // this run included
+    if Assigned(FStorageEx) and (LAttempts < FOptions.MaxAttempts) then
+      FStorageEx.ScheduleRetry(Job.Id, Now + RetryDelayDays(LAttempts), AMessage)
+    else
+      FStorage.UpdateJobState(Job.Id, jsFailed, AMessage);
+  except
+    on E: Exception do
+      LogError('Could not record the failure of job {0}: {1}', [Job.Id, E.Message]);
+  end;
+end;
+
 procedure TJobServer.ProcessJob(const Job: TJobInfo);
 var
   Instance: TObject;
@@ -137,8 +342,20 @@ var
   RttiType: TRttiType;
   RttiMethod: TRttiMethod;
   Params: TArray<TValue>;
+  LSucceeded: Boolean;
+  LMessage: string;
 begin
   Instance := nil;
+  LSucceeded := False;
+  LMessage := '';
+
+  FActiveLock.Enter;
+  try
+    FActive.Add(Job.Id);
+  finally
+    FActiveLock.Leave;
+  end;
+
   RttiContext := TRttiContext.Create;
   try
     try
@@ -152,24 +369,39 @@ begin
         raise Exception.CreateFmt('Method %s not found on class %s', [Job.MethodName, Job.JobType]);
 
       Params := TJobParamSerializer.Deserialize(Job.ParamsJson);
-      
+
       // Invoke the method
       RttiMethod.Invoke(Instance, Params);
-
-      FStorage.UpdateJobState(Job.Id, jsSucceeded);
+      LSucceeded := True;
     except
       on E: Exception do
       begin
-        FStorage.UpdateJobState(Job.Id, jsFailed, E.Message);
-        if Assigned(FLogger) then
-          FLogger.LogError('Failed to process job {0}: {1}', [Job.Id, E.Message]);
+        LMessage := E.Message;
+        LogError('Failed to process job {0}: {1}', [Job.Id, E.Message]);
       end;
     end;
   finally
-    if Assigned(Instance) then
-      Instance.Free;
+    Instance.Free;
     RttiContext.Free;
+    FActiveLock.Enter;
+    try
+      FActive.Remove(Job.Id);
+    finally
+      FActiveLock.Leave;
+    end;
   end;
+
+  if LSucceeded then
+  begin
+    try
+      FStorage.UpdateJobState(Job.Id, jsSucceeded);
+    except
+      on E: Exception do
+        LogError('Could not record the success of job {0}: {1}', [Job.Id, E.Message]);
+    end;
+  end
+  else
+    MarkFailed(Job, LMessage);
 end;
 
 end.

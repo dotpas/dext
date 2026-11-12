@@ -63,6 +63,27 @@ type
   end;
 
   /// <summary>
+  ///   Optional storage capabilities used by the job server for retries and for
+  ///   recovering jobs whose worker died. Both built-in providers implement it; a
+  ///   custom IJobStorage without it still works, but its failed jobs are final.
+  /// </summary>
+  IJobStorageEx = interface(IJobStorage)
+    ['{C2E7A4B1-5D38-4F96-8A0E-71B9D3F2C645}']
+    /// <summary>
+    ///   Puts a failed job back in the queue to run again at AEnqueueAt. The failed attempt
+    ///   is counted and AErrorMessage is kept in the error log.
+    /// </summary>
+    procedure ScheduleRetry(const AJobId: string; const AEnqueueAt: TDateTime;
+      const AErrorMessage: string);
+    /// <summary>
+    ///   Recovers orphan jobs: Processing jobs whose last heartbeat is older than
+    ///   AStaleBefore. The lost attempt is counted; the job goes back to the queue, or
+    ///   becomes Failed when AMaxAttempts is reached. Returns how many jobs were touched.
+    /// </summary>
+    function RecoverOrphans(const AStaleBefore: TDateTime; AMaxAttempts: Integer): Integer;
+  end;
+
+  /// <summary>
   ///   Client interface used to register background tasks.
   /// </summary>
   IJobClient = interface

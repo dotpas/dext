@@ -38,7 +38,7 @@ uses
   Dext.BackgroundJobs.Intf;
 
 type
-  TSqliteJobStorage = class(TInterfacedObject, IJobStorage)
+  TSqliteJobStorage = class(TInterfacedObject, IJobStorageEx, IJobStorage)
   private
     FDbPath: string;
     FConnection: TFDConnection;
@@ -55,6 +55,8 @@ type
     function GetNextJob(const AQueue: string; out AJob: TJobInfo): Boolean;
     procedure UpdateJobState(const AJobId: string; const AState: TJobState; const AErrorMessage: string = '');
     procedure RecordHeartbeat(const AJobId: string);
+    procedure ScheduleRetry(const AJobId: string; const AEnqueueAt: TDateTime; const AErrorMessage: string);
+    function RecoverOrphans(const AStaleBefore: TDateTime; AMaxAttempts: Integer): Integer;
   end;
 
 implementation
@@ -198,6 +200,7 @@ var
   LNow: TDateTime;
 begin
   Result := False;
+  AJob := Default(TJobInfo);
   LNow := Now;
   TMonitor.Enter(FMutex);
   try
@@ -299,6 +302,80 @@ begin
       Query.ExecSQL;
     finally
       Query.Free;
+    end;
+  finally
+    TMonitor.Exit(FMutex);
+  end;
+end;
+
+procedure TSqliteJobStorage.ScheduleRetry(const AJobId: string;
+  const AEnqueueAt: TDateTime; const AErrorMessage: string);
+var
+  Query: TFDQuery;
+begin
+  TMonitor.Enter(FMutex);
+  try
+    Query := TFDQuery.Create(nil);
+    try
+      Query.Connection := GetConnection;
+      Query.SQL.Text := 'UPDATE DextJobs SET State = :State, EnqueueAt = :EnqueueAt, ' +
+                        'AttemptCount = AttemptCount + 1, ErrorLog = :ErrorLog WHERE Id = :Id';
+      Query.ParamByName('State').AsInteger := Ord(jsEnqueued);
+      Query.ParamByName('EnqueueAt').AsDateTime := AEnqueueAt;
+      Query.ParamByName('ErrorLog').AsString := AErrorMessage;
+      Query.ParamByName('Id').AsString := AJobId;
+      Query.ExecSQL;
+    finally
+      Query.Free;
+    end;
+  finally
+    TMonitor.Exit(FMutex);
+  end;
+end;
+
+function TSqliteJobStorage.RecoverOrphans(const AStaleBefore: TDateTime;
+  AMaxAttempts: Integer): Integer;
+var
+  Conn: TFDConnection;
+  Query: TFDQuery;
+begin
+  Result := 0;
+  TMonitor.Enter(FMutex);
+  try
+    Conn := GetConnection;
+    Conn.StartTransaction;
+    try
+      Query := TFDQuery.Create(nil);
+      try
+        Query.Connection := Conn;
+        // Exhausted jobs become Failed ...
+        Query.SQL.Text := 'UPDATE DextJobs SET State = :Failed, AttemptCount = AttemptCount + 1, ' +
+                          'ErrorLog = ''Worker lost: no heartbeat.'' ' +
+                          'WHERE State = :Processing AND LastHeartbeat < :Stale AND AttemptCount + 1 >= :Max';
+        Query.ParamByName('Failed').AsInteger := Ord(jsFailed);
+        Query.ParamByName('Processing').AsInteger := Ord(jsProcessing);
+        Query.ParamByName('Stale').AsDateTime := AStaleBefore;
+        Query.ParamByName('Max').AsInteger := AMaxAttempts;
+        Query.ExecSQL;
+        Inc(Result, Query.RowsAffected);
+
+        // ... the others go back to the queue.
+        Query.SQL.Text := 'UPDATE DextJobs SET State = :Enqueued, EnqueueAt = :Now, ' +
+                          'AttemptCount = AttemptCount + 1, ErrorLog = ''Worker lost: no heartbeat.'' ' +
+                          'WHERE State = :Processing AND LastHeartbeat < :Stale';
+        Query.ParamByName('Enqueued').AsInteger := Ord(jsEnqueued);
+        Query.ParamByName('Now').AsDateTime := Now;
+        Query.ParamByName('Processing').AsInteger := Ord(jsProcessing);
+        Query.ParamByName('Stale').AsDateTime := AStaleBefore;
+        Query.ExecSQL;
+        Inc(Result, Query.RowsAffected);
+      finally
+        Query.Free;
+      end;
+      Conn.Commit;
+    except
+      Conn.Rollback;
+      raise;
     end;
   finally
     TMonitor.Exit(FMutex);

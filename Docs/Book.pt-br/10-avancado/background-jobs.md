@@ -43,10 +43,24 @@ begin
   // Registre as classes dos seus jobs no DI
   Services.AddTransient<TEmailService>;
 
-  // Registra o cliente e armazenamento de background jobs com base no appsettings.json
+  // Registra o cliente, o storage e o servidor de jobs (pool de workers)
   Services.AddBackgroundJobs;
+
+  // O servidor roda como hosted service: adicione-o ao host
+  Services.AddBackgroundServices.AddHostedService(TJobServer).Build;
 end;
 ```
+
+Opções (todas fluentes, ex.: `Services.AddBackgroundJobs(procedure(O: TBackgroundJobsOptions) begin ... end)`):
+
+| Opção | Padrão | Significado |
+| :--- | :--- | :--- |
+| `Workers(n)` | 4 | Jobs que executam ao mesmo tempo (threads de trabalho). |
+| `PollInterval(s)` | 5 | Segundos que um worker ocioso espera antes de procurar jobs de novo. |
+| `Retries(max, backoff)` | 3, 5 s | Total de tentativas por job (1 = nunca repetir) e o primeiro backoff. |
+| `Recovery(heartbeat, orphan)` | 15 s, 120 s | Período do heartbeat e o silêncio após o qual um job em Processing é recuperado. |
+| `UseQueues([...])` | `default` | Filas consultadas, em ordem de prioridade. |
+
 
 ---
 
@@ -110,8 +124,12 @@ var JobId := TDextJobs.Schedule<TEmailService>(
 
 ## Resiliência e Falhas
 
-Se uma exceção não tratada for lançada durante a execução de um job, o motor de jobs:
-1. Marcará o status do job como falhado (`jsFailed`).
-2. Incrementará o contador `AttemptCount`.
-3. Em uma fase futura do roadmap, fará a retentativa automática com backoff exponencial.
-4. Salvará a mensagem de exceção e o stack trace na coluna `ErrorLog` para depuração.
+Se uma exceção for lançada durante a execução de um job, o servidor de jobs:
+1. Grava a mensagem da exceção no `ErrorLog` do job.
+2. Conta a tentativa (`AttemptCount`).
+3. Repete o job com backoff exponencial (`RetryBackoffSeconds`, dobrando a cada tentativa, no máximo 1 hora) até completar `MaxAttempts` tentativas; depois disso o job fica `jsFailed`.
+   As repetições exigem um storage que implemente `IJobStorageEx` (os provedores InMemory e SQLite implementam); com outro storage a falha é definitiva.
+
+Enquanto um job executa, o servidor registra um heartbeat para ele. Um job que ficou em `jsProcessing` sem heartbeat por `OrphanTimeoutSeconds` (um worker morreu ou o processo foi encerrado) é recuperado: volta para a fila, contando a tentativa perdida, ou vira `jsFailed` se não restarem tentativas.
+
+Cada job executa em uma instância nova da sua classe (com injeção pelo construtor a partir do container), que o servidor libera depois. `Stop` deixa os jobs em execução terminarem (até o `StopTimeoutMs` do serviço); os jobs não são interrompidos.

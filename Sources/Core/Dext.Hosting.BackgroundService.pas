@@ -30,6 +30,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.SyncObjs,
   Dext.Collections,
   Dext.DI.Interfaces,
   Dext.Logging,
@@ -53,7 +54,11 @@ type
     procedure RegisterService(Service: IHostedService);
     /// <summary>Starts all registered services asynchronously.</summary>
     procedure StartAsync(Token: ICancellationToken = nil);
-    /// <summary>Stops all registered services, respecting graceful shutdown.</summary>
+    /// <summary>
+    ///   Stops all registered services in reverse order. A TBackgroundService gets at
+    ///   most its StopTimeoutMs to finish; when Token is cancelled the wait ends at
+    ///   once (the service is still told to stop, but is not waited for).
+    /// </summary>
     procedure StopAsync(Token: ICancellationToken = nil);
   end;
 
@@ -67,10 +72,17 @@ type
     FService: TBackgroundService;
     FToken: ICancellationToken;
     FLogger: ILogger;
+    FDone: TEvent;
+    FError: string;
   protected
     procedure Execute; override;
   public
     constructor Create(Service: TBackgroundService; Token: ICancellationToken; Logger: ILogger = nil);
+    destructor Destroy; override;
+    /// <summary>Signaled when Execute has returned (normally or by an exception).</summary>
+    property Done: TEvent read FDone;
+    /// <summary>Message of the exception that ended Execute, if any.</summary>
+    property Error: string read FError;
   end;
 
   /// <summary>
@@ -79,8 +91,16 @@ type
   /// </summary>
   TBackgroundService = class(TInterfacedObject, IHostedService)
   private
+    const DEFAULT_STOP_TIMEOUT_MS = 30000;
+  private
     FThread: TBackgroundServiceThread;
     FCancellationTokenSource: TCancellationTokenSource;
+    FStopTimeoutMs: Cardinal;
+    FStopTimeoutSet: Boolean;
+    FLastError: string;
+    function GetStopTimeoutMs: Cardinal;
+    procedure SetStopTimeoutMs(const Value: Cardinal);
+    function GetIsRunning: Boolean;
   protected
     /// <summary>
     ///   Abstract method where worker logic should be implemented. 
@@ -89,10 +109,28 @@ type
     procedure Execute(Token: ICancellationToken); virtual; abstract;
   public
     FLogger: ILogger; // Used by thread if assigned
-    /// <summary>Starts the background thread and cancellation management.</summary>
+    /// <summary>
+    ///   Starts the background thread and cancellation management. Calling it while the
+    ///   service is already running does nothing.
+    /// </summary>
     procedure Start; virtual;
-    /// <summary>Triggers the cancellation signal and waits for the thread to terminate (Graceful Shutdown).</summary>
+    /// <summary>
+    ///   Triggers the cancellation signal and waits up to StopTimeoutMs for the thread to
+    ///   finish (Graceful Shutdown). A thread that does not finish in time is detached: it
+    ///   frees itself when Execute eventually returns, so the service object must outlive it.
+    /// </summary>
     procedure Stop; virtual;
+    /// <summary>
+    ///   Like Stop, with an explicit deadline and an optional token that ends the wait early.
+    ///   Returns True when the thread finished, False when it had to be abandoned.
+    /// </summary>
+    function Shutdown(ATimeoutMs: Cardinal; const AToken: ICancellationToken = nil): Boolean;
+    /// <summary>Maximum wait of Stop (default 30000 ms; INFINITE waits forever).</summary>
+    property StopTimeoutMs: Cardinal read GetStopTimeoutMs write SetStopTimeoutMs;
+    /// <summary>True while the service thread is executing.</summary>
+    property IsRunning: Boolean read GetIsRunning;
+    /// <summary>Message of the exception that ended the last run, if it failed.</summary>
+    property LastError: string read FLastError;
   end;
 
   /// <summary>
@@ -153,6 +191,7 @@ type
 implementation
 
 uses
+  System.Diagnostics,
   Dext.Utils;
 
 { TBackgroundServiceThread }
@@ -163,28 +202,67 @@ begin
   FService := Service;
   FToken := Token;
   FLogger := Logger;
+  FDone := TEvent.Create(nil, True, False, '');
   FreeOnTerminate := False;
+end;
+
+destructor TBackgroundServiceThread.Destroy;
+begin
+  FDone.Free;
+  inherited;
 end;
 
 procedure TBackgroundServiceThread.Execute;
 begin
   try
-    FService.Execute(FToken);
-  except
-    on E: Exception do
-    begin
-      if FLogger <> nil then
-        FLogger.LogError('BackgroundService thread error: {0}', [E.Message])
-      else
-        SafeWriteLn(Format('❌ Error in BackgroundService thread: %s', [E.Message]));
+    try
+      FService.Execute(FToken);
+    except
+      on E: Exception do
+      begin
+        FError := E.Message;
+        if FLogger <> nil then
+          FLogger.LogError('BackgroundService thread error: {0}', [E.Message])
+        else
+          SafeWriteLn(Format('❌ Error in BackgroundService thread: %s', [E.Message]));
+      end;
     end;
+  finally
+    FDone.SetEvent;
   end;
 end;
 
 { TBackgroundService }
 
+function TBackgroundService.GetStopTimeoutMs: Cardinal;
+begin
+  if FStopTimeoutSet then
+    Result := FStopTimeoutMs
+  else
+    Result := DEFAULT_STOP_TIMEOUT_MS;
+end;
+
+procedure TBackgroundService.SetStopTimeoutMs(const Value: Cardinal);
+begin
+  FStopTimeoutMs := Value;
+  FStopTimeoutSet := True;
+end;
+
+function TBackgroundService.GetIsRunning: Boolean;
+begin
+  Result := (FThread <> nil) and (FThread.Done.WaitFor(0) <> wrSignaled);
+end;
+
 procedure TBackgroundService.Start;
 begin
+  if FThread <> nil then
+  begin
+    if GetIsRunning then
+      Exit; // already running: a second Start must not leak a second thread
+    // The previous run ended by itself: collect it before starting again.
+    Shutdown(0);
+  end;
+  FLastError := '';
   FCancellationTokenSource := TCancellationTokenSource.Create;
   FThread := TBackgroundServiceThread.Create(Self, FCancellationTokenSource.Token, FLogger);
   FThread.Start;
@@ -192,20 +270,73 @@ end;
 
 procedure TBackgroundService.Stop;
 begin
+  Shutdown(GetStopTimeoutMs);
+end;
+
+function TBackgroundService.Shutdown(ATimeoutMs: Cardinal;
+  const AToken: ICancellationToken): Boolean;
+var
+  LWatch: TStopwatch;
+  LSlice: Cardinal;
+  LElapsed: Int64;
+  LFinished: Boolean;
+begin
+  Result := True;
   if Assigned(FCancellationTokenSource) then
-  begin
     FCancellationTokenSource.Cancel;
-  end;
 
   if Assigned(FThread) then
   begin
-    // We don't terminate the thread abruptly, we wait for it to finish gracefully
-    // The Execute method should check the token and exit.
-    FThread.WaitFor;
-    FThread.Free;
+    // The thread is never terminated abruptly: Execute must observe its token and
+    // return. We wait for it, but not forever.
+    LWatch := TStopwatch.StartNew;
+    LFinished := False;
+    while True do
+    begin
+      LSlice := 50;
+      if ATimeoutMs <> INFINITE then
+      begin
+        LElapsed := LWatch.ElapsedMilliseconds;
+        if LElapsed >= ATimeoutMs then
+        begin
+          LFinished := FThread.Done.WaitFor(0) = wrSignaled;
+          Break;
+        end;
+        if Int64(ATimeoutMs) - LElapsed < LSlice then
+          LSlice := Cardinal(Int64(ATimeoutMs) - LElapsed);
+      end
+      else if AToken = nil then
+        LSlice := INFINITE;
+      if FThread.Done.WaitFor(LSlice) = wrSignaled then
+      begin
+        LFinished := True;
+        Break;
+      end;
+      if (AToken <> nil) and AToken.IsCancellationRequested then
+      begin
+        LFinished := FThread.Done.WaitFor(0) = wrSignaled;
+        Break;
+      end;
+    end;
+
+    if LFinished then
+    begin
+      FLastError := FThread.Error;
+      FThread.WaitFor;
+      FThread.Free;
+    end
+    else
+    begin
+      // Still running: let it free itself when Execute finally returns.
+      FThread.FreeOnTerminate := True;
+      Result := False;
+      if FLogger <> nil then
+        FLogger.LogError('BackgroundService did not stop in time; the thread was detached.');
+    end;
     FThread := nil;
   end;
-  
+
+  // Safe even when the thread was detached: a token outlives its source.
   if Assigned(FCancellationTokenSource) then
   begin
     FCancellationTokenSource.Free;
@@ -254,6 +385,8 @@ var
   Service: IHostedService;
   LObj: TObject;
 begin
+  if (Token <> nil) and Token.IsCancellationRequested then
+    Exit;
   for Service in FServices do
   begin
     if not Assigned(Service) then Continue;
@@ -275,6 +408,7 @@ end;
 procedure THostedServiceManager.StopAsync(Token: ICancellationToken);
 var
   Service: IHostedService;
+  LObj: TObject;
   I: Integer;
 begin
   // Stop services in reverse order
@@ -284,7 +418,15 @@ begin
     if not Assigned(Service) then Continue;
 
     try
-      Service.Stop;
+      LObj := Service as TObject;
+      if (LObj <> nil) and (LObj is TBackgroundService) then
+      begin
+        if not TBackgroundService(LObj).Shutdown(
+          TBackgroundService(LObj).StopTimeoutMs, Token) then
+          LogError(Format('Service %s did not stop in time.', [LObj.ClassName]));
+      end
+      else
+        Service.Stop;
     except
       on E: Exception do
         LogError(Format('Failed to stop service: %s', [E.Message]));

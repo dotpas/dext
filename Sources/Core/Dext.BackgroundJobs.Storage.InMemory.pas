@@ -30,7 +30,7 @@ uses
   Dext.BackgroundJobs.Intf;
 
 type
-  TInMemoryJobStorage = class(TInterfacedObject, IJobStorage)
+  TInMemoryJobStorage = class(TInterfacedObject, IJobStorageEx, IJobStorage)
   private
     FJobs: TThreadList<TJobInfo>;
   public
@@ -43,6 +43,8 @@ type
     function GetNextJob(const AQueue: string; out AJob: TJobInfo): Boolean;
     procedure UpdateJobState(const AJobId: string; const AState: TJobState; const AErrorMessage: string = '');
     procedure RecordHeartbeat(const AJobId: string);
+    procedure ScheduleRetry(const AJobId: string; const AEnqueueAt: TDateTime; const AErrorMessage: string);
+    function RecoverOrphans(const AStaleBefore: TDateTime; AMaxAttempts: Integer): Integer;
   end;
 
 implementation
@@ -110,14 +112,13 @@ var
   Job: TJobInfo;
 begin
   Result := False;
+  AJob := Default(TJobInfo);
   LNow := Now;
   List := FJobs.LockList;
   try
     for I := 0 to List.Count - 1 do
     begin
       Job := List[I];
-      WriteLn(Format('  [InMemory Debug] Job: ID=%s, Queue=%s (exp=%s), State=%d (exp=%d), EnqueueAt=%f, LNow=%f',
-        [Job.Id, Job.Queue, AQueue, Ord(Job.State), Ord(jsEnqueued), Job.EnqueueAt, LNow]));
       if (Job.Queue = AQueue) and (Job.State = jsEnqueued) and (Job.EnqueueAt <= LNow + (1.0 / 86400.0)) then
       begin
         Job.State := jsProcessing;
@@ -176,6 +177,66 @@ begin
         Job.LastHeartbeat := Now;
         List[I] := Job;
         Break;
+      end;
+    end;
+  finally
+    FJobs.UnlockList;
+  end;
+end;
+
+procedure TInMemoryJobStorage.ScheduleRetry(const AJobId: string;
+  const AEnqueueAt: TDateTime; const AErrorMessage: string);
+var
+  List: TList<TJobInfo>;
+  I: Integer;
+  Job: TJobInfo;
+begin
+  List := FJobs.LockList;
+  try
+    for I := 0 to List.Count - 1 do
+    begin
+      Job := List[I];
+      if Job.Id = AJobId then
+      begin
+        Job.State := jsEnqueued;
+        Job.EnqueueAt := AEnqueueAt;
+        Job.ErrorLog := AErrorMessage;
+        Job.AttemptCount := Job.AttemptCount + 1;
+        List[I] := Job;
+        Break;
+      end;
+    end;
+  finally
+    FJobs.UnlockList;
+  end;
+end;
+
+function TInMemoryJobStorage.RecoverOrphans(const AStaleBefore: TDateTime;
+  AMaxAttempts: Integer): Integer;
+var
+  List: TList<TJobInfo>;
+  I: Integer;
+  Job: TJobInfo;
+begin
+  Result := 0;
+  List := FJobs.LockList;
+  try
+    for I := 0 to List.Count - 1 do
+    begin
+      Job := List[I];
+      if (Job.State = jsProcessing) and (Job.LastHeartbeat < AStaleBefore) then
+      begin
+        Job.AttemptCount := Job.AttemptCount + 1;
+        Job.ErrorLog := 'Worker lost: no heartbeat.';
+        if Job.AttemptCount >= AMaxAttempts then
+          Job.State := jsFailed
+        else
+        begin
+          Job.State := jsEnqueued;
+          Job.EnqueueAt := Now;
+        end;
+        List[I] := Job;
+        Inc(Result);
       end;
     end;
   finally
