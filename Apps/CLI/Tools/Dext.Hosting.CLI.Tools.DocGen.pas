@@ -377,23 +377,21 @@ begin
     begin
       for Param in ParamsNode.ChildNodes do
       begin
-        ParamName := GetNodeText(Param);
-        if ParamName = '' then
-          for PChild in Param.ChildNodes do
-             if PChild.Typ = ntName then ParamName := GetNodeText(PChild);
+        // DelphiAST builds one ntParameter per name: the name is the ntName
+        // child, the type is the ntType child and the modifier ('const',
+        // 'var', 'out') is the anKind attribute of the parameter itself.
+        ParamName := '';
+        ParamType := '';
+        for PChild in Param.ChildNodes do
+        begin
+          if (PChild.Typ = ntName) and (ParamName = '') then
+            ParamName := GetNodeText(PChild)
+          else if (PChild.Typ = ntType) and (ParamType = '') then
+            ParamType := GetNodeText(PChild);
+        end;
 
-        ParamType := Param.GetAttribute(anType);
-        if ParamType = '' then
-          for PChild in Param.ChildNodes do
-             if PChild.Typ = ntType then ParamType := GetNodeText(PChild);
-
-        // Modifiers: try anKind or Check attributes
-        Modifier := Param.GetAttribute(anKind); // Try kind first
-        if Modifier = '' then modifier := Param.GetAttribute(anType); // Sometimes type has it? Unlikely.
-        // Manual check for 'const', 'var', 'out' strings in logic?
-        // DelphiAST often puts modifier in anKind (e.g. 'const')
-        // Clean up modifier
-        if SameText(Modifier, '0') then Modifier := ''; // Default numeric?
+        Modifier := Param.GetAttribute(anKind);
+        if SameText(Modifier, '0') then Modifier := '';
 
         if not FirstParam then Params.Append('; ');
 
@@ -436,7 +434,7 @@ procedure TDextDocGenerator.ExtractMembers(CInfo: TClassInfo; ClassNode: TSyntax
 
   procedure Scan(ContextNode: TSyntaxNode; CurrentVis: string; Depth: Integer);
   var
-    CChild: TSyntaxNode;
+    CChild, PChild: TSyntaxNode;
     F: TMemberInfo;
     M: TMethodInfo;
     MName, Xml: string;
@@ -471,7 +469,13 @@ procedure TDextDocGenerator.ExtractMembers(CInfo: TClassInfo; ClassNode: TSyntax
          else if CChild.Typ = ntProperty then
          begin
            P := TPropertyInfo.Create(MName, Vis, Xml);
-           P.PropType := CChild.GetAttribute(anType);
+           P.PropType := '';
+           for PChild in CChild.ChildNodes do
+             if PChild.Typ = ntType then
+             begin
+               P.PropType := GetNodeText(PChild);
+               Break;
+             end;
            CInfo.Properties.Add(P);
          end
          else
