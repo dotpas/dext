@@ -138,6 +138,7 @@
         <DCCReference Include="Dext.Entity.ChangeTracker.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SmartAttributes.Tests.pas"/>
         <DCCReference Include="Dext.Entity.DdlAttributes.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.EnumAsString.Tests.pas"/>
         <DCCReference Include="Dext.Entity.MappingNames.Tests.pas"/>
         <DCCReference Include="Dext.Entity.Inheritance.Tests.pas"/>
         <DCCReference Include="Dext.Entity.PostgreSQL.Tests.pas"/>

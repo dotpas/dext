@@ -3622,6 +3622,21 @@ begin
           ColType := Format('VARCHAR(%d)', [MaxLen]);
       end;
 
+      // [EnumAsString]: the column holds the enum name, so it is text
+      for Attr in Prop.GetAttributes do
+        if Attr is EnumAsStringAttribute then
+        begin
+          if MaxLen <= 0 then
+            MaxLen := 50;
+          if GetDialectEnum = ddSQLServer then
+            ColType := Format('NVARCHAR(%d)', [MaxLen])
+          else if GetDialectEnum = ddOracle then
+            ColType := Format('VARCHAR2(%d)', [MaxLen])
+          else
+            ColType := Format('VARCHAR(%d)', [MaxLen]);
+          Break;
+        end;
+
       // [ColumnType('...')]: the declared type wins over the derived one
       for Attr in Prop.GetAttributes do
         if Attr is ColumnTypeAttribute then

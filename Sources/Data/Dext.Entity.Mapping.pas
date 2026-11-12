@@ -607,8 +607,16 @@ begin
       (AAttr is CaptionAttribute) or (AAttr is DisplayFormatAttribute) or (AAttr is DisplayWidthAttribute) or
       (AAttr is EditMaskAttribute) or (AAttr is AlignmentAttribute) or (AAttr is DefaultValueAttribute) or
       (AAttr is VisibleAttribute) or (AAttr is ReadOnlyAttribute) or
-      (AAttr is LazyAttribute) or (AAttr is SequenceAttribute) then
+      (AAttr is LazyAttribute) or (AAttr is SequenceAttribute) or
+      (AAttr is EnumAsStringAttribute) then
   begin
+    // [EnumAsString]: the enum is stored by its name, through TEnumConverter.
+    // The parameter travels as text, not as the integer of the enum type.
+    if AAttr is EnumAsStringAttribute then
+    begin
+      APropMap.Converter := TEnumConverter.Create(True);
+      APropMap.DataType := ftWideString;
+    end;
     if AAttr is SequenceAttribute then
     begin
       APropMap.IsSequenced := True;
