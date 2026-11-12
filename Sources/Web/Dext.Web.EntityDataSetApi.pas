@@ -504,7 +504,8 @@ begin
         end;
       end
       else
-        ADbContext.ChangeTracker.Track(EntityObj, esDeleted);
+        // Through the DbSet, which owns the stub from here on.
+        ADbContext.DataSet(AEntityClass.ClassInfo).Remove(EntityObj);
     end;
   except
     // Not saved yet, so nothing else references it.

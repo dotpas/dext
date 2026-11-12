@@ -2124,7 +2124,19 @@ begin
 end;
 
 function TDbSet<T>.Remove(const AEntity: T): IDbSet<T>;
+var
+  Id: string;
+  Tracked: T;
 begin
+  // Like Add and Update, Remove adopts an instance the DbSet does not own
+  // yet, so that one that was never loaded here (a key-only stub) is freed
+  // with the DbSet instead of leaking.
+  Id := GetEntityId(AEntity);
+  if not (FIdentityMap.TryGetValue(Id, Tracked) and
+    (TObject(Tracked) = TObject(AEntity))) then
+    if not FOrphans.Contains(AEntity) then
+      FOrphans.Add(AEntity);
+
   // An entity that was only added has no row yet: forgetting it is enough.
   // The DbSet keeps owning the instance (see Add), so nothing leaks, and no
   // DELETE reaches a row of the same key that belongs to another instance.

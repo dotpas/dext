@@ -80,6 +80,12 @@ type
     procedure TestContinueOnErrorDoesNotRetryTheFailedItem;
   end;
 
+var
+  /// Instances of TEdsTyped destroyed so far. The store builds its entities
+  /// through the class reference, so only the destructor can be counted.
+  GEdsTypedFreed: Integer = 0;
+
+type
   {$M+}
   [Table('eds_typed')]
   TEdsTyped = class
@@ -92,6 +98,7 @@ type
     FDue: TDateTime;
     FRating: Nullable<Integer>;
   public
+    destructor Destroy; override;
     [PK, AutoInc, Column('id')]
     property Id: Integer read FId write FId;
     [Column('qty')]
@@ -145,6 +152,12 @@ type
 
     [Test('Should delete a row by its integer key')]
     procedure TestDeleteByIntegerKey;
+
+    [Test('Should free the entity it builds for a deleted item')]
+    procedure TestDeletedItemIsFreed;
+
+    [Test('Should free the entity of a deleted item that failed')]
+    procedure TestFailedDeletedItemIsFreed;
 
     [Test('Should modify a nullable column to a value')]
     procedure TestModifyNullableColumn;
@@ -466,6 +479,41 @@ begin
 
   Should(Results[0].Success).BeTrue.Because(Results[0].ErrorMessage);
   Should(Int64(Scalar('SELECT qty FROM eds_typed WHERE id = 1'))).Be(99);
+end;
+
+destructor TEdsTyped.Destroy;
+begin
+  Inc(GEdsTypedFreed);
+  inherited;
+end;
+
+procedure TEntityDataSetStoreTypesTests.TestDeletedItemIsFreed;
+var
+  Before: Integer;
+  Results: IList<TApplyItemResult>;
+begin
+  Before := GEdsTypedFreed;
+  Results := Apply('{"changes":[{"state":"deleted","key":{"Id":1}}]}');
+  Should(Results[0].Success).BeTrue.Because(Results[0].ErrorMessage);
+
+  // The context owns what it tracks: with it gone, the entity the store
+  // built for the item must be gone too.
+  FreeAndNil(FContext);
+  Should(GEdsTypedFreed - Before).Be(1);
+end;
+
+procedure TEntityDataSetStoreTypesTests.TestFailedDeletedItemIsFreed;
+var
+  Before: Integer;
+  Results: IList<TApplyItemResult>;
+begin
+  Before := GEdsTypedFreed;
+  // No row has the key 999: the DELETE affects nothing and the item fails.
+  Results := Apply('{"changes":[{"state":"deleted","key":{"Id":999}}]}');
+  Should(Results[0].Success).BeFalse;
+
+  FreeAndNil(FContext);
+  Should(GEdsTypedFreed - Before).Be(1);
 end;
 
 procedure TEntityDataSetStoreTypesTests.TestDeleteByIntegerKey;
