@@ -83,6 +83,7 @@ type
     FFactory: TFunc<T>;
     FResetAction: TProc<T>;
     FItems: TArray<T>;
+    FIdleSince: TArray<UInt64>; // tick at which each idle item was returned
     FLock: TSpinLock;
     FAvailableEvent: TEvent;
     FCount: Integer;
@@ -92,6 +93,7 @@ type
     procedure InternalPush(AItem: T);
     function InternalPop(out AItem: T): Boolean;
     function CreateInstance: T;
+    procedure TrimIdle;
   public
     constructor Create(const AConfig: TDextPoolConfig; const AResetAction: TProc<T> = nil); overload;
     constructor Create(const AConfig: TDextPoolConfig; const AFactory: TFunc<T>; const AResetAction: TProc<T> = nil); overload;
@@ -151,6 +153,7 @@ begin
     FConfig.MinSize := FConfig.MaxSize;
 
   SetLength(FItems, FConfig.MaxSize);
+  SetLength(FIdleSince, FConfig.MaxSize);
 
   // Warm-up pool with MinSize instances
   for I := 0 to FConfig.MinSize - 1 do
@@ -205,6 +208,7 @@ end;
 procedure TDextPool<T>.InternalPush(AItem: T);
 begin
   FItems[FCount] := AItem;
+  FIdleSince[FCount] := GetTickCount64;
   Inc(FCount);
 end;
 
@@ -224,6 +228,47 @@ begin
   end;
 end;
 
+procedure TDextPool<T>.TrimIdle;
+var
+  Victims: TArray<TObject>;
+  Now: UInt64;
+  I, K: Integer;
+begin
+  // Lazy idle eviction, run by Acquire and Release. The stack keeps the
+  // oldest idle item at the bottom, so the idle ones are a prefix: they are
+  // removed until MinSize is reached or an item still within the limit.
+  if FConfig.IdleTimeoutMs <= 0 then
+    Exit;
+  Victims := nil;
+  FLock.Enter;
+  try
+    Now := GetTickCount64;
+    K := 0;
+    while (FCount - K > FConfig.MinSize) and
+          (Now - FIdleSince[K] >= UInt64(FConfig.IdleTimeoutMs)) do
+      Inc(K);
+    if K = 0 then
+      Exit;
+    SetLength(Victims, K);
+    for I := 0 to K - 1 do
+      Victims[I] := TObject(FItems[I]);
+    for I := K to FCount - 1 do
+    begin
+      FItems[I - K] := FItems[I];
+      FIdleSince[I - K] := FIdleSince[I];
+    end;
+    for I := FCount - K to FCount - 1 do
+      FItems[I] := nil;
+    Dec(FCount, K);
+    Dec(FTotalAllocated, K);
+  finally
+    FLock.Exit;
+  end;
+  // Outside the lock: a destructor must not run while the pool is locked.
+  for I := 0 to High(Victims) do
+    Victims[I].Free;
+end;
+
 function TDextPool<T>.Acquire(out AItem: T): Boolean;
 var
   Popped: Boolean;
@@ -234,6 +279,8 @@ var
   NowTick: UInt64;
   RemainingMs: Int64;
 begin
+  TrimIdle;
+
   TimeoutMs := FConfig.AcquireTimeoutMs;
   if TimeoutMs < 0 then
     TimeoutMs := 5000;
@@ -371,7 +418,9 @@ begin
   FAvailableEvent.SetEvent;
 
   if ShouldDestroy then
-    TObject(AItem).Free;
+    TObject(AItem).Free
+  else
+    TrimIdle;
 end;
 
 procedure TDextPool<T>.Use(const AProc: TProc<T>);

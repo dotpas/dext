@@ -32,6 +32,10 @@ type
     procedure Test_Pool_Use_RAII;
     [Test]
     procedure Test_Pool_MaxSize_Limit;
+    [Test]
+    procedure Test_Pool_IdleTimeout_Trims_To_MinSize;
+    [Test]
+    procedure Test_Pool_IdleTimeout_Keeps_Fresh_Items;
   end;
 
 implementation
@@ -139,6 +143,55 @@ begin
 
   Pool.Release(Item1);
   Pool.Release(Item2);
+end;
+
+
+procedure TDextPoolTests.Test_Pool_IdleTimeout_Trims_To_MinSize;
+var
+  Config: TDextPoolConfig;
+  Pool: IDextPool<TTestPoolItem>;
+  A, B, C, D: TTestPoolItem;
+begin
+  Config := TDextPoolConfig.Default;
+  Config.MinSize := 1;
+  Config.MaxSize := 4;
+  Config.IdleTimeoutMs := 50;
+
+  Pool := TDextPool<TTestPoolItem>.Create(Config);
+  Pool.Acquire(A);
+  Pool.Acquire(B);
+  Pool.Acquire(C);
+  Pool.Release(A);
+  Pool.Release(B);
+  Pool.Release(C);
+  Assert.AreEqual(3, Pool.Count);
+
+  TThread.Sleep(150);
+
+  // The next Acquire evicts the idle surplus, never going below MinSize.
+  Assert.IsTrue(Pool.Acquire(D));
+  Assert.AreEqual(0, Pool.Count);
+  Pool.Release(D);
+  Assert.AreEqual(1, Pool.Count);
+end;
+
+procedure TDextPoolTests.Test_Pool_IdleTimeout_Keeps_Fresh_Items;
+var
+  Config: TDextPoolConfig;
+  Pool: IDextPool<TTestPoolItem>;
+  A, B: TTestPoolItem;
+begin
+  Config := TDextPoolConfig.Default;
+  Config.MinSize := 0;
+  Config.MaxSize := 4;
+  Config.IdleTimeoutMs := 60000;
+
+  Pool := TDextPool<TTestPoolItem>.Create(Config);
+  Pool.Acquire(A);
+  Pool.Acquire(B);
+  Pool.Release(A);
+  Pool.Release(B);
+  Assert.AreEqual(2, Pool.Count);
 end;
 
 initialization
