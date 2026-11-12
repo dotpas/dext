@@ -225,6 +225,7 @@ type
     function UnwrapKey(const AValue: TValue): TValue;
     function GetManyToManyTarget(const ANavProp: TRttiProperty): TRttiType;
     function GetManyToManyProps: TArray<TPropertyMap>;
+    function RequireManyToMany(const APropertyName: string): TPropertyMap;
     procedure NormalizeJoin(const APropMap: TPropertyMap);
     function GetJoinList(const AEntity: TObject; const APropMap: TPropertyMap): IObjectList;
     procedure DiffManyToMany(const AEntity: TObject; const APropMap: TPropertyMap;
@@ -1321,17 +1322,25 @@ begin
     Result := AValue;
 end;
 
-// TTarget of a collection typed IList<TTarget>
+// TTarget of a collection typed IList<TTarget> or Lazy<IList<TTarget>>
 function TDbSet<T>.GetManyToManyTarget(const ANavProp: TRttiProperty): TRttiType;
 var
   TypeName: string;
   StartPos, EndPos: Integer;
 begin
   Result := nil;
-  if ANavProp.PropertyType.TypeKind <> tkInterface then Exit;
   TypeName := ANavProp.PropertyType.Name;
-  StartPos := Pos('<', TypeName);
-  EndPos := LastDelimiter('>', TypeName);
+  case ANavProp.PropertyType.TypeKind of
+    tkInterface: ;
+    // The lazy wrapper is a record: its element type is the innermost one
+    tkRecord: if not TypeName.StartsWith('Lazy<') then Exit;
+  else
+    Exit;
+  end;
+  // The first '>' closes the innermost generic; the '<' before it opens it
+  EndPos := Pos('>', TypeName);
+  if EndPos = 0 then Exit;
+  StartPos := LastDelimiter('<', Copy(TypeName, 1, EndPos));
   if (StartPos > 0) and (EndPos > StartPos) then
     Result := TReflection.Context.FindType(
       Copy(TypeName, StartPos + 1, EndPos - StartPos - 1));
@@ -1353,6 +1362,19 @@ begin
     FM2MReady := True;
   end;
   Result := FM2MProps;
+end;
+
+// The map of a many-to-many property; a name that is not one is an error, and
+// not a Link that silently does nothing
+function TDbSet<T>.RequireManyToMany(const APropertyName: string): TPropertyMap;
+begin
+  if (FMap = nil) or (not FMap.Properties.TryGetValue(APropertyName, Result)) or
+     (Result.Relationship <> rtManyToMany) or (Result.JoinTableName = '') then
+    raise Exception.CreateFmt(
+      '''%s'' is not a many-to-many property of %s ' +
+      '(declare it with [ManyToMany] or HasManyToMany)',
+      [APropertyName, string(PTypeInfo(TypeInfo(T)).Name)]);
+  NormalizeJoin(Result);
 end;
 
 // Join columns that the model does not name: <Owner>Id and <Related>Id
@@ -4176,11 +4198,7 @@ var
   PropMap: TPropertyMap;
   SQL: string;
 begin
-  if FMap = nil then Exit;
-  if not FMap.Properties.TryGetValue(APropertyName, PropMap) then Exit;
-  if PropMap.Relationship <> rtManyToMany then Exit;
-  if PropMap.JoinTableName = '' then Exit;
-  NormalizeJoin(PropMap);
+  PropMap := RequireManyToMany(APropertyName);
 
   EntityId := UnwrapKey(GetRelatedId(AEntity));
   RelatedId := UnwrapKey(GetRelatedId(ARelatedEntity));
@@ -4201,11 +4219,7 @@ var
   PropMap: TPropertyMap;
   SQL: string;
 begin
-  if FMap = nil then Exit;
-  if not FMap.Properties.TryGetValue(APropertyName, PropMap) then Exit;
-  if PropMap.Relationship <> rtManyToMany then Exit;
-  if PropMap.JoinTableName = '' then Exit;
-  NormalizeJoin(PropMap);
+  PropMap := RequireManyToMany(APropertyName);
 
   EntityId := UnwrapKey(GetRelatedId(AEntity));
   RelatedId := UnwrapKey(GetRelatedId(ARelatedEntity));
@@ -4239,11 +4253,7 @@ var
   RelEnt: TObject;
   SQL: string;
 begin
-  if FMap = nil then Exit;
-  if not FMap.Properties.TryGetValue(APropertyName, PropMap) then Exit;
-  if PropMap.Relationship <> rtManyToMany then Exit;
-  if PropMap.JoinTableName = '' then Exit;
-  NormalizeJoin(PropMap);
+  PropMap := RequireManyToMany(APropertyName);
 
   EntityId := UnwrapKey(GetRelatedId(AEntity));
   

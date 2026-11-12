@@ -601,15 +601,12 @@ var
   AddMethod: TRttiMethod;
   Cmd: IDbCommand;
   EntityId: string;
-  Expr: IExpression;
-  IdValues: TArray<Variant>;
   IntfType: TRttiType;
   ItemType: TRttiType;
   ItemTypeName: string;
   ListIntf: IInterface;
   ListObj: TObject;
   Obj: TObject;
-  PropHelper: TPropExpression;
   Reader: IDbReader;
   RelatedDbSet: IDbSet;
   RelatedIds: Dext.Collections.TList<TValue>;
@@ -756,13 +753,15 @@ begin
     // Load related objects
     RelatedDbSet := TDbContext(FContext).DataSet(ItemType.Handle);
 
-    SetLength(IdValues, RelatedIds.Count);
+    // Each target is read by its own key: the related entity does not have to
+    // call it Id (the identity map answers the ones already loaded)
+    ResList := Dext.Collections.TCollections.CreateList<TObject>(False);
     for i := 0 to RelatedIds.Count - 1 do
-      IdValues[i] := RelatedIds[i].AsVariant;
-    
-    PropHelper := TPropExpression.Create('Id');
-    Expr := PropHelper.&In(IdValues);
-    ResList := RelatedDbSet.ListObjects(Expr) as Dext.Collections.IList<TObject>;
+    begin
+      Obj := RelatedDbSet.FindObject(RelatedIds[i].AsVariant);
+      if Obj <> nil then
+        ResList.Add(Obj);
+    end;
     
     // Resolve collection object
     UseExistingInterface := False;

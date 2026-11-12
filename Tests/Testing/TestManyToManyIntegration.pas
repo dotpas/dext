@@ -27,6 +27,7 @@ uses
 
 type
   TCourseInt = class;
+  TTagInt = class;
 
   // Test Entities
   [Table('Students')]
@@ -59,6 +60,37 @@ type
     property Students: Lazy<IList<TStudentInt>> read FStudents write FStudents;
   end;
 
+  // The target of this pair has a key that is not called Id
+  [Table('Articles')]
+  TArticleInt = class
+  private
+    FId: Integer;
+    FTitle: string;
+    FTags: Lazy<IList<TTagInt>>;
+  public
+    [PK, AutoInc]
+    property Id: Integer read FId write FId;
+    property Title: string read FTitle write FTitle;
+
+    [ManyToMany('ArticleTags', 'article_id', 'tag_code')]
+    property Tags: Lazy<IList<TTagInt>> read FTags write FTags;
+  end;
+
+  [Table('Tags')]
+  TTagInt = class
+  private
+    FCode: Integer;
+    FName: string;
+    FArticles: Lazy<IList<TArticleInt>>;
+  public
+    [PK]
+    property Code: Integer read FCode write FCode;
+    property Name: string read FName write FName;
+
+    [ManyToMany('ArticleTags', 'tag_code', 'article_id')]
+    property Articles: Lazy<IList<TArticleInt>> read FArticles write FArticles;
+  end;
+
   // DbContext
   TIntegrationContext = class(TDbContext)
   protected
@@ -66,6 +98,8 @@ type
   public
     function Students: IDbSet<TStudentInt>;
     function Courses: IDbSet<TCourseInt>;
+    function Articles: IDbSet<TArticleInt>;
+    function Tags: IDbSet<TTagInt>;
   end;
 
   [TestFixture]
@@ -93,6 +127,15 @@ type
 
     [Test]
     procedure TestManualInsertSQL;
+
+    [Test]
+    procedure TestGenerateJoinTableScripts_LazyList;
+
+    [Test]
+    procedure TestLazyLoading_ManyToMany_TargetKeyNotNamedId;
+
+    [Test]
+    procedure TestLink_WrongProperty_Raises;
   end;
 
 implementation
@@ -104,11 +147,23 @@ begin
   inherited;
   Builder.Entity<TStudentInt>;
   Builder.Entity<TCourseInt>;
+  Builder.Entity<TArticleInt>;
+  Builder.Entity<TTagInt>;
 end;
 
 function TIntegrationContext.Courses: IDbSet<TCourseInt>;
 begin
   Result := Entities<TCourseInt>;
+end;
+
+function TIntegrationContext.Articles: IDbSet<TArticleInt>;
+begin
+  Result := Entities<TArticleInt>;
+end;
+
+function TIntegrationContext.Tags: IDbSet<TTagInt>;
+begin
+  Result := Entities<TTagInt>;
 end;
 
 function TIntegrationContext.Students: IDbSet<TStudentInt>;
@@ -125,6 +180,10 @@ var
   Dummy2: IList<TStudentInt>;
   Dummy3: TTrackingList<TCourseInt>;
   Dummy4: TTrackingList<TStudentInt>;
+  Dummy5: IList<TTagInt>;
+  Dummy6: IList<TArticleInt>;
+  Dummy7: TTrackingList<TTagInt>;
+  Dummy8: TTrackingList<TArticleInt>;
 begin
   FEntities := TCollections.CreateList<TObject>(False); // ORM manages object lifetime
   // Create In-Memory SQLite Connection
@@ -148,6 +207,12 @@ begin
   Dummy4 := TTrackingList<TStudentInt>.Create(nil, nil, '');
   Dummy3.Free;
   Dummy4.Free;
+  Dummy5 := TSmartList<TTagInt>.Create;
+  Dummy6 := TSmartList<TArticleInt>.Create;
+  Dummy7 := TTrackingList<TTagInt>.Create(nil, nil, '');
+  Dummy8 := TTrackingList<TArticleInt>.Create(nil, nil, '');
+  Dummy7.Free;
+  Dummy8.Free;
   
   SetupSchema;
 end;
@@ -158,6 +223,9 @@ begin
   FContext.Connection.CreateCommand('CREATE TABLE "Students" ("Id" INTEGER PRIMARY KEY AUTOINCREMENT, "Name" TEXT)').Execute;
   FContext.Connection.CreateCommand('CREATE TABLE "Courses" ("Id" INTEGER PRIMARY KEY AUTOINCREMENT, "Title" TEXT)').Execute;
   FContext.Connection.CreateCommand('CREATE TABLE "StudentCourses" ("student_id" INTEGER, "course_id" INTEGER, PRIMARY KEY("student_id", "course_id"))').Execute;
+  FContext.Connection.CreateCommand('CREATE TABLE "Articles" ("Id" INTEGER PRIMARY KEY AUTOINCREMENT, "Title" TEXT)').Execute;
+  FContext.Connection.CreateCommand('CREATE TABLE "Tags" ("Code" INTEGER PRIMARY KEY, "Name" TEXT)').Execute;
+  FContext.Connection.CreateCommand('CREATE TABLE "ArticleTags" ("article_id" INTEGER, "tag_code" INTEGER, PRIMARY KEY("article_id", "tag_code"))').Execute;
 end;
 
 procedure TManyToManyIntegrationTests.Track(Obj: TObject);
@@ -301,6 +369,83 @@ begin
   CmdCheck.AddParam('p1', S1.Id);
   CmdCheck.AddParam('p2', C3.Id);
   Should(CmdCheck.ExecuteScalar.AsInteger).Be(1);
+end;
+
+procedure TManyToManyIntegrationTests.TestGenerateJoinTableScripts_LazyList;
+var
+  Scripts: TArray<TJoinTableScript>;
+begin
+  // The collections are Lazy<IList<T>>: the join table must still be found,
+  // otherwise EnsureCreated leaves it out and Link fails with "no such table".
+  Scripts := FContext.Students.GenerateJoinTableScripts;
+
+  Should(Length(Scripts)).Be(1);
+  Should(Scripts[0].TableName).Be('StudentCourses');
+  Should(Scripts[0].Sql).Contain('student_id');
+  Should(Scripts[0].Sql).Contain('course_id');
+end;
+
+procedure TManyToManyIntegrationTests.TestLazyLoading_ManyToMany_TargetKeyNotNamedId;
+var
+  A, Check: TArticleInt;
+  T1, T2: TTagInt;
+begin
+  A := TArticleInt.Create;
+  A.Title := 'Dext';
+  FContext.Articles.Add(A);
+  T1 := TTagInt.Create;
+  T1.Code := 10;
+  T1.Name := 'orm';
+  FContext.Tags.Add(T1);
+  T2 := TTagInt.Create;
+  T2.Code := 20;
+  T2.Name := 'delphi';
+  FContext.Tags.Add(T2);
+  FContext.SaveChanges;
+
+  FContext.Articles.LinkManyToMany(A, 'Tags', T1);
+  FContext.Articles.LinkManyToMany(A, 'Tags', T2);
+  FContext.DetachAll;
+
+  // The lazy loader looked the tags up by a column called Id: with the key
+  // called Code, the list came back empty and nothing said why.
+  Check := FContext.Articles.Find(A.Id);
+  Should(Check.Tags.Value.Count).Be(2);
+
+  FContext.DetachAll;
+  Should(FContext.Tags.Find(10).Articles.Value.Count).Be(1);
+end;
+
+procedure TManyToManyIntegrationTests.TestLink_WrongProperty_Raises;
+var
+  S1: TStudentInt;
+  C1: TCourseInt;
+  Raised: Integer;
+
+  procedure Expect(const AProc: TProc);
+  begin
+    try
+      AProc();
+    except
+      on Exception do Inc(Raised);
+    end;
+  end;
+
+begin
+  S1 := TStudentInt.Create;
+  FContext.Students.Add(S1);
+  C1 := TCourseInt.Create;
+  FContext.Courses.Add(C1);
+  FContext.SaveChanges;
+
+  // A misspelled name, and a property that is not many-to-many, used to
+  // return without doing anything: the caller believed the link was made.
+  Raised := 0;
+  Expect(procedure begin FContext.Students.LinkManyToMany(S1, 'Cursos', C1); end);
+  Expect(procedure begin FContext.Students.UnlinkManyToMany(S1, 'Cursos', C1); end);
+  Expect(procedure begin FContext.Students.SyncManyToMany(S1, 'Cursos', []); end);
+  Expect(procedure begin FContext.Students.LinkManyToMany(S1, 'Name', C1); end);
+  Should(Raised).Be(4);
 end;
 
 procedure TManyToManyIntegrationTests.TestManualInsertSQL;
