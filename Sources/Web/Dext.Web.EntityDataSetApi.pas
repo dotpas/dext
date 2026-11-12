@@ -110,6 +110,17 @@ type
       const APath: string;
       ADbContextClass: TClass;
       AStore: IEntityDataSetStore = nil);
+
+    /// <summary>
+    ///   What the GET endpoint writes: the list as a JSON array.
+    /// </summary>
+    class function ListToJson<T: class>(const AList: IList<T>): TBytes; static;
+
+    /// <summary>
+    ///   What the apply endpoint writes: one result per change.
+    /// </summary>
+    class function ResultsToJson(
+      const AResults: IList<TApplyItemResult>): TBytes; static;
   end;
 
 implementation
@@ -650,6 +661,19 @@ end;
 
 { TEntityDataSetApi }
 
+// The type argument is explicit on purpose: SerializeUtf8(List) alone binds to
+// the IInterface overload and writes "{}" instead of the items.
+class function TEntityDataSetApi.ListToJson<T>(const AList: IList<T>): TBytes;
+begin
+  Result := TDextJson.SerializeUtf8<IList<T>>(AList);
+end;
+
+class function TEntityDataSetApi.ResultsToJson(
+  const AResults: IList<TApplyItemResult>): TBytes;
+begin
+  Result := TDextJson.SerializeUtf8<IList<TApplyItemResult>>(AResults);
+end;
+
 class procedure TEntityDataSetApi.Map<T>(
   const ABuilder: IApplicationBuilder;
   const APath: string;
@@ -673,7 +697,7 @@ begin
       Ctx := TDbContext(ADbContextClass.Create);
       try
         List := Ctx.Entities<T>.ToList;
-        JsonBytes := TDextJson.SerializeUtf8(List);
+        JsonBytes := ListToJson<T>(List);
         Context.Response.SetContentType('application/json');
         Context.Response.Write(JsonBytes);
       finally
@@ -706,13 +730,17 @@ begin
         Ctx := TDbContext(ADbContextClass.Create);
         try
           ApplyResults := Store.ApplyChanges(T, ChangesArray, Ctx);
-          ResJson := TDextJson.SerializeUtf8(ApplyResults);
+          ResJson := ResultsToJson(ApplyResults);
           Context.Response.SetContentType('application/json');
           Context.Response.Write(ResJson);
         finally
           Ctx.Free;
         end;
-      end;
+      end
+      else
+        // Not a silent no-op: the caller must learn the batch was not read.
+        Context.Response.Status(400).Json(
+          '{"error":"The body must be a JSON object with a ''changes'' array."}');
     end);
 end;
 

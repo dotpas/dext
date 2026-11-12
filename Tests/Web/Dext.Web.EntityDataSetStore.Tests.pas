@@ -78,6 +78,12 @@ type
 
     [Test('Should not retry a failed item on the next SaveChanges with ContinueOnError')]
     procedure TestContinueOnErrorDoesNotRetryTheFailedItem;
+
+    [Test('Should serialize the list the GET endpoint returns as a JSON array')]
+    procedure TestListIsServedAsJsonArray;
+
+    [Test('Should serialize the apply results with success, message and keys')]
+    procedure TestApplyResultsAreServedAsJson;
   end;
 
 var
@@ -274,6 +280,30 @@ begin
     .Because('item 2 failed, so item 0 must not be committed');
   Should(RowCount('b')).Be(0);
   Should(RowCount('seed')).Be(1);
+end;
+
+procedure TEntityDataSetStoreTests.TestListIsServedAsJsonArray;
+var
+  Json: string;
+begin
+  Json := TEncoding.UTF8.GetString(TEntityDataSetApi.ListToJson<TEdsItem>(
+    FContext.Entities<TEdsItem>.ToList));
+
+  Should(Json).StartWith('[');
+  Should(Json).Contain('seed');
+end;
+
+procedure TEntityDataSetStoreTests.TestApplyResultsAreServedAsJson;
+var
+  Json: string;
+begin
+  Json := LowerCase(TEncoding.UTF8.GetString(TEntityDataSetApi.ResultsToJson(
+    Apply('{"changes":[{"state":"inserted","values":{"Code":"n1",' +
+      '"Name":"fresh"}},{"state":"deleted","key":{"Code":"zz"}}]}'))));
+
+  Should(Json).StartWith('[');
+  Should(Json).Contain('"success":false');
+  Should(Json).Contain('batch not applied');
 end;
 
 procedure TEntityDataSetStoreTests.TestFailedBatchReportsEveryItem;
