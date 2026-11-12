@@ -55,7 +55,9 @@ Switching tenant is assigning `Provider.Tenant`. `ITenant.Properties` is a strin
 
 In a web application, `TMultiTenancyMiddleware` (`Dext.Web.MultiTenancy`) resolves the tenant per request: an `ITenantResolutionStrategy` extracts the tenant id from the `IHttpContext` (header, host, query, whatever the application defines), an `ITenantStore` returns the `ITenant` for that id, and the middleware puts it in the scoped `ITenantProvider`. Both interfaces are implemented by the application.
 
-> ⚠️ If the strategy returns an empty id, or the store does not know it, the provider is left **without a tenant**, and a context without a tenant does **not filter** (see below). Reject such requests before any query.
+The context that `AddDbContext` hands out of the container receives the scope's `ITenantProvider` when the application registered one (`Services.AddScoped<ITenantProvider, TTenantProvider>`), so the request's tenant reaches the tenant filter without extra code. By default the middleware **fails closed**: a request with no tenant id is answered with 400, and one whose id the store does not know with 404, and the pipeline stops there. Set `RequireTenant := False` to let such requests through (for public routes); the context then applies no tenant filter. Covered by `Tests\WebTenancy\Dext.Web.Tenancy.Tests.dpr`.
+
+> ⚠️ With `RequireTenant := False`, if the strategy returns an empty id, or the store does not know it, the provider is left **without a tenant**, and a context without a tenant does **not filter** (see below). Reject such requests before any query.
 
 ## Behavior Notes
 

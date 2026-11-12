@@ -44,12 +44,23 @@ type
   private
     FStrategy: ITenantResolutionStrategy;
     FStore: ITenantStore;
+    FRequireTenant: Boolean;
   public
     constructor Create(const AStrategy: ITenantResolutionStrategy; const AStore: ITenantStore);
     procedure Invoke(AContext: IHttpContext; ANext: TRequestDelegate); override;
+    /// <summary>
+    ///   When True (the default), a request whose tenant identifier is missing
+    ///   is answered with 400, and one whose identifier the store does not know
+    ///   with 404, and the pipeline stops there. With False the request goes on
+    ///   with no tenant, and the context then applies no tenant filter.
+    /// </summary>
+    property RequireTenant: Boolean read FRequireTenant write FRequireTenant;
   end;
 
 implementation
+
+uses
+  Dext.Web.Results;
 
 { TMultiTenancyMiddleware }
 
@@ -58,6 +69,7 @@ begin
   inherited Create;
   FStrategy := AStrategy;
   FStore := AStore;
+  FRequireTenant := True;
 end;
 
 procedure TMultiTenancyMiddleware.Invoke(AContext: IHttpContext; ANext: TRequestDelegate);
@@ -66,27 +78,37 @@ var
   LTenant: ITenant;
   LProvider: ITenantProvider;
 begin
+  LTenant := nil;
   if FStrategy <> nil then
   begin
     LTenantId := FStrategy.Resolve(AContext);
-    if LTenantId <> '' then
+    if (LTenantId <> '') and (FStore <> nil) then
+      LTenant := FStore.GetTenant(LTenantId);
+  end
+  else
+    LTenantId := '';
+
+  if LTenant = nil then
+  begin
+    if FRequireTenant then
     begin
-      if FStore <> nil then
-      begin
-        LTenant := FStore.GetTenant(LTenantId);
-        if LTenant <> nil then
-        begin
-          // Store in Context Items for easy access in views/controllers
-          AContext.Items.AddOrSetValue('Tenant', TValue.From<ITenant>(LTenant));
-          
-          // Populate ITenantProvider if registered (Scoped service)
-          if Supports(AContext.Services.GetService(TypeInfo(ITenantProvider)), ITenantProvider, LProvider) then
-          begin
-            LProvider.Tenant := LTenant;
-          end;
-        end;
-      end;
+      if LTenantId = '' then
+        Results.BadRequest('Tenant identifier is required.').Execute(AContext)
+      else
+        Results.NotFound('Unknown tenant.').Execute(AContext);
+      Exit;
     end;
+  end
+  else
+  begin
+    // Store in Context Items for easy access in views/controllers
+    AContext.Items.AddOrSetValue('Tenant', TValue.From<ITenant>(LTenant));
+
+    // Populate ITenantProvider if registered (Scoped service)
+    if Supports(AContext.Services.GetServiceAsInterface(
+      TServiceType.FromInterface(TypeInfo(ITenantProvider))),
+      ITenantProvider, LProvider) then
+      LProvider.Tenant := LTenant;
   end;
 
   ANext(AContext);

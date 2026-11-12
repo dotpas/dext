@@ -55,6 +55,8 @@ Trocar de locatário é atribuir `Provider.Tenant`. O `ITenant.Properties` é um
 
 Numa aplicação web, o `TMultiTenancyMiddleware` (`Dext.Web.MultiTenancy`) resolve o locatário a cada requisição: uma `ITenantResolutionStrategy` extrai o id do locatário do `IHttpContext` (cabeçalho, host, query, o que o aplicativo definir), um `ITenantStore` devolve o `ITenant` desse id, e o middleware o grava no `ITenantProvider` do escopo. As duas interfaces são implementadas pelo aplicativo.
 
+O contexto que o `AddDbContext` entrega pelo contêiner recebe o `ITenantProvider` do escopo quando o aplicativo registrou um (`Services.AddScoped<ITenantProvider, TTenantProvider>`), e assim o locatário da requisição chega ao filtro sem código extra. Por padrão o middleware **falha fechado**: requisição sem identificador de locatário recebe 400, e identificador que a loja não conhece recebe 404, e o pipeline para ali. Com `RequireTenant := False` essas requisições passam (para rotas públicas), e o contexto então não aplica filtro de locatário. Coberto por `Tests\WebTenancy\Dext.Web.Tenancy.Tests.dpr`.
+
 > ⚠️ Se a estratégia devolve um id vazio, ou o store não o conhece, o provedor fica **sem locatário**, e um contexto sem locatário **não filtra** (veja abaixo). Rejeite essas requisições antes de qualquer consulta.
 
 ## Comportamento

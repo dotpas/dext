@@ -493,6 +493,7 @@ implementation
 
 uses
   System.Rtti,
+  Dext.MultiTenancy,
   Dext.Configuration.Binder,
   Dext.Specifications.OrderBy; // Added for IServiceProvider, TServiceType
 
@@ -646,6 +647,7 @@ begin
         DetectedDialect: TDatabaseDialect;
         DefName: string;
         LocalParams: TStringList;
+        TenantProvider: ITenantProvider;
       begin
         // Factory execution: use captured values ONLY (avoids EInvalidPointer in multi-threaded closures)
         FDConn := TFDConnection.Create(nil);
@@ -709,8 +711,17 @@ begin
              Dialect := TSQLiteDialect.Create;
         end;
 
+        // The tenant provider of this scope, when the application registered one
+        // (TMultiTenancyMiddleware fills it per request). Without it the context
+        // would never filter by tenant.
+        TenantProvider := nil;
+        Supports(Provider.GetServiceAsInterface(
+          TServiceType.FromInterface(TypeInfo(ITenantProvider))),
+          ITenantProvider, TenantProvider);
+
         // Create Context instance
-        Result := TDbContextClass(T).Create(Connection, Dialect, NamingStrategy);
+        Result := TDbContextClass(T).Create(Connection, Dialect, NamingStrategy,
+          TenantProvider);
       end
     );
   finally
