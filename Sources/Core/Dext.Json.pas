@@ -709,8 +709,21 @@ begin
   Result := SerializeUtf8<T>(AValue, GetDefaultSettings);
 end;
 
+procedure RejectCollectionAsInterface(const AValue: IInterface);
+begin
+  // The IInterface overload only knows the static type IInterface, so it
+  // cannot see the element type of a collection and would write "{}".
+  // Failing loudly is better than a silent, wrong document.
+  if Supports(AValue, ICollection) then
+    raise EDextJsonException.Create(
+      'A collection passed as IInterface cannot be serialized: the element ' +
+      'type is lost. Use the generic overload, for example ' +
+      'TDextJson.SerializeUtf8<IList<T>>(List).');
+end;
+
 class function TDextJson.SerializeUtf8(const AValue: IInterface): TBytes;
 begin
+  RejectCollectionAsInterface(AValue);
   Result := SerializeUtf8(TValue.From<IInterface>(AValue), GetDefaultSettings);
 end;
 
@@ -727,6 +740,7 @@ end;
 
 class function TDextJson.SerializeUtf8(const AValue: IInterface; const ASettings: TJsonSettings): TBytes;
 begin
+  RejectCollectionAsInterface(AValue);
   Result := SerializeUtf8(TValue.From<IInterface>(AValue), ASettings);
 end;
 

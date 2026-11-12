@@ -163,6 +163,7 @@
         <DCCReference Include="Dext.Json.CaseStyle.Tests.pas"/>
         <DCCReference Include="Dext.Json.NotMapped.Tests.pas"/>
         <DCCReference Include="Dext.Json.Bytes.Tests.pas"/>
+         <DCCReference Include="Dext.Json.CollectionGuard.Tests.pas"/>
         <DCCReference Include="Dext.Json.FormatAttributes.Tests.pas"/>
         <DCCReference Include="Dext.Json.RecordFieldNames.Tests.pas"/>
         <DCCReference Include="Dext.MM.Tests.pas"/>
