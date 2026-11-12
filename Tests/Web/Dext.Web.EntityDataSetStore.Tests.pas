@@ -165,6 +165,9 @@ type
     [Test('Should free the entity of a deleted item that failed')]
     procedure TestFailedDeletedItemIsFreed;
 
+    [Test('Should delete the instance the context already tracks, not a twin')]
+    procedure TestDeleteUsesTheTrackedInstance;
+
     [Test('Should modify a nullable column to a value')]
     procedure TestModifyNullableColumn;
 
@@ -530,6 +533,22 @@ begin
   // built for the item must be gone too.
   FreeAndNil(FContext);
   Should(GEdsTypedFreed - Before).Be(1);
+end;
+
+procedure TEntityDataSetStoreTypesTests.TestDeleteUsesTheTrackedInstance;
+var
+  Loaded: TObject;
+  Results: IList<TApplyItemResult>;
+begin
+  // The context has already read the row (a GET and an apply on one
+  // context). Deleting through a second, key-only instance would free the
+  // loaded one from the identity map while the tracker still points at it.
+  Loaded := FContext.Entities<TEdsTyped>.ToList[0];
+
+  Results := Apply('{"changes":[{"state":"deleted","key":{"Id":1}}]}');
+
+  Should(Results[0].Success).BeTrue.Because(Results[0].ErrorMessage);
+  Should(Ord(FContext.ChangeTracker.GetState(Loaded))).Be(Ord(esDetached));
 end;
 
 procedure TEntityDataSetStoreTypesTests.TestFailedDeletedItemIsFreed;

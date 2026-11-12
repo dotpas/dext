@@ -469,6 +469,19 @@ begin
     end;
   end;
 
+  // A deleted item removes the instance the context holds for that row. A
+  // key-only twin would free the held one from the identity map while the
+  // tracker still points at it.
+  if SameText(StateStr, 'deleted') then
+  begin
+    Existing := FindExisting(AEntityClass, Map, KeysObj, ADbContext);
+    if Existing <> nil then
+    begin
+      ADbContext.DataSet(AEntityClass.ClassInfo).Remove(Existing);
+      Exit(Existing);
+    end;
+  end;
+
   EntityObj := AEntityClass.Create;
   try
     if SameText(StateStr, 'inserted') then
@@ -566,7 +579,9 @@ begin
       // later SaveChanges on this context does not try to save it again.
       for Entity in Entities do
       begin
-        if Entity <> nil then
+        // A deleted row is no longer tracked, and may already be freed.
+        if (Entity <> nil) and
+          (ADbContext.ChangeTracker.GetState(Entity) <> esDetached) then
           ADbContext.Detach(Entity);
       end;
     end;
@@ -638,7 +653,8 @@ begin
         ItemResult.ErrorMessage := E.Message;
         // The failed entity is still tracked: detach it, or the next item's
         // SaveChanges would try to save it again.
-        if EntityObj <> nil then
+        if (EntityObj <> nil) and
+          (ADbContext.ChangeTracker.GetState(EntityObj) <> esDetached) then
           ADbContext.Detach(EntityObj);
       end;
     end;
