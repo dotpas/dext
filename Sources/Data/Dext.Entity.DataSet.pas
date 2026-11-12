@@ -128,10 +128,19 @@ type
     FItemsIsNonOwningWrapper: Boolean;
     // Temporarily holds deleted objects to allow local rollback (RejectChanges).
     FDeletedItemsCache: IList<TObject>;
+    // The state of the edit in progress. Edit writes straight to the entity,
+    // so Cancel needs the values as they were before this edit began.
+    FEditEntity: TObject;
+    FEditSnapshot: IList<Dext.Collections.Dict.TPair<string, Variant>>;
+    FEditNewOriginals: IList<string>;
 
     procedure SetFilterExpression(const Value: IExpression);
     procedure RecordOriginalValue(AEntity: TObject; Field: TField);
     procedure RemoveFromItems(AEntity: TObject; AFreeInstance: Boolean);
+    procedure RestorePropertyValue(AEntity: TObject; PropMap: TPropertyMap;
+      const AValue: Variant);
+    procedure UndoEdit;
+    procedure EndEditSession;
 
     function CompareObjectsInternal(A, B: TObject; const APropNames: TArray<string>; RttiType: TRttiType): Integer;
     function CreateNewEntity: TObject;
@@ -161,6 +170,11 @@ type
     procedure SyncMasterDetail;
   protected
     function IsCursorOpen: Boolean; override;
+    /// <summary>
+    ///   False while ReadOnly is set: Edit, Insert, Append and Delete then
+    ///   raise the standard "dataset is read-only" error.
+    /// </summary>
+    function GetCanModify: Boolean; override;
 
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
     procedure InternalHandleException; override;
@@ -315,6 +329,7 @@ function TranslateExpressionToFilterText(const AExpression: IExpression): string
 implementation
 
 uses
+  Data.DBConsts,
   System.StrUtils,
   System.AnsiStrings,
   Dext.Core.ValueConverters,
@@ -654,6 +669,9 @@ begin
   FCurrentDirtyFields := TCollections.CreateList<string>;
   FDataSetCreatedItems := TCollections.CreateList<TObject>(True);
   FDeletedItemsCache := TCollections.CreateList<TObject>(True);
+  FEditSnapshot := TCollections.CreateList<
+    Dext.Collections.Dict.TPair<string, Variant>>;
+  FEditNewOriginals := TCollections.CreateList<string>;
 end;
 
 destructor TEntityDataSet.Destroy;
@@ -683,6 +701,8 @@ begin
   FItems := nil;
   FTrackedChanges := nil;
   FCurrentDirtyFields := nil;
+  FEditSnapshot := nil;
+  FEditNewOriginals := nil;
 
   if Assigned(FEntityMap) and FOwnsEntityMap then
     FreeAndNil(FEntityMap);
@@ -1269,7 +1289,7 @@ begin
     try
       Expr := FFilterExpression;
       if (Expr = nil) and AFiltered and (Filter <> '') then
-        Expr := TStringExpressionParser.Parse(Filter);
+        Expr := TFilterParser.Parse(Filter);
     except
       if csDesigning in ComponentState then
       begin
@@ -2383,6 +2403,7 @@ begin
       end;
       FCurrentDirtyFields.Clear;
     end;
+    EndEditSession;
     ApplyFilterAndSort;
   end;
 end;
@@ -2393,12 +2414,15 @@ begin
   begin
     FInsertObj.Free;
     FInsertObj := nil;
-  end;
+  end
+  else if State = dsEdit then
+    UndoEdit;
 end;
 
 procedure TEntityDataSet.InternalEdit;
 begin
-  // No-op.
+  // A new edit starts with nothing remembered from the previous one.
+  EndEditSession;
 end;
 
 procedure TEntityDataSet.DoBeforeScroll;
@@ -2430,6 +2454,9 @@ end;
 
 procedure TEntityDataSet.DoBeforeDelete;
 begin
+  // TDataSet.Delete does not ask CanModify (Edit and Insert do).
+  if not CanModify then
+    DatabaseError(SDataSetReadOnly, Self);
   FPositionBeforeAction := GetRecNo;
   inherited DoBeforeDelete;
 end;
@@ -2452,6 +2479,12 @@ var
   Value: TValue;
 begin
   inherited InternalInsert;
+  // TDataSet.Append flags its new buffer bfEOF before calling InternalInsert
+  // (Insert does not), but DoBeforeInsert has already noted the row the
+  // cursor was on. An Append goes to the end, not before that row.
+  if (Pointer(ActiveBuffer) <> nil) and
+    (PEntityRecordHeader(Pointer(ActiveBuffer)).BookmarkFlag = bfEOF) then
+    FPositionBeforeAction := FVirtualIndex.Count;
   if FInsertObj <> nil then
   begin
     FInsertObj.Free;
@@ -3780,6 +3813,115 @@ begin
   end;
 end;
 
+procedure TEntityDataSet.EndEditSession;
+begin
+  FEditEntity := nil;
+  if FEditSnapshot <> nil then
+    FEditSnapshot.Clear;
+  if FEditNewOriginals <> nil then
+    FEditNewOriginals.Clear;
+  if FCurrentDirtyFields <> nil then
+    FCurrentDirtyFields.Clear;
+end;
+
+procedure TEntityDataSet.RestorePropertyValue(AEntity: TObject;
+  PropMap: TPropertyMap; const AValue: Variant);
+var
+  PValue: Pointer;
+  RttiProp: TRttiProperty;
+  Cleared: TValue;
+begin
+  if (AEntity = nil) or (PropMap = nil) then Exit;
+
+  if PropMap.IsShadow then
+  begin
+    if FDbContext <> nil then
+    begin
+      if VarIsNull(AValue) then
+        FDbContext.Entry(AEntity).Member(PropMap.PropertyName)
+          .SetCurrentValue(TValue.Empty)
+      else
+        FDbContext.Entry(AEntity).Member(PropMap.PropertyName)
+          .SetCurrentValue(TValue.FromVariant(AValue));
+    end;
+    Exit;
+  end;
+
+  if PropMap.FieldValueOffset > 0 then
+  begin
+    if PropMap.FieldOffset > 0 then
+      PBoolean(Pointer(PByte(AEntity) + PropMap.FieldOffset))^ :=
+        not VarIsNull(AValue);
+    if VarIsNull(AValue) then Exit;
+
+    PValue := Pointer(PByte(AEntity) + PropMap.FieldValueOffset);
+    case PropMap.DataType of
+      ftInteger, ftAutoInc: PInteger(PValue)^ := AValue;
+      ftSmallint: PSmallInt(PValue)^ := AValue;
+      ftShortint: PShortInt(PValue)^ := AValue;
+      ftByte: PByte(PValue)^ := AValue;
+      ftWord: PWord(PValue)^ := AValue;
+      ftLargeint: PInt64(PValue)^ := AValue;
+      ftString, ftWideString, ftMemo, ftWideMemo:
+        PString(PValue)^ := string(AValue);
+      ftFloat: PDouble(PValue)^ := Double(AValue);
+      ftCurrency: PCurrency(PValue)^ := Currency(AValue);
+      ftBoolean: PBoolean(PValue)^ := Boolean(AValue);
+      ftDateTime, ftDate, ftTime: PDateTime(PValue)^ := TDateTime(AValue);
+    end;
+    Exit;
+  end;
+
+  // No direct offset: go through RTTI.
+  RttiProp := GetProperty(PropMap.PropertyName);
+  if RttiProp = nil then Exit;
+  if VarIsNull(AValue) then
+  begin
+    TValue.Make(nil, RttiProp.PropertyType.Handle, Cleared);
+    RttiProp.SetValue(AEntity, Cleared);
+  end
+  else
+    RttiProp.SetValue(AEntity, TValue.FromVariant(AValue));
+end;
+
+procedure TEntityDataSet.UndoEdit;
+var
+  i: Integer;
+  j: Integer;
+  Kept: TArray<Dext.Collections.Dict.TPair<string, Variant>>;
+  Change: TEntityChange;
+  PropMap: TPropertyMap;
+begin
+  if (FEditEntity <> nil) and (FEntityMap <> nil) then
+  begin
+    // Put back what this edit changed, last write first.
+    for i := FEditSnapshot.Count - 1 downto 0 do
+      if FEntityMap.Properties.TryGetValue(FEditSnapshot[i].Key, PropMap) then
+        RestorePropertyValue(FEditEntity, PropMap, FEditSnapshot[i].Value);
+
+    // Forget the tracking this edit began: the original values it recorded,
+    // and the change itself when nothing else had been posted for the entity.
+    if FTrackedChanges <> nil then
+      for i := FTrackedChanges.Count - 1 downto 0 do
+        if FTrackedChanges[i].Entity = FEditEntity then
+        begin
+          Change := FTrackedChanges[i];
+          Kept := nil;
+          for j := 0 to High(Change.OriginalValues) do
+            if FEditNewOriginals.IndexOf(Change.OriginalValues[j].Key) < 0 then
+              Kept := Kept + [Change.OriginalValues[j]];
+          Change.OriginalValues := Kept;
+          if (Change.State = ersModified) and
+            (Length(Change.DirtyFields) = 0) then
+            FTrackedChanges.Delete(i)
+          else
+            FTrackedChanges[i] := Change;
+          Break;
+        end;
+  end;
+  EndEditSession;
+end;
+
 procedure TEntityDataSet.RecordOriginalValue(AEntity: TObject; Field: TField);
 var
   i: Integer;
@@ -3788,8 +3930,25 @@ var
   Found: Boolean;
   OriginalVal: Variant;
   ValPair: Dext.Collections.Dict.TPair<string, Variant>;
+  SeenInEdit: Boolean;
 begin
   if (FTrackedChanges = nil) or (AEntity = nil) or (Field = nil) then Exit;
+
+  // The value before THIS edit, for Cancel (the first write of the field).
+  FEditEntity := AEntity;
+  SeenInEdit := False;
+  for i := 0 to FEditSnapshot.Count - 1 do
+    if SameText(FEditSnapshot[i].Key, Field.FieldName) then
+    begin
+      SeenInEdit := True;
+      Break;
+    end;
+  if (not SeenInEdit) and ReadFieldValue(Field, OriginalVal) then
+  begin
+    ValPair.Key := Field.FieldName;
+    ValPair.Value := OriginalVal;
+    FEditSnapshot.Add(ValPair);
+  end;
 
   Found := False;
   for i := 0 to FTrackedChanges.Count - 1 do
@@ -3833,6 +3992,7 @@ begin
       ValPair.Key := Field.FieldName;
       ValPair.Value := OriginalVal;
       Change.OriginalValues[High(Change.OriginalValues)] := ValPair;
+      FEditNewOriginals.Add(Field.FieldName);
 
       Found := False;
       for i := 0 to FTrackedChanges.Count - 1 do
@@ -4064,6 +4224,11 @@ end;
 procedure TEntityDataSet.InternalHandleException;
 begin
   // No-op. Exceções em memória não exigem buffer rollback ou handle físico de database.
+end;
+
+function TEntityDataSet.GetCanModify: Boolean;
+begin
+  Result := (not FReadOnly) and inherited GetCanModify;
 end;
 
 function TEntityDataSet.IsCursorOpen: Boolean;

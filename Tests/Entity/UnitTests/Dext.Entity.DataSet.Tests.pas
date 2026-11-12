@@ -9,6 +9,7 @@ uses
   Dext.Assertions,
   Dext.Testing.Attributes,
   Dext.Entity.DataSet,
+  Dext.Specifications.Parser,
   Dext.Core.SmartTypes,
   Dext.Types.Nullable,
   Dext.Types.Lazy,
@@ -282,6 +283,18 @@ type
     procedure Test_ExportToJson;
     [Test]
     procedure Test_LoadFromJson;
+    [Test]
+    procedure Test_Filter_And_Or_Parentheses;
+    [Test]
+    procedure Test_Filter_Not;
+    [Test]
+    procedure Test_Filter_Like_In_And_Null;
+    [Test]
+    procedure Test_Filter_Quoted_Text_With_Spaces_And_Quote;
+    [Test]
+    procedure Test_Filter_Invalid_Text_Raises;
+    [Test]
+    procedure Test_Filter_Always_False_Shows_No_Row;
   end;
 
   [TestFixture('TEntityDataSet Complex Types and Blobs')]
@@ -389,6 +402,18 @@ type
     procedure Test_Insert_Between_Records;
     [Test]
     procedure Test_Refresh_Syncs_External_Changes;
+    [Test]
+    procedure Test_Cancel_Edit_Restores_Value;
+    [Test]
+    procedure Test_Cancel_Edit_Keeps_Earlier_Posted_Edit;
+    [Test]
+    procedure Test_Cancel_Edit_Does_Not_Leak_Dirty_Fields;
+    [Test]
+    procedure Test_Append_Goes_To_The_End;
+    [Test]
+    procedure Test_Insert_Goes_Before_The_Current_Row;
+    [Test]
+    procedure Test_ReadOnly_Blocks_Edit_Append_And_Delete;
   end;
 
   [TestFixture('TEntityDataSet Stress and Filtering')]
@@ -476,6 +501,101 @@ var
 begin
   FDataSet.Free;
   for U in FUsers do U.Free;
+end;
+
+procedure TEntityDataSetTests.Test_Filter_And_Or_Parentheses;
+begin
+  FDataSet.Filtered := True;
+  // Cesar: Score 100, active. Romero: Score 200, not active.
+  FDataSet.Filter := 'Score > 50 AND Active = True';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Cesar');
+
+  FDataSet.Filter := 'Name = ''Cesar'' OR Name = ''Romero''';
+  Should(FDataSet.RecordCount).Be(2);
+
+  FDataSet.Filter := '(Score > 50 AND Active = False) OR Name = ''Cesar''';
+  Should(FDataSet.RecordCount).Be(2);
+
+  FDataSet.Filter := 'Score > 50 AND (Active = False OR Name = ''X'')';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Romero');
+end;
+
+procedure TEntityDataSetTests.Test_Filter_Not;
+begin
+  FDataSet.Filtered := True;
+  FDataSet.Filter := 'NOT (Score > 150)';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Cesar');
+end;
+
+procedure TEntityDataSetTests.Test_Filter_Like_In_And_Null;
+begin
+  FDataSet.Filtered := True;
+  FDataSet.Filter := 'Name LIKE ''Ces%''';
+  Should(FDataSet.RecordCount).Be(1);
+
+  FDataSet.Filter := 'Name NOT LIKE ''Ces%''';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Romero');
+
+  FDataSet.Filter := 'Score IN (100, 300)';
+  Should(FDataSet.RecordCount).Be(1);
+
+  FDataSet.Filter := 'Name IN (''Romero'', ''Nobody'')';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Romero');
+
+  FDataSet.Filter := 'Name NOT IN (''Romero'')';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Name').AsString).Be('Cesar');
+end;
+
+procedure TEntityDataSetTests.Test_Filter_Quoted_Text_With_Spaces_And_Quote;
+begin
+  // A value with a space and a quote, written the way the filter reads it.
+  FDataSet.First;
+  FDataSet.Next;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Ana O''Neil';
+  FDataSet.Post;
+  FDataSet.Filtered := True;
+  FDataSet.Filter := 'Name = ''Ana O''''Neil''';
+  Should(FDataSet.RecordCount).Be(1);
+  Should(FDataSet.FieldByName('Id').AsInteger).Be(2);
+end;
+
+procedure TEntityDataSetTests.Test_Filter_Invalid_Text_Raises;
+begin
+  FDataSet.Filtered := True;
+  // An unreadable filter must not quietly show every row.
+  Should(
+    procedure
+    begin
+      FDataSet.Filter := 'Score >';
+    end).Throw<EFilterSyntaxError>;
+  Should(
+    procedure
+    begin
+      FDataSet.Filter := 'Score > 1 AND';
+    end).Throw<EFilterSyntaxError>;
+  Should(
+    procedure
+    begin
+      FDataSet.Filter := 'Name = ''abc';
+    end).Throw<EFilterSyntaxError>;
+end;
+
+procedure TEntityDataSetTests.Test_Filter_Always_False_Shows_No_Row;
+begin
+  // The master-detail link uses "1=0" for "no master row": it must show
+  // nothing, not every row.
+  FDataSet.Filtered := True;
+  FDataSet.Filter := '1=0';
+  Should(FDataSet.RecordCount).Be(0);
+  FDataSet.Filter := '1 = 1';
+  Should(FDataSet.RecordCount).Be(2);
 end;
 
 procedure TEntityDataSetTests.Test_LoadArray_Count;
@@ -939,6 +1059,98 @@ begin
   FDataSet.FieldByName('Name').AsString := 'Editado';
   FDataSet.Post;
   Should(TUserTest(FSourceList[0]).Name).Be('Editado');
+end;
+
+procedure TEntityDataSetCRUDTests.Test_Cancel_Edit_Restores_Value;
+begin
+  FDataSet.First;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Editado';
+  FDataSet.Cancel;
+  // Edit writes straight to the entity, so Cancel has to put the value back
+  // and forget the change it had started to track.
+  Should(TUserTest(FSourceList[0]).Name).Be('Cesar');
+  Should(FDataSet.FieldByName('Name').AsString).Be('Cesar');
+  Should(FDataSet.Changes.Count).Be(0);
+end;
+
+procedure TEntityDataSetCRUDTests.Test_Cancel_Edit_Keeps_Earlier_Posted_Edit;
+begin
+  FDataSet.First;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Um';
+  FDataSet.Post;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Dois';
+  FDataSet.FieldByName('Score').AsFloat := 5;
+  FDataSet.Cancel;
+  // Cancel goes back to the value before THIS edit, not to the original one.
+  Should(TUserTest(FSourceList[0]).Name).Be('Um');
+  Should(TUserTest(FSourceList[0]).Score).Be(0.0);
+  Should(FDataSet.Changes.Count).Be(1);
+  Should(Length(FDataSet.Changes[0].DirtyFields)).Be(1);
+end;
+
+procedure TEntityDataSetCRUDTests.Test_Cancel_Edit_Does_Not_Leak_Dirty_Fields;
+begin
+  FDataSet.First;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Score').AsFloat := 9;
+  FDataSet.Cancel;
+  FDataSet.Edit;
+  FDataSet.FieldByName('Name').AsString := 'Novo';
+  FDataSet.Post;
+  // The cancelled field must not show up as dirty in the next post.
+  Should(FDataSet.Changes.Count).Be(1);
+  Should(Length(FDataSet.Changes[0].DirtyFields)).Be(1);
+  Should(FDataSet.Changes[0].DirtyFields[0]).Be('Name');
+end;
+
+procedure TEntityDataSetCRUDTests.Test_Append_Goes_To_The_End;
+begin
+  FDataSet.First;
+  FDataSet.Append;
+  FDataSet.FieldByName('Name').AsString := 'Fim';
+  FDataSet.Post;
+  // Append is "at the end", wherever the cursor was.
+  Should(TUserTest(FSourceList[0]).Name).Be('Cesar');
+  Should(TUserTest(FSourceList[1]).Name).Be('Fim');
+end;
+
+procedure TEntityDataSetCRUDTests.Test_Insert_Goes_Before_The_Current_Row;
+begin
+  FDataSet.First;
+  FDataSet.Insert;
+  FDataSet.FieldByName('Name').AsString := 'Antes';
+  FDataSet.Post;
+  Should(TUserTest(FSourceList[0]).Name).Be('Antes');
+  Should(TUserTest(FSourceList[1]).Name).Be('Cesar');
+end;
+
+procedure TEntityDataSetCRUDTests.Test_ReadOnly_Blocks_Edit_Append_And_Delete;
+begin
+  FDataSet.ReadOnly := True;
+  Should(FDataSet.CanModify).BeFalse;
+  FDataSet.First;
+  Should(
+    procedure
+    begin
+      FDataSet.Edit;
+    end).Throw<EDatabaseError>;
+  Should(
+    procedure
+    begin
+      FDataSet.Append;
+    end).Throw<EDatabaseError>;
+  Should(
+    procedure
+    begin
+      FDataSet.Delete;
+    end).Throw<EDatabaseError>;
+  Should(FSourceList.Count).Be(1);
+
+  FDataSet.ReadOnly := False;
+  Should(FDataSet.CanModify).BeTrue;
 end;
 
 procedure TEntityDataSetCRUDTests.Test_Delete_And_Sync;
