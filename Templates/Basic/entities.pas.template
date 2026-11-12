@@ -1,0 +1,83 @@
+unit Entities;
+
+{ One unit for every entity. Entities that reference each other (a foreign key,
+  a many-to-many) cannot live in separate units without a circular "uses", so
+  every class is declared forward first. Use it with gmSingleFile. }
+
+interface
+
+uses
+  Dext.Collections,
+  Dext.Entity,
+  Dext.Entity.Collections,
+  Dext.Types.Nullable,
+  Dext.Types.Lazy,
+  System.SysUtils,
+  System.Classes;
+
+type
+@foreach(var t in Model.Tables)
+  @t.DelphiClassName = class;
+@endforeach
+
+@foreach(var t in Model.Tables)
+  @t.DelphiClassName = class
+  private
+@foreach(var col in t.Columns)
+    F@col.DelphiName: @col.DelphiType;
+@endforeach
+@foreach(var fk in t.ForeignKeys)
+    F@fk.PropertyName: ILazy<@fk.ReferencedClass>;
+    function Get@(fk.PropertyName): @fk.ReferencedClass;
+    procedure Set@(fk.PropertyName)(const Value: @fk.ReferencedClass);
+@endforeach
+@foreach(var m2m in t.ManyToMany)
+    F@m2m.PropertyName: IList<@m2m.TargetClass>;
+@endforeach
+  public
+    constructor Create;
+@foreach(var col in t.Columns)
+    @col.GetAttributeString
+    property @col.DelphiName: @col.DelphiType read F@col.DelphiName write F@col.DelphiName;
+@endforeach
+@foreach(var fk in t.ForeignKeys)
+    [ForeignKey('@fk.ColumnName')]
+    property @fk.PropertyName: @fk.ReferencedClass read Get@(fk.PropertyName) write Set@(fk.PropertyName);
+@endforeach
+@foreach(var m2m in t.ManyToMany)
+    [ManyToMany('@m2m.JoinTable', '@m2m.SourceColumn', '@m2m.TargetColumn')]
+    property @m2m.PropertyName: IList<@m2m.TargetClass> read F@m2m.PropertyName;
+@endforeach
+  end;
+
+@endforeach
+implementation
+
+@foreach(var t in Model.Tables)
+{ @t.DelphiClassName }
+
+constructor @(t.DelphiClassName).Create;
+begin
+  inherited Create;
+@foreach(var m2m in t.ManyToMany)
+  F@m2m.PropertyName := TCollections.CreateList<@m2m.TargetClass>(False);
+@endforeach
+end;
+
+@foreach(var fk in t.ForeignKeys)
+function @(t.DelphiClassName).Get@(fk.PropertyName): @fk.ReferencedClass;
+begin
+  if F@fk.PropertyName <> nil then
+    Result := F@(fk.PropertyName).Value
+  else
+    Result := nil;
+end;
+
+procedure @(t.DelphiClassName).Set@(fk.PropertyName)(const Value: @fk.ReferencedClass);
+begin
+  F@fk.PropertyName := TValueLazy<@fk.ReferencedClass>.Create(Value);
+end;
+
+@endforeach
+@endforeach
+end.

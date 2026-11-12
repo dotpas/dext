@@ -84,6 +84,8 @@ The templated engine automatically handles:
 - **ManyToMany Attribute**: Bidirectional properties are added to the related entities using the `[ManyToMany]` attribute.
 - **Dext.Collections**: Generated properties use `IEntityCollection<T>` (based on `IList<T>`) for relationship management.
 
+Single-file mode (`gmSingleFile`) writes one `Entities` unit. Every class is declared forward (`TUser = class;`) at the top of the `interface` section, so entities that reference each other compile without `uses` between units. Class names are singularized (`users` becomes `TUser`), unlike the CLI generator, which keeps the table name (`TUsers`).
+
 To use the templated generator programmatically:
 
 ```pascal

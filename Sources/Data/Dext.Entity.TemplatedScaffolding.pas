@@ -42,6 +42,7 @@ function TTemplatedEntityGenerator.CleanName(const AName: string; ASingularize: 
 var
   Parts: TArray<string>;
   S, Cleaned: string;
+  I: Integer;
 begin
   Result := '';
   Cleaned := AName.Replace('"', '').Replace('''', '').Replace('[', '').Replace(']', '');
@@ -53,9 +54,19 @@ begin
   end;
   
   Parts := Cleaned.Split(['_', '-', ' '], TStringSplitOptions.ExcludeEmpty);
+  // Same rule as TDelphiEntityGenerator: keep the case inside a part, but lower
+  // an uppercase letter that follows another one (EmployeeID -> EmployeeId).
   for S in Parts do
     if S.Length > 0 then
-      Result := Result + UpperCase(S.Chars[0]) + S.Substring(1).ToLower;
+    begin
+      Result := Result + UpperCase(S.Chars[0]);
+      for I := 1 to S.Length - 1 do
+        if (S.Chars[I] >= 'A') and (S.Chars[I] <= 'Z') and
+           (S.Chars[I - 1] >= 'A') and (S.Chars[I - 1] <= 'Z') then
+          Result := Result + LowerCase(S.Chars[I])
+        else
+          Result := Result + S.Chars[I];
+    end;
 
   if ASingularize then
   begin
@@ -156,7 +167,8 @@ begin
     FK.Name := MetaFK.Name;
     FK.ColumnName := MetaFK.ColumnName;
     FK.ReferencedTable := MetaFK.ReferencedTable;
-    FK.ReferencedClass := 'T' + CleanName(MetaFK.ReferencedTable);
+    // The class is named after the singular table, as DelphiClassName is.
+    FK.ReferencedClass := 'T' + CleanName(MetaFK.ReferencedTable, True);
     
     NavProp := CleanName(MetaFK.ColumnName);
     if NavProp.EndsWith('Id', True) then
@@ -182,6 +194,7 @@ var
   Meta: TMetaTable;
   TableVM: TTableViewModel;
   FileName: string;
+  I: Integer;
 begin
   if not TFile.Exists(ATemplatePath) then
     raise Exception.Create('Template not found: ' + ATemplatePath);
@@ -226,6 +239,12 @@ begin
     end
     else
     begin
+      // A join table is not an entity: its many-to-many properties were already
+      // added to the two tables it links, so it only has to leave the output.
+      for I := RootModel.Tables.Count - 1 downto 0 do
+        if RootModel.Tables[I].IsJoinTable then
+          RootModel.Tables.Delete(I);
+
       Context := TTemplating.CreateContext;
       Context.SetObject('Model', RootModel);
       

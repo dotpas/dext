@@ -86,6 +86,8 @@ O motor baseado em templates lida automaticamente com:
 - **Atributo ManyToMany**: Propriedades bidirecionais são adicionadas às entidades relacionadas usando o atributo `[ManyToMany]`.
 - **Dext.Collections**: As propriedades geradas utilizam `IEntityCollection<T>` (baseado em `IList<T>`) para o gerenciamento de relacionamentos.
 
+O modo de arquivo único (`gmSingleFile`) escreve uma unit `Entities`. Todas as classes são declaradas adiante (`TUser = class;`) no início da seção `interface`, então entidades que se referenciam compilam sem `uses` entre units. Os nomes das classes vão para o singular (`users` vira `TUser`), diferente do gerador do CLI, que mantém o nome da tabela (`TUsers`).
+
 Para usar o gerador por templates programaticamente:
 
 ```pascal

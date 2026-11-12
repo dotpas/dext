@@ -53,6 +53,9 @@ type
 
     [Test]
     procedure Test_Nullable_Decimal_Keeps_Precision_Attribute;
+
+    [Test]
+    procedure Test_SingleFile_Declares_Every_Class_Forward_And_Skips_JoinTables;
   end;
 
 implementation
@@ -245,6 +248,51 @@ begin
     Should(Code).Contain('Precision(12, 3)');
   finally
     Generator.Free;
+  end;
+end;
+
+procedure TScaffoldingTests.Test_SingleFile_Declares_Every_Class_Forward_And_Skips_JoinTables;
+var
+  Generator: TTemplatedEntityGenerator;
+  Schema: ISchemaProvider;
+  OutputDir, Content, Template: string;
+begin
+  // Posts references Users: the classes of a foreign key live in one unit and
+  // are declared forward, so the output has no circular "uses".
+  FConn.ExecSQL('CREATE TABLE Posts (Id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+    'AuthorId INTEGER, Title TEXT, ' +
+    'FOREIGN KEY (AuthorId) REFERENCES Users(Id))');
+  // The provider caches the schema on first use: use a fresh one.
+  Schema := TFireDACSchemaProvider.Create(FDbConn);
+
+  Generator := TTemplatedEntityGenerator.Create;
+  OutputDir := TPath.Combine(TPath.GetTempPath, 'dext_scaffold_single_' +
+    TGuid.NewGuid.ToString.Replace('{', '').Replace('}', ''));
+  TDirectory.CreateDirectory(OutputDir);
+  try
+    Template := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)),
+      '..\..\Templates\Basic\entities.pas.template'));
+    Generator.Generate(Schema, Template, OutputDir, gmSingleFile);
+
+    Should(TFile.Exists(TPath.Combine(OutputDir, 'Entities.pas'))).BeTrue;
+    Content := TFile.ReadAllText(TPath.Combine(OutputDir, 'Entities.pas'));
+
+    Should(Content).Contain('TUser = class;');
+    Should(Content).Contain('TRole = class;');
+    Should(Content).Contain('TPost = class;');
+    Should(Content).Contain('ILazy<TUser>');
+    Should(Content).Because('the class is the singular one').NotContain('TUsers');
+    Should(Content).Contain('FAuthorId: Integer;');
+    Should(Content).Contain('procedure SetAuthor(const Value: TUser);');
+    Should(Content).Contain('constructor TPost.Create;');
+    Should(Content).Contain('function TPost.GetAuthor: TUser;');
+    Should(Content).Contain('procedure TPost.SetAuthor(const Value: TUser);');
+    Should(Content).Contain('[ManyToMany(''UserRoles'', ''UserId'', ''RoleId'')]');
+    Should(Content).Because('the join table is not an entity').NotContain('TUserRole');
+  finally
+    Generator.Free;
+    if TDirectory.Exists(OutputDir) then
+      TDirectory.Delete(OutputDir, True);
   end;
 end;
 

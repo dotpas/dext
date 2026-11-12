@@ -20,8 +20,8 @@ type
 
 @foreach(var fk in Model.ForeignKeys)
     F@fk.PropertyName: ILazy<@fk.ReferencedClass>;
-    function Get@fk.PropertyName: @fk.ReferencedClass;
-    procedure Set@fk.PropertyName(const Value: @fk.ReferencedClass);
+    function Get@(fk.PropertyName): @fk.ReferencedClass;
+    procedure Set@(fk.PropertyName)(const Value: @fk.ReferencedClass);
 @endforeach
 
 @foreach(var m2m in Model.ManyToMany)
@@ -37,7 +37,7 @@ type
 
 @foreach(var fk in Model.ForeignKeys)
     [ForeignKey('@fk.ColumnName')]
-    property @fk.PropertyName: @fk.ReferencedClass read Get@fk.PropertyName write Set@fk.PropertyName;
+    property @fk.PropertyName: @fk.ReferencedClass read Get@(fk.PropertyName) write Set@(fk.PropertyName);
 @endforeach
 
 @foreach(var m2m in Model.ManyToMany)
@@ -50,7 +50,7 @@ implementation
 
 { @Model.DelphiClassName }
 
-constructor @Model.DelphiClassName.Create;
+constructor @(Model.DelphiClassName).Create;
 begin
   inherited Create;
 @foreach(var m2m in Model.ManyToMany)
@@ -59,15 +59,15 @@ begin
 end;
 
 @foreach(var fk in Model.ForeignKeys)
-function @Model.DelphiClassName.Get@fk.PropertyName: @fk.ReferencedClass;
+function @(Model.DelphiClassName).Get@(fk.PropertyName): @fk.ReferencedClass;
 begin
   if F@fk.PropertyName <> nil then
-    Result := F@fk.PropertyName.Value
+    Result := F@(fk.PropertyName).Value
   else
     Result := nil;
 end;
 
-procedure @Model.DelphiClassName.Set@fk.PropertyName(const Value: @fk.ReferencedClass);
+procedure @(Model.DelphiClassName).Set@(fk.PropertyName)(const Value: @fk.ReferencedClass);
 begin
   F@fk.PropertyName := TValueLazy<@fk.ReferencedClass>.Create(Value);
 end;
