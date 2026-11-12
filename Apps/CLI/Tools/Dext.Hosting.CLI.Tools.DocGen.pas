@@ -850,7 +850,7 @@ begin
     end;
 
     // 4. Generate Index
-    FinalHtml := FTemplate.Replace('{{TITLE}}', 'Index').Replace('{{PROJECT_TITLE}}', FTitle).Replace('{{MAIN_CONTENT}}', '<h1>Dext Framework API</h1><p>Select a unit from the sidebar to view full documentation.</p>' + '<h2>Units</h2><div class="list-group" id="indexUnitList"></div>');
+    FinalHtml := FTemplate.Replace('{{TITLE}}', 'Index').Replace('{{PROJECT_TITLE}}', FTitle).Replace('{{MAIN_CONTENT}}', '<h1>' + FTitle + '</h1><p>Select a unit from the sidebar to view full documentation.</p>' + '<h2>Units</h2><div class="list-group" id="indexUnitList"></div>');
     OutFilePath := TPath.Combine(FOutputDir, 'index.html');
     if (not TFile.Exists(OutFilePath)) or (TFile.ReadAllText(OutFilePath) <> FinalHtml) then
       TFile.WriteAllText(OutFilePath, FinalHtml);

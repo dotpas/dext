@@ -50,6 +50,8 @@ type
     procedure Property_Types_Are_Shown;
     [Test]
     procedure Xml_Summary_Reaches_The_Page;
+    [Test]
+    procedure Index_Page_Carries_The_Project_Title;
   end;
 
 procedure TDocGenTests.Generate;
@@ -96,6 +98,12 @@ end;
 procedure TDocGenTests.Xml_Summary_Reaches_The_Page;
 begin
   Should(FPage).Contain('Quita parte da fatura.');
+end;
+
+procedure TDocGenTests.Index_Page_Carries_The_Project_Title;
+begin
+  Should(TFile.ReadAllText(TPath.Combine(FDir, 'out\index.html')))
+    .Contain('<h1>Teste</h1><p>Select a unit');
 end;
 
 begin
