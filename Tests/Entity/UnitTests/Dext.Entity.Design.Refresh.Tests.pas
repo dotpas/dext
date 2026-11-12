@@ -46,6 +46,10 @@ type
     procedure Refresh_NamesTheMissingUnit;
     [Test('A refresh with every unit readable reports no missing unit')]
     procedure Refresh_AllReadable_ReportsNoMissingUnit;
+    [Test('The SQL Server preview has the ORDER BY its paging requires')]
+    procedure Preview_SqlServer_HasAnOrderBy;
+    [Test('The other dialects keep the preview SQL without an ORDER BY')]
+    procedure Preview_OtherDialects_HaveNoOrderBy;
     [Test('A preview without a connection says why it is empty')]
     procedure Preview_NoConnection_ReportsWhy;
     [Test('A failed preview query is reported, not swallowed')]
@@ -195,6 +199,49 @@ begin
     RefreshProviderMetadata(Provider);
 
     Should(Provider.LastRefreshSummary).Be('1 entity(ies) found in 1 unit(s).');
+  finally
+    Provider.Free;
+  end;
+end;
+
+procedure TEntityDesignRefreshTests.Preview_SqlServer_HasAnOrderBy;
+var
+  Provider: TEntityDataProvider;
+begin
+  Provider := NewProvider;
+  try
+    RefreshProviderMetadata(Provider);
+    Provider.Dialect := ddSQLServer;
+
+    // OFFSET ... FETCH is only valid after an ORDER BY in SQL Server.
+    Should(Provider.BuildPreviewSql('TRefreshItem', 10)).Be(
+      'SELECT * FROM [items] ORDER BY (SELECT NULL) ' +
+      'OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY');
+  finally
+    Provider.Free;
+  end;
+end;
+
+procedure TEntityDesignRefreshTests.Preview_OtherDialects_HaveNoOrderBy;
+var
+  Provider: TEntityDataProvider;
+begin
+  Provider := NewProvider;
+  try
+    RefreshProviderMetadata(Provider);
+
+    Provider.Dialect := ddSQLite;
+    Should(Provider.BuildPreviewSql('TRefreshItem', 10)).Be(
+      'SELECT * FROM "items" LIMIT 10 OFFSET 0');
+    Provider.Dialect := ddPostgreSQL;
+    Should(Provider.BuildPreviewSql('TRefreshItem', 10)).Be(
+      'SELECT * FROM "items" LIMIT 10 OFFSET 0');
+    Provider.Dialect := ddMySQL;
+    Should(Provider.BuildPreviewSql('TRefreshItem', 10)).Be(
+      'SELECT * FROM `items` LIMIT 10 OFFSET 0');
+    Provider.Dialect := ddFirebird;
+    Should(Provider.BuildPreviewSql('TRefreshItem', 10)).Be(
+      'SELECT * FROM "items" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY');
   finally
     Provider.Free;
   end;

@@ -415,6 +415,11 @@ begin
   else
     BaseSql := Format('SELECT %s FROM %s', [Columns, Metadata.TableName]);
 
+  // SQL Server accepts OFFSET ... FETCH only after an ORDER BY. A preview
+  // has no order to honour, so an unspecified one is enough.
+  if GetResolvedDialect = ddSQLServer then
+    BaseSql := BaseSql + ' ORDER BY (SELECT NULL)';
+
   if DialectSvc <> nil then
     Result := DialectSvc.GeneratePaging(BaseSql, 0, AMaxRows)
   else
