@@ -70,13 +70,27 @@ type
     class var FDefault: TDextGrpcDispatcher;
     class constructor CreateClass;
     class destructor DestroyClass;
+    procedure RegisterServiceType(const AIntfType: TRttiInterfaceType;
+      const AServiceImpl: TClass);
   public
     constructor Create;
     destructor Destroy; override;
 
     procedure Invoke(const AContext: IHttpContext);
+    /// <summary>
+    ///   Registers a service by the GUID of its interface. The interface is
+    ///   searched in the RTTI of the program; one declared in the .dpr itself
+    ///   is not listed there, so use the generic overload for it. Raises
+    ///   EArgumentException when the interface is not found.
+    /// </summary>
     procedure RegisterService(const AInterface: TGUID;
-      const AServiceImpl: TClass);
+      const AServiceImpl: TClass); overload;
+    /// <summary>
+    ///   Registers a service by its interface type. Works wherever the
+    ///   interface is declared.
+    /// </summary>
+    procedure RegisterService<I: IInterface>(
+      const AServiceImpl: TClass); overload;
 
     class property Default: TDextGrpcDispatcher read FDefault;
   end;
@@ -86,6 +100,15 @@ implementation
 uses
   System.Diagnostics, System.JSON, Dext.Logging, Dext.Logging.Global,
   Dext.Logging.Telemetry, Dext.Logging.Tracing;
+
+procedure WriteGrpcStatus(const AContext: IHttpContext; ACode: Integer;
+  const AMessage: string);
+begin
+  AContext.Response.StatusCode := 200;
+  AContext.Response.ContentType := 'application/grpc';
+  AContext.Response.AddHeader('grpc-status', IntToStr(ACode));
+  AContext.Response.AddHeader('grpc-message', AMessage);
+end;
 
 type
   TGrpcBufferPool = class
@@ -207,84 +230,120 @@ end;
 procedure TDextGrpcDispatcher.RegisterService(const AInterface: TGUID;
   const AServiceImpl: TClass);
 var
-  Context: TRttiContext;
-  RttiType: TRttiType;
-  IntfType: TRttiInterfaceType;
-  Attr: TCustomAttribute;
-  ServiceName: string;
-  ServiceMeta: TGrpcServiceMeta;
-  Method: TRttiMethod;
-  MethodMeta: TGrpcMethodMeta;
-  LowerName: string;
-  Params: TArray<TRttiParameter>;
   T: TRttiType;
 begin
-  Context := TReflection.Context;
-  IntfType := nil;
-  for T in Context.GetTypes do
-  begin
+  for T in TReflection.Context.GetTypes do
     if (T.TypeKind = tkInterface) and
        (TRttiInterfaceType(T).GUID = AInterface) then
     begin
-      IntfType := TRttiInterfaceType(T);
-      Break;
+      RegisterServiceType(TRttiInterfaceType(T), AServiceImpl);
+      Exit;
     end;
-  end;
 
-  if not Assigned(IntfType) then Exit;
+  raise EArgumentException.CreateFmt(
+    'gRPC service interface %s was not found in the RTTI. Declare it in a ' +
+    'unit the program links, or register it with RegisterService<I>.',
+    [GUIDToString(AInterface)]);
+end;
 
+procedure TDextGrpcDispatcher.RegisterService<I>(const AServiceImpl: TClass);
+var
+  T: TRttiType;
+begin
+  T := TReflection.Context.GetType(TypeInfo(I));
+  if not (T is TRttiInterfaceType) then
+    raise EArgumentException.Create(
+      'RegisterService<I> needs an interface type.');
+  RegisterServiceType(TRttiInterfaceType(T), AServiceImpl);
+end;
+
+procedure TDextGrpcDispatcher.RegisterServiceType(
+  const AIntfType: TRttiInterfaceType; const AServiceImpl: TClass);
+var
+  Attr: TCustomAttribute;
+  ServiceName: string;
+  ServiceMeta: TGrpcServiceMeta;
+  RttiType: TRttiType;
+  Method: TRttiMethod;
+  MethodMeta: TGrpcMethodMeta;
+  MethodName: string;
+  LowerName: string;
+  Params: TArray<TRttiParameter>;
+  Invoker: TDextGrpcMethodInvoker;
+begin
   ServiceName := '';
-  for Attr in IntfType.GetAttributes do
-  begin
+  for Attr in AIntfType.GetAttributes do
     if Attr is GrpcServiceAttribute then
     begin
       ServiceName := GrpcServiceAttribute(Attr).ServiceName;
       Break;
     end;
-  end;
-
   if ServiceName = '' then
-    ServiceName := IntfType.Name;
+    ServiceName := AIntfType.Name;
+
+  if FServiceRegistry.ContainsKey(ServiceName) then
+    raise EArgumentException.CreateFmt(
+      'gRPC service %s is already registered.', [ServiceName]);
+
+  RttiType := TReflection.Context.GetType(AServiceImpl);
 
   ServiceMeta := TGrpcServiceMeta.Create;
-  ServiceMeta.ServiceName := ServiceName;
-  ServiceMeta.InterfaceGUID := AInterface;
-  ServiceMeta.ServiceImplClass := AServiceImpl;
+  try
+    ServiceMeta.ServiceName := ServiceName;
+    ServiceMeta.InterfaceGUID := AIntfType.GUID;
+    ServiceMeta.ServiceImplClass := AServiceImpl;
 
-  RttiType := Context.GetType(AServiceImpl);
-  if Assigned(RttiType) then
-  begin
-    for Method in IntfType.GetMethods do
+    for Method in AIntfType.GetMethods do
     begin
+      if Method.Parent <> AIntfType then
+        Continue;
+
+      // [GrpcMethod] renames the method; without it the Delphi name is used.
+      MethodName := Method.Name;
       for Attr in Method.GetAttributes do
-      begin
         if Attr is GrpcMethodAttribute then
         begin
-          Params := Method.GetParameters;
-          if Length(Params) = 1 then
-          begin
-            MethodMeta.MethodName := GrpcMethodAttribute(
-              Attr).GrpcMethodName;
-            MethodMeta.RttiMethod := RttiType.GetMethod(Method.Name);
-            MethodMeta.RequestClass :=
-              Params[0].ParamType.AsInstance.MetaclassType;
-            MethodMeta.ResponseClass :=
-              Method.ReturnType.AsInstance.MetaclassType;
-            if not ServiceMeta.Methods.ContainsKey(MethodMeta.MethodName) then
-              ServiceMeta.Methods.Add(MethodMeta.MethodName, MethodMeta);
-            LowerName := MethodMeta.MethodName.ToLower;
-            if LowerName <> MethodMeta.MethodName then
-              if not ServiceMeta.Methods.ContainsKey(LowerName) then
-                ServiceMeta.Methods.Add(LowerName, MethodMeta);
-          end;
+          MethodName := GrpcMethodAttribute(Attr).GrpcMethodName;
           Break;
         end;
-      end;
+
+      Params := Method.GetParameters;
+      if (Length(Params) <> 1) or (Params[0].ParamType = nil) or
+         (Params[0].ParamType.TypeKind <> tkClass) or
+         (Method.ReturnType = nil) or
+         (Method.ReturnType.TypeKind <> tkClass) then
+        raise EArgumentException.CreateFmt(
+          'gRPC method %s.%s must take one message class and return one ' +
+          'message class.', [ServiceName, Method.Name]);
+
+      MethodMeta.MethodName := MethodName;
+      MethodMeta.RttiMethod := nil;
+      if Assigned(RttiType) then
+        MethodMeta.RttiMethod := RttiType.GetMethod(Method.Name);
+      if (MethodMeta.RttiMethod = nil) and
+         not TDextCodecRegistry.TryGetGrpcInvoker(ServiceName, MethodName,
+           Invoker) then
+        raise EArgumentException.CreateFmt(
+          'gRPC method %s.%s was not found in the RTTI of %s.',
+          [ServiceName, Method.Name, AServiceImpl.ClassName]);
+      MethodMeta.RequestClass :=
+        Params[0].ParamType.AsInstance.MetaclassType;
+      MethodMeta.ResponseClass :=
+        Method.ReturnType.AsInstance.MetaclassType;
+
+      if not ServiceMeta.Methods.ContainsKey(MethodMeta.MethodName) then
+        ServiceMeta.Methods.Add(MethodMeta.MethodName, MethodMeta);
+      LowerName := MethodMeta.MethodName.ToLower;
+      if LowerName <> MethodMeta.MethodName then
+        if not ServiceMeta.Methods.ContainsKey(LowerName) then
+          ServiceMeta.Methods.Add(LowerName, MethodMeta);
     end;
+  except
+    ServiceMeta.Free;
+    raise;
   end;
 
-  if not FServiceRegistry.ContainsKey(ServiceName) then
-    FServiceRegistry.Add(ServiceName, ServiceMeta);
+  FServiceRegistry.Add(ServiceName, ServiceMeta);
   LowerName := ServiceName.ToLower;
   if LowerName <> ServiceName then
     if not FServiceRegistry.ContainsKey(LowerName) then
@@ -344,8 +403,8 @@ begin
 
   if (SlashPos <= 2) or (SlashPos >= Length(Path)) then
   begin
-    AContext.Response.StatusCode := 404;
-    AContext.Response.Write('Service / Method not found in path');
+    // UNIMPLEMENTED (12): the gRPC answer for a path nothing serves.
+    WriteGrpcStatus(AContext, 12, 'Service / Method not found in path');
     Exit;
   end;
 
@@ -365,8 +424,7 @@ begin
       ServiceName := ServicePath.ToLower;
       if not FServiceRegistry.TryGetValue(ServiceName, Service) then
       begin
-        AContext.Response.StatusCode := 404;
-        AContext.Response.Write('Service not found: ' + ServicePath);
+        WriteGrpcStatus(AContext, 12, 'Service not found: ' + ServicePath);
         Exit;
       end;
     end;
@@ -376,8 +434,7 @@ begin
       MethodName := MethodPath.ToLower;
       if not Service.Methods.TryGetValue(MethodName, Method) then
       begin
-        AContext.Response.StatusCode := 404;
-        AContext.Response.Write('Method not found: ' + MethodPath);
+        WriteGrpcStatus(AContext, 12, 'Method not found: ' + MethodPath);
         Exit;
       end;
     end;

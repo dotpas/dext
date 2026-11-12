@@ -84,13 +84,18 @@ type
     property Query: string read FQuery write FQuery;
   end;
 
+  /// <summary>
+  ///   The reply of a list call: the items are the repeated field 1, the
+  ///   same shape a service reply with a list in field 1 has.
+  /// </summary>
   TGenericListResponse<TItem: class, constructor> = class
   private
-    FItems: TList<TItem>;
+    FItems: IList<TItem>;
   public
     constructor Create;
     destructor Destroy; override;
-    property Items: TList<TItem> read FItems;
+    [ProtoMember(1)]
+    property Items: IList<TItem> read FItems write FItems;
   end;
 
   /// <summary>
@@ -296,7 +301,14 @@ procedure TMockHttpResponse.SetStatusCode(AValue: Integer); begin FStatusCode :=
 procedure TMockHttpResponse.SetContentType(const AValue: string); begin FContentType := AValue; end;
 procedure TMockHttpResponse.SetContentLength(const AValue: Int64); begin end;
 procedure TMockHttpResponse.Flush; begin end;
-procedure TMockHttpResponse.Write(const AContent: string); begin end;
+procedure TMockHttpResponse.Write(const AContent: string);
+var
+  Bytes: TBytes;
+begin
+  Bytes := TEncoding.UTF8.GetBytes(AContent);
+  if Length(Bytes) > 0 then
+    FBody.Write(Bytes[0], Length(Bytes));
+end;
 procedure TMockHttpResponse.Write(const ABuffer: TBytes);
 begin
   if Length(ABuffer) > 0 then
@@ -510,6 +522,10 @@ begin
       else
         SetLength(ResBytes, 0);
 
+      if MockRes.GetStatusCode <> 200 then
+        raise Exception.CreateFmt('HTTP Error: %d %s',
+          [MockRes.GetStatusCode, TEncoding.UTF8.GetString(ResBytes)]);
+
       if LogInfoActive then
         Log.Info('[gRPC-Client] In-Process Call: {Service}/{Method} | ' +
           'Duration: {Time} ms | Req: {ReqSz} bytes | Res: {ResSz} bytes',
@@ -702,7 +718,9 @@ end;
 
 constructor TGenericListResponse<TItem>.Create;
 begin
-  FItems := TList<TItem>.Create;
+  inherited Create;
+  // Does not own the items: FetchAll hands them to the caller.
+  FItems := TCollections.CreateList<TItem>(False);
 end;
 
 destructor TGenericListResponse<TItem>.Destroy;
@@ -711,7 +729,7 @@ var
 begin
   for Item in FItems do
     Item.Free;
-  FItems.Free;
+  FItems := nil;
   inherited;
 end;
 
@@ -740,6 +758,11 @@ end;
 
 procedure TEntitygRpcProvider<T>.ApplyChanges(const AList: TList<T>);
 begin
+  // A list of entities does not say what changed. Failing here is better
+  // than a call that returns and sends nothing.
+  raise ENotSupportedException.Create(
+    'TEntitygRpcProvider<T>.ApplyChanges is not implemented. Send the ' +
+    'changes of the dataset with a service call of your own.');
 end;
 
 end.
