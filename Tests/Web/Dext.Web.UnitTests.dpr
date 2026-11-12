@@ -50,7 +50,8 @@ uses
   Dext.Testing.WebApplicationFactory.Tests in '..\Testing\Dext.Testing.WebApplicationFactory.Tests.pas',
   Dext.Web.Validation.Tests in 'Dext.Web.Validation.Tests.pas',
   Dext.Web.S68.Tests in 'Dext.Web.S68.Tests.pas',
-  Dext.Web.NewFeatures.Tests in 'Dext.Web.NewFeatures.Tests.pas';
+  Dext.Web.NewFeatures.Tests in 'Dext.Web.NewFeatures.Tests.pas',
+  Dext.RateLimiting.Tests in 'Dext.RateLimiting.Tests.pas';
 
 begin
   SetConsoleCharSet();
@@ -93,6 +94,7 @@ begin
         THttpSysReceivesTests,
         THandlerExceptionsTests,
         TDextNewFeaturesTests,
+        TRateLimitersTests,
         TWebApplicationFactoryTests,
         TWebValidationTests,
         TS68FrameworkGapTests,

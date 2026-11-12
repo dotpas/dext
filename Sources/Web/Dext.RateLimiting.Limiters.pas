@@ -56,6 +56,7 @@ type
     FCleanupKeys: TArray<string>;
     FCleanupCursor: Integer;
     FCleanupBatchSize: Integer;
+    FSinceCleanup: Integer;
   public
     constructor Create(APermitLimit, AWindowSeconds: Integer);
     destructor Destroy; override;
@@ -63,6 +64,8 @@ type
     function TryAcquire(const APartitionKey: string): TRateLimitResult;
     procedure Release(const APartitionKey: string);
     procedure Cleanup;
+    /// <summary>Number of partition keys currently tracked.</summary>
+    function EntryCount: Integer;
   end;
 
   /// <summary>
@@ -84,6 +87,7 @@ type
     FCleanupKeys: TArray<string>;
     FCleanupCursor: Integer;
     FCleanupBatchSize: Integer;
+    FSinceCleanup: Integer;
   public
     constructor Create(APermitLimit, AWindowSeconds: Integer);
     destructor Destroy; override;
@@ -91,6 +95,8 @@ type
     function TryAcquire(const APartitionKey: string): TRateLimitResult;
     procedure Release(const APartitionKey: string);
     procedure Cleanup;
+    /// <summary>Number of partition keys currently tracked.</summary>
+    function EntryCount: Integer;
   end;
 
   /// <summary>
@@ -112,6 +118,7 @@ type
     FCleanupKeys: TArray<string>;
     FCleanupCursor: Integer;
     FCleanupBatchSize: Integer;
+    FSinceCleanup: Integer;
     
     procedure RefillTokens(var AEntry: TBucketEntry);
   public
@@ -121,6 +128,8 @@ type
     function TryAcquire(const APartitionKey: string): TRateLimitResult;
     procedure Release(const APartitionKey: string);
     procedure Cleanup;
+    /// <summary>Number of partition keys currently tracked.</summary>
+    function EntryCount: Integer;
   end;
 
   /// <summary>
@@ -139,9 +148,16 @@ type
     function TryAcquire(const APartitionKey: string): TRateLimitResult;
     procedure Release(const APartitionKey: string);
     procedure Cleanup;
+    /// <summary>Number of partition keys currently tracked.</summary>
+    function EntryCount: Integer;
   end;
 
 implementation
+
+const
+  // Every N-th TryAcquire runs one small Cleanup batch, so the limiters
+  // forget idle keys on their own, with no timer and no caller duty.
+  CCleanupInterval = 32;
 
 { TFixedWindowLimiter }
 
@@ -209,9 +225,13 @@ begin
       Entry.RequestCount := 1;
       Entry.WindowStart := Now;
       FEntries.Add(APartitionKey, Entry);
-      FCleanupKeys := nil;
-      FCleanupCursor := 0;
       Result := TRateLimitResult.Allow(FPermitLimit - Entry.RequestCount, FPermitLimit);
+    end;
+    Inc(FSinceCleanup);
+    if FSinceCleanup >= CCleanupInterval then
+    begin
+      FSinceCleanup := 0;
+      Cleanup; // re-enters the same critical section (it is recursive)
     end;
   finally
     FLock.Leave;
@@ -266,6 +286,16 @@ begin
   end;
 end;
 
+function TFixedWindowLimiter.EntryCount: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FEntries.Count;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 { TSlidingWindowLimiter }
 
 constructor TSlidingWindowLimiter.Create(APermitLimit, AWindowSeconds: Integer);
@@ -307,8 +337,6 @@ begin
     begin
       RequestList := TCollections.CreateList<TRequestTimestamp>;
       FEntries.Add(APartitionKey, RequestList);
-      FCleanupKeys := nil;
-      FCleanupCursor := 0;
     end;
     
     // Remove expired requests
@@ -334,6 +362,12 @@ begin
       NewRequest.Timestamp := Now;
       RequestList.Add(NewRequest);
       Result := TRateLimitResult.Allow(FPermitLimit - (ValidCount + 1), FPermitLimit);
+    end;
+    Inc(FSinceCleanup);
+    if FSinceCleanup >= CCleanupInterval then
+    begin
+      FSinceCleanup := 0;
+      Cleanup; // re-enters the same critical section (it is recursive)
     end;
   finally
     FLock.Leave;
@@ -390,6 +424,16 @@ begin
   end;
 end;
 
+function TSlidingWindowLimiter.EntryCount: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FEntries.Count;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 { TTokenBucketLimiter }
 
 constructor TTokenBucketLimiter.Create(ATokenLimit, ARefillRate: Integer);
@@ -441,8 +485,6 @@ begin
       // Initialize new bucket
       Entry.Tokens := FTokenLimit;
       Entry.LastRefill := System.SysUtils.Now;
-      FCleanupKeys := nil;
-      FCleanupCursor := 0;
     end;
     
     if Entry.Tokens >= 1.0 then
@@ -456,6 +498,12 @@ begin
       RetryAfter := Ceil((1.0 - Entry.Tokens) / FRefillRate);
       FEntries.AddOrSetValue(APartitionKey, Entry);
       Result := TRateLimitResult.Deny('Token bucket empty', RetryAfter);
+    end;
+    Inc(FSinceCleanup);
+    if FSinceCleanup >= CCleanupInterval then
+    begin
+      FSinceCleanup := 0;
+      Cleanup; // re-enters the same critical section (it is recursive)
     end;
   finally
     FLock.Leave;
@@ -505,6 +553,16 @@ begin
       FCleanupKeys := nil;
       FCleanupCursor := 0;
     end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TTokenBucketLimiter.EntryCount: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FEntries.Count;
   finally
     FLock.Leave;
   end;
@@ -571,6 +629,16 @@ end;
 procedure TConcurrencyLimiter.Cleanup;
 begin
   // Concurrency limiter doesn't need cleanup
+end;
+
+function TConcurrencyLimiter.EntryCount: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FCurrentCount.Count;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 end.
