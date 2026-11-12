@@ -47,10 +47,14 @@
 {      - AddScopedEventBus (Scoped): FCreateScope=False. Publish uses the   }
 {        injected scoped provider directly - handlers share the request     }
 {        unit-of-work (DbContext, Identity, etc.).                          }
-{      - PublishBackground ALWAYS creates a fresh scope from FServiceProvider}
-{        before TTask.Run. The IServiceScope is captured in the closure,    }
-{        keeping it alive via ARC for the lifetime of the background task   }
-{        regardless of whether the original request scope has ended.        }
+{      - PublishBackground creates a fresh scope from FServiceProvider      }
+{        (when FCreateScope) before TTask.Run. The IServiceScope is captured }
+{        by the task closure, which releases it when the task ends, so it   }
+{        lives exactly as long as the background dispatch, whether or not   }
+{        the original request scope has ended.                              }
+{      - A background dispatch has no caller to raise to. A failure (for    }
+{        instance EEventDispatchAggregate) is reported to OnBackgroundError }
+{        and counted in BackgroundFailureCount / LastBackgroundFailure.     }
 {                                                                           }
 {  [4] EXCEPTION AGGREGATION                                                }
 {      - Each handler invocation is individually wrapped in try/except.     }
@@ -165,6 +169,11 @@ type
     FSnapshotCache: IDictionary<Pointer, TDispatchSnapshot>;
     FSnapshotLock: TMultiReadExclusiveWriteSynchronizer;
     FCreateScope: Boolean;
+    FOnBackgroundError: TProc<Exception>;
+    FBackgroundFailureCount: Integer;
+    FLastBackgroundFailure: string;
+    procedure NoteBackgroundFailure(E: Exception);
+    function GetLastBackgroundFailure: string;
     function AcquireSnapshot(AEventType: PTypeInfo): TDispatchSnapshot;
     function DoDispatch(AEventType: PTypeInfo; const AEvent: TValue;
       const ASnapshot: TDispatchSnapshot;
@@ -183,6 +192,17 @@ type
     // For interface-based callers use TEventBusExtensions.Publish<T>.
     function Publish<T>(const AEvent: T): TPublishResult;
     procedure PublishBackground<T>(const AEvent: T);
+
+    /// <summary>
+    ///   Called, on the background thread, when a PublishBackground dispatch fails.
+    ///   Exceptions raised by the handler itself are contained.
+    /// </summary>
+    property OnBackgroundError: TProc<Exception>
+      read FOnBackgroundError write FOnBackgroundError;
+    /// <summary>How many background dispatches failed.</summary>
+    property BackgroundFailureCount: Integer read FBackgroundFailureCount;
+    /// <summary>Class and message of the most recent background failure.</summary>
+    property LastBackgroundFailure: string read GetLastBackgroundFailure;
   end;
 
 implementation
@@ -590,6 +610,38 @@ begin
   Result := DoDispatch(AEventType, AEvent, Snapshot, ScopedProvider);
 end;
 
+procedure TEventBus.NoteBackgroundFailure(E: Exception);
+var
+  LHandler: TProc<Exception>;
+begin
+  TInterlocked.Increment(FBackgroundFailureCount);
+  TMonitor.Enter(Self);
+  try
+    FLastBackgroundFailure := E.ClassName + ': ' + E.Message;
+    LHandler := FOnBackgroundError;
+  finally
+    TMonitor.Exit(Self);
+  end;
+  if Assigned(LHandler) then
+  begin
+    try
+      LHandler(E);
+    except
+      // A faulty handler must not escape into the thread pool.
+    end;
+  end;
+end;
+
+function TEventBus.GetLastBackgroundFailure: string;
+begin
+  TMonitor.Enter(Self);
+  try
+    Result := FLastBackgroundFailure;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
 procedure TEventBus.BusDispatchBackground(AEventType: PTypeInfo;
   const AEvent: TValue);
 var
@@ -614,7 +666,18 @@ begin
     begin
       // Background threads need their own scoped provider for thread-safe
       // handler resolution (especially for database context reuse).
-      DoDispatch(AEventType, EventCopy, Snapshot, ScopedProvider);
+      try
+        try
+          DoDispatch(AEventType, EventCopy, Snapshot, ScopedProvider);
+        except
+          on E: Exception do
+            NoteBackgroundFailure(E);
+        end;
+      finally
+        // Captured by this closure: it is the task that owns the scope, and
+        // the scope ends together with the dispatch.
+        BackgroundScope := nil;
+      end;
     end
   ));
 end;

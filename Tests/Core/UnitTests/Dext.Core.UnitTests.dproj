@@ -174,6 +174,8 @@
         <DCCReference Include="Dext.RecordDefaults.Tests.pas"/>
         <DCCReference Include="Dext.Json.RecordProperties.Tests.pas"/>
         <DCCReference Include="Dext.Resilience.Tests.pas"/>
+        <DCCReference Include="..\..\..\Sources\Events\Dext.Events.Bus.pas"/>
+        <DCCReference Include="Dext.Events.Background.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Core\Dext.Hosting.BackgroundService.pas"/>
         <DCCReference Include="Dext.Hosting.Service.Tests.pas"/>
         <DCCReference Include="..\..\..\Sources\Core\Dext.BackgroundJobs.Server.pas"/>
