@@ -26,10 +26,18 @@ dext scaffold --connection <string> --driver <driver> [options]
 | Opção | Alias | Descrição |
 |--------|-------|-----------|
 | `--connection` | `-c` | String de conexão FireDAC ou caminho do arquivo do banco |
-| `--driver` | `-d` | Driver do banco: `sqlite`, `pg`, `mssql`, `firebird` |
+| `--driver` | `-d` | Driver do banco: `sqlite`, `pg`, `mssql`, `firebird`, `mysql`, `oracle` |
 | `--output` | `-o` | Caminho do arquivo de saída (padrão: `Entities.pas`) |
 | `--fluent` | | Usa Mapeamento Fluente em vez de Atributos |
 | `--tables` | `-t` | Nomes das tabelas (separados por vírgula) para incluir |
+| `--unit` | `-u` | Nome da unit (a unit sempre leva o nome do arquivo de saída) |
+| `--schema` | `-s` | *Schema* / *search path* do banco |
+| `--smart` | | Smart Properties (`IntType`, `StringType`...). **É o padrão** |
+| `--poco` | | Tipos nativos do Delphi (`Nullable<Integer>`, `string`) e classes de metadados `TEntityType` |
+| `--no-metadata` | | Não gera as classes `TEntityType` |
+| `--with-metadata` | | Gera as classes `TEntityType` |
+
+Sem `--smart` nem `--poco`, o gerador escreve Smart Properties e nenhuma classe de metadados. `--poco` troca para tipos nativos e liga as classes de metadados; `--no-metadata` e `--with-metadata` sobrepõem essa escolha.
 
 ### Exemplos
 

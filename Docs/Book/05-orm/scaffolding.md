@@ -26,10 +26,18 @@ dext scaffold --connection <string> --driver <driver> [options]
 | Option | Alias | Description |
 |--------|-------|-------------|
 | `--connection` | `-c` | FireDAC connection string or database file path |
-| `--driver` | `-d` | Database driver: `sqlite`, `pg`, `mssql`, `firebird` |
+| `--driver` | `-d` | Database driver: `sqlite`, `pg`, `mssql`, `firebird`, `mysql`, `oracle` |
 | `--output` | `-o` | Output file path (default: `Entities.pas`) |
 | `--fluent` | | Use Fluent Mapping instead of Attributes |
 | `--tables` | `-t` | Comma-separated table names to include (default: all) |
+| `--unit` | `-u` | Unit name (the unit always takes the name of the output file) |
+| `--schema` | `-s` | Database schema / search path |
+| `--smart` | | Smart Properties (`IntType`, `StringType`...). **This is the default** |
+| `--poco` | | Native Delphi types (`Nullable<Integer>`, `string`) and `TEntityType` metadata classes |
+| `--no-metadata` | | Do not generate the `TEntityType` classes |
+| `--with-metadata` | | Generate the `TEntityType` classes |
+
+Without `--smart` or `--poco` the generator writes Smart Properties and no metadata classes. `--poco` switches to native types and turns the metadata classes on; `--no-metadata` and `--with-metadata` override that choice.
 
 ### Examples
 
