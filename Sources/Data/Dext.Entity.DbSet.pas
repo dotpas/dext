@@ -2284,6 +2284,7 @@ var
   Id: string;
 begin
   FContext.ChangeTracker.Track(AEntity, esAdded);
+  TLazyInjector.InjectNew(FContext, AEntity);
   
   // Ensure the DbSet owns this entity if it's not already tracked
   Id := GetEntityId(AEntity);
@@ -2469,6 +2470,10 @@ var
   UseReturning: Boolean;
   ValuesPos: Integer;
 begin
+  // Owned whether the INSERT succeeds or raises, and validated like SaveChanges
+  Adopt(AEntity);
+  FContext.ValidateForPersist(AEntity);
+  TLazyInjector.InjectNew(FContext, AEntity);
   Span := TTracer.BeginSpan('DbSet.Add', 'SQL');
   Span.SetAttribute('entity', string(PTypeInfo(TypeInfo(T)).Name));
   HandleTimestamps(AEntity, True);
@@ -2955,6 +2960,7 @@ begin
   if not (FIdentityMap.TryGetValue(Id, Tracked) and (TObject(Tracked) = AEntity)) then
     if not FOrphans.Contains(T(AEntity)) then
       FOrphans.Add(T(AEntity));
+  FContext.ValidateForPersist(AEntity);
 
   Span := TTracer.BeginSpan('DbSet.Update', 'SQL');
   Span.SetAttribute('entity', string(PTypeInfo(TypeInfo(T)).Name));
@@ -3044,6 +3050,7 @@ var
   NowVal: TDateTime;
   HasChanged: Boolean;
 begin
+  Adopt(AEntity);
   Span := TTracer.BeginSpan('DbSet.Delete', 'SQL');
   Span.SetAttribute('entity', string(PTypeInfo(TypeInfo(T)).Name));
   IsSoftDelete := False;
@@ -3135,9 +3142,7 @@ begin
         // Remove from identity map (entity is "deleted" from context perspective)
         Key := GetEntityId(T(AEntity));
         if FIdentityMap.ContainsKey(Key) then
-          FIdentityMap.Remove(Key)
-        else
-          AEntity.Free;
+          FIdentityMap.Remove(Key);
         Exit;
       end;
     end;

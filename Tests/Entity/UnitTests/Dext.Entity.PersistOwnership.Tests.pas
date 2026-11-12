@@ -94,6 +94,10 @@ type
     procedure RunRemoveRange;
     procedure RunAddRangeInvalid;
     procedure RunUpdateRangeInvalid;
+    procedure RunPersistAdd;
+    procedure RunPersistRemoveStub;
+    procedure RunPersistAddInvalid;
+    procedure RunPersistUpdateInvalid;
   public
     [Setup]
     procedure Setup;
@@ -135,6 +139,22 @@ type
     [Test]
     [Description('PersistRemoveRange does not validate: an invalid entity can be deleted')]
     procedure PersistRemoveRange_DoesNotValidate;
+
+    [Test]
+    [Description('PersistAdd must adopt the entity it inserts')]
+    procedure PersistAdd_AdoptsTheEntity;
+
+    [Test]
+    [Description('PersistRemove must adopt an instance that is not the tracked one')]
+    procedure PersistRemove_SecondInstance_AdoptsTheEntity;
+
+    [Test]
+    [Description('PersistAdd validates the entity, as SaveChanges does')]
+    procedure PersistAdd_InvalidEntity_RaisesAndInsertsNothing;
+
+    [Test]
+    [Description('PersistUpdate validates the entity, as SaveChanges does')]
+    procedure PersistUpdate_InvalidEntity_RaisesAndUpdatesNothing;
   end;
 
   [TestFixture('Issue #267 - PersistUpdate entity ownership')]
@@ -492,6 +512,96 @@ begin
     Ctx.Free;
   end;
   Should(CountRows('RANGE_WIDGETS')).Be(0);
+end;
+
+procedure TPersistRangeTests.RunPersistAdd;
+var
+  Ctx: TDbContext;
+begin
+  Ctx := NewContext;
+  try
+    (Ctx.Entities<TOwnershipWidget> as IDbSet).PersistAdd(NewWidget(10));
+  finally
+    Ctx.Free;
+  end;
+end;
+
+procedure TPersistRangeTests.RunPersistRemoveStub;
+var
+  Ctx: TDbContext;
+begin
+  Ctx := NewContext;
+  try
+    (Ctx.Entities<TOwnershipWidget> as IDbSet).PersistRemove(
+      NewWidget(EXISTING_ID));
+  finally
+    Ctx.Free;
+  end;
+end;
+
+procedure TPersistRangeTests.RunPersistAddInvalid;
+var
+  Ctx: TDbContext;
+  Raised: Boolean;
+begin
+  Raised := False;
+  Ctx := NewContext;
+  try
+    try
+      (Ctx.Entities<TRangeWidget> as IDbSet).PersistAdd(NewRange(10, ''));
+    except
+      on E: EValidationException do
+        Raised := True;
+    end;
+  finally
+    Ctx.Free;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TPersistRangeTests.RunPersistUpdateInvalid;
+var
+  Ctx: TDbContext;
+  Raised: Boolean;
+begin
+  Raised := False;
+  Ctx := NewContext;
+  try
+    try
+      (Ctx.Entities<TRangeWidget> as IDbSet).PersistUpdate(
+        NewRange(EXISTING_ID, 'much too long a name'));
+    except
+      on E: EValidationException do
+        Raised := True;
+    end;
+  finally
+    Ctx.Free;
+  end;
+  Should(Raised).BeTrue;
+end;
+
+procedure TPersistRangeTests.PersistAdd_AdoptsTheEntity;
+begin
+  Should(Leaked(RunPersistAdd)).Be(0);
+  Should(CountRows('OWNERSHIP_WIDGETS')).Be(2);
+end;
+
+procedure TPersistRangeTests.PersistRemove_SecondInstance_AdoptsTheEntity;
+begin
+  Should(Leaked(RunPersistRemoveStub)).Be(0);
+  Should(CountRows('OWNERSHIP_WIDGETS')).Be(0);
+end;
+
+procedure TPersistRangeTests.PersistAdd_InvalidEntity_RaisesAndInsertsNothing;
+begin
+  Should(Leaked(RunPersistAddInvalid)).Be(0);
+  Should(CountRows('RANGE_WIDGETS')).Be(1);
+end;
+
+procedure TPersistRangeTests.PersistUpdate_InvalidEntity_RaisesAndUpdatesNothing;
+begin
+  Should(Leaked(RunPersistUpdateInvalid)).Be(0);
+  Should(NameOf(EXISTING_ID)).Be('one');
 end;
 
 { TPersistUpdateOwnershipTests }

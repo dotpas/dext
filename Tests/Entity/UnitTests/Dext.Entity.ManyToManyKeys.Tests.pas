@@ -179,6 +179,8 @@ type
     [Test]
     procedure Lazy_Loaded_RemoveItem_SaveChanges_DeletesTheRow;
     [Test]
+    procedure Lazy_NewEntity_Add_ValueIsUsable;
+    [Test]
     procedure Lazy_Untouched_SaveChanges_KeepsTheRows;
     [Test]
     procedure Lazy_Loaded_AddThird_SaveChanges_AddsOneRow;
@@ -206,6 +208,8 @@ type
     procedure PersistManyToMany_Deleted_RemovesOnlyTheOwnersRows;
     [Test]
     procedure Include_LoadsTheCollection;
+    [Test]
+    procedure Include_ReadsEachCompositeTargetByItsKey;
     [Test]
     procedure LazyCollection_LoadsFromACompositeKey;
     [Test]
@@ -390,6 +394,20 @@ begin
   Should(Scalar('SELECT COUNT(*) FROM LzStudentCourses')).Be(1);
 end;
 
+procedure TManyToManyLazyTests.Lazy_NewEntity_Add_ValueIsUsable;
+var
+  Student: TLzStudent;
+begin
+  // Created with Create and never read back: the collection must work
+  Student := TLzStudent.Create;
+  Student.Name := 'New';
+  FCtx.Entities<TLzStudent>.Add(Student);
+  Student.Courses.Value.Add(Courses.Find(1));
+  FCtx.SaveChanges;
+  Should(Scalar('SELECT COUNT(*) FROM LzStudentCourses WHERE student_id = ' +
+    IntToStr(Student.Id))).Be(1);
+end;
+
 procedure TManyToManyLazyTests.Lazy_Untouched_SaveChanges_KeepsTheRows;
 var
   Student: TLzStudent;
@@ -568,6 +586,30 @@ begin
     Should(Orders[0].Labels.Count).Be(2)
   else
     Should(Orders[1].Labels.Count).Be(2);
+end;
+
+procedure TManyToManyCompositeTests.Include_ReadsEachCompositeTargetByItsKey;
+var
+  Orders: IList<TOrder>;
+  Selects: Integer;
+begin
+  FCtx.Entities<TOrder>.LinkManyToMany(FCtx.Entities<TOrder>.Find(['A', 1]), 'Labels', Labels.Find(['x', 1]));
+  FCtx.Entities<TOrder>.LinkManyToMany(FCtx.Entities<TOrder>.Find(['A', 1]), 'Labels', Labels.Find(['y', 1]));
+  FCtx.Entities<TOrder>.LinkManyToMany(FCtx.Entities<TOrder>.Find(['A', 2]), 'Labels', Labels.Find(['x', 2]));
+  FCtx.DetachAll;
+
+  Selects := 0;
+  FCtx.OnLog :=
+    procedure(ASql: string)
+    begin
+      if ASql.Contains('FROM "Labels"') then
+        Inc(Selects);
+    end;
+  Orders := FCtx.Entities<TOrder>.QueryAll.Include('Labels').ToList;
+  FCtx.OnLog := nil;
+  Should(Orders.Count).Be(2);
+  // One query per distinct label (x1, y1, x2): there is no IN for a tuple
+  Should(Selects).Be(3);
 end;
 
 procedure TManyToManyCompositeTests.LazyCollection_LoadsFromACompositeKey;

@@ -53,6 +53,12 @@ type
     class procedure InjectField(AContext: IDbContext; AEntity: TObject; AField: TRttiField);
   public
     class procedure Inject(AContext: IDbContext; AEntity: TObject);
+    /// <summary>
+    ///   For an entity created in code (not hydrated): gives a loader to every
+    ///   Lazy field that has none yet, so its Value is usable right after Add.
+    ///   Fields already holding a value or a loader are left untouched.
+    /// </summary>
+    class procedure InjectNew(AContext: IDbContext; AEntity: TObject);
   end;
 
   /// <summary>
@@ -162,6 +168,34 @@ begin
     begin
       // If it's a class but not Lazy<T>, it's a candidate for Auto-Proxying
     end;
+  end;
+end;
+
+class procedure TLazyInjector.InjectNew(AContext: IDbContext; AEntity: TObject);
+var
+  Typ: TRttiType;
+  Field: TRttiField;
+  InstanceField: TRttiField;
+  LazyVal, Existing: TValue;
+  Probe: ILazy;
+begin
+  if AEntity = nil then Exit;
+  if TEntityMap(AContext.GetMapping(AEntity.ClassInfo)) = nil then Exit;
+  Typ := TReflection.Context.GetType(AEntity.ClassType);
+  if Typ = nil then Exit;
+  for Field in Typ.GetFields do
+  begin
+    if (Field.FieldType.TypeKind <> tkRecord) or
+       not Field.FieldType.Name.Contains('Lazy<') then
+      Continue;
+    InstanceField := Field.FieldType.AsRecord.GetField('FInstance');
+    if InstanceField = nil then Continue;
+    LazyVal := Field.GetValue(AEntity);
+    Existing := InstanceField.GetValue(LazyVal.GetReferenceToRawData);
+    if (not Existing.IsEmpty) and Existing.TryAsType<ILazy>(Probe) and
+       (Probe <> nil) then
+      Continue;
+    InjectField(AContext, AEntity, Field);
   end;
 end;
 
