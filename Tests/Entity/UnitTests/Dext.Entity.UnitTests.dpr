@@ -77,6 +77,7 @@ begin
         TEntityDataSetTests,
         TEntityDesignMetadataTests,
         TEntityDesignRefreshTests,
+        TEntityDesignDataSetMappingTests,
         TEntityIdReturnTests,
         TInsertDefaultValuesTests,
         TEntityNullableHydrationTests,

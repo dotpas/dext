@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  Data.DB,
   FireDAC.Stan.Intf,
   FireDAC.Stan.Option,
   FireDAC.Stan.Def,
@@ -15,12 +16,15 @@ uses
   FireDAC.Phys,
   FireDAC.Phys.SQLite,
   FireDAC.Comp.Client,
+  FireDAC.Comp.DataSet,
   Dext.Assertions,
   Dext.Testing.Attributes,
   Dext.Collections,
   Dext.Collections.Dict,
   Dext.Entity.Dialects,
   Dext.Entity.DataProvider,
+  Dext.Entity.Scaffolding,
+  Dext.EF.Design.Scaffolding.Helpers,
   Dext.EF.Design.Metadata;
 
 type
@@ -48,6 +52,25 @@ type
     procedure Preview_FailedQuery_IsReported;
     [Test('A working preview returns the rows and clears the error')]
     procedure Preview_Works_ClearsTheError;
+  end;
+
+  [TestFixture('Design-time: entity from a dataset (field type mapping)')]
+  TEntityDesignDataSetMappingTests = class
+  private
+    function DelphiTypeOf(AType: TFieldType; ASize: Integer = 0): string;
+  public
+    [Test('A Currency field becomes Currency, not an integer')]
+    procedure Currency_BecomesCurrency;
+    [Test('A Float field becomes Double, not an integer')]
+    procedure Float_BecomesDouble;
+    [Test('A SmallInt field becomes SmallInt, not a string')]
+    procedure SmallInt_BecomesSmallInt;
+    [Test('A Byte field becomes SmallInt and a Word field Integer')]
+    procedure ByteAndWord_FitTheirRange;
+    [Test('A Time field becomes TTime, not a string')]
+    procedure Time_BecomesTime;
+    [Test('The types that were already right stay right')]
+    procedure Existing_Mappings_Stay;
   end;
 
 implementation
@@ -248,6 +271,75 @@ begin
     Conn.Free;
     Provider.Free;
   end;
+end;
+
+{ TEntityDesignDataSetMappingTests }
+
+function TEntityDesignDataSetMappingTests.DelphiTypeOf(AType: TFieldType;
+  ASize: Integer): string;
+var
+  Mem: TFDMemTable;
+  Def: TFieldDef;
+  Meta: TMetaTable;
+  Generator: TDelphiEntityGenerator;
+begin
+  Mem := TFDMemTable.Create(nil);
+  try
+    Def := Mem.FieldDefs.AddFieldDef;
+    Def.Name := 'Value';
+    Def.DataType := AType;
+    if ASize > 0 then
+      Def.Size := ASize;
+    Mem.CreateDataSet;
+
+    Meta := TScaffoldingHelper.DataSetToMetaTable(Mem);
+
+    Generator := TDelphiEntityGenerator.Create;
+    try
+      Result := Generator.SQLTypeToDelphiType(Meta.Columns[0].DataType,
+        Meta.Columns[0].Precision, Meta.Columns[0].Scale);
+    finally
+      Generator.Free;
+    end;
+  finally
+    Mem.Free;
+  end;
+end;
+
+procedure TEntityDesignDataSetMappingTests.Currency_BecomesCurrency;
+begin
+  Should(DelphiTypeOf(ftCurrency)).Be('Currency');
+end;
+
+procedure TEntityDesignDataSetMappingTests.Float_BecomesDouble;
+begin
+  Should(DelphiTypeOf(ftFloat)).Be('Double');
+end;
+
+procedure TEntityDesignDataSetMappingTests.SmallInt_BecomesSmallInt;
+begin
+  Should(DelphiTypeOf(ftSmallint)).Be('SmallInt');
+end;
+
+procedure TEntityDesignDataSetMappingTests.ByteAndWord_FitTheirRange;
+begin
+  Should(DelphiTypeOf(ftByte)).Be('SmallInt');
+  Should(DelphiTypeOf(ftWord)).Be('Integer');
+end;
+
+procedure TEntityDesignDataSetMappingTests.Time_BecomesTime;
+begin
+  Should(DelphiTypeOf(ftTime)).Be('TTime');
+end;
+
+procedure TEntityDesignDataSetMappingTests.Existing_Mappings_Stay;
+begin
+  Should(DelphiTypeOf(ftString, 40)).Be('string');
+  Should(DelphiTypeOf(ftInteger)).Be('Integer');
+  Should(DelphiTypeOf(ftLargeint)).Be('Int64');
+  Should(DelphiTypeOf(ftBoolean)).Be('Boolean');
+  Should(DelphiTypeOf(ftDateTime)).Be('TDateTime');
+  Should(DelphiTypeOf(ftBlob)).Be('TBytes');
 end;
 
 end.

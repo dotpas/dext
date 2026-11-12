@@ -87,9 +87,28 @@ begin
     // Better DataType mapping
     case Field.DataType of
       ftString, ftWideString: Col.DataType := 'VARCHAR';
-      ftInteger, ftAutoInc: Col.DataType := 'INTEGER';
+      ftSmallint, ftShortint, ftByte: Col.DataType := 'SMALLINT';
+      // A Word (0..65535) does not fit a SmallInt.
+      ftWord, ftInteger, ftAutoInc: Col.DataType := 'INTEGER';
       ftLargeint: Col.DataType := 'BIGINT';
-      ftFloat, ftCurrency, ftBCD, ftFMTBcd: Col.DataType := 'NUMERIC';
+      // A Float has no fixed scale: it must not be read as NUMERIC(15,0),
+      // which the generator turns into an integer property.
+      ftFloat: Col.DataType := 'DOUBLE';
+      ftCurrency:
+        begin
+          Col.DataType := 'NUMERIC';
+          Col.Precision := 18;
+          Col.Scale := 4;
+        end;
+      ftBCD, ftFMTBcd:
+        begin
+          Col.DataType := 'NUMERIC';
+          if Col.Precision <= 0 then
+            Col.Precision := 18;
+          // For a BCD field, Size is the number of decimals.
+          Col.Scale := Field.Size;
+        end;
+      ftTime: Col.DataType := 'TIME';
       ftDate, ftDateTime, ftTimeStamp: Col.DataType := 'TIMESTAMP';
       ftBoolean: Col.DataType := 'BOOLEAN';
       ftBlob, ftGraphic: Col.DataType := 'BLOB';
