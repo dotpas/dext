@@ -161,6 +161,10 @@ type
     FRequestId: HTTP_REQUEST_ID;
     FHeadersSent: Boolean;
     FResponseComplete: Boolean;
+    /// True once the request was upgraded to a WebSocket: the 101 has gone
+    /// out, the WebSocket connection owns the request from then on, and
+    /// Flush and Close send nothing.
+    FDetached: Boolean;
     FStatusCode: USHORT;
     FHeaderData: array[0..4095] of AnsiChar;
     FHeaderDataLen: Integer;
@@ -341,6 +345,9 @@ type
     FSecWebSocketKey: string;
     FSecWebSocketExtensions: string;
     FEngine: TDextHttpSysEngine;
+    /// The response of the same request (set by the worker): detached by
+    /// UpgradeToWebSocket.
+    FResponse: TDextHttpSysResponse;
   public
     /// <summary>Initializes a new http.sys connection wrapper.</summary>
     /// <param name="ARequest">The native HTTP_REQUEST structure of the connection.</param>
@@ -1098,6 +1105,7 @@ begin
   FRequestId := ARequestId;
   FHeadersSent := False;
   FResponseComplete := False;
+  FDetached := False;
   FStatusCode := 200;
 
   FReasonBuffer[0] := 'O';
@@ -1131,6 +1139,7 @@ begin
   FContext := AContext;
   FHeadersSent := False;
   FResponseComplete := False;
+  FDetached := False;
   FStatusCode := 200;
 
   FReasonBuffer[0] := 'O';
@@ -1228,6 +1237,8 @@ begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FResponseComplete then Exit;
   FResponseComplete := True;
+  // Upgraded to a WebSocket: the request belongs to the WebSocket connection
+  if FDetached then Exit;
   Ret := ERROR_IO_PENDING;
 
   // Retain context interface references to keep this response alive during async IOCP
@@ -1465,6 +1476,7 @@ var
 begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FHeadersSent then Exit;
+  if FDetached then Exit;
 
   // Retain context interface references to keep this response alive during async IOCP
   FContext.FResponseIntf := Self;
@@ -1896,7 +1908,9 @@ begin
     Ret := HttpSendHttpResponse(
       FReqQueue,
       FRequestId,
-      HTTP_SEND_RESPONSE_FLAG_OPAQUE,
+      // OPAQUE alone fails with ERROR_INVALID_PARAMETER (87): the response
+      // goes on as opaque data, so MORE_DATA is needed too
+      HTTP_SEND_RESPONSE_FLAG_OPAQUE or HTTP_SEND_RESPONSE_FLAG_MORE_DATA,
       @Response,
       nil,
       BytesSent,
@@ -1940,6 +1954,7 @@ begin
     Frame.Payload := CompressMessage(Payload)
   else
     Frame.Payload := Payload;
+  Frame.PayloadLength := Length(Frame.Payload);
   FrameBytes := TWebSocketFrameCodec.Encode(Frame);
   SendFrame(FrameBytes);
 end;
@@ -1959,6 +1974,7 @@ begin
   else
     Payload := AData;
   Frame.Payload := Payload;
+  Frame.PayloadLength := Length(Frame.Payload);
   FrameBytes := TWebSocketFrameCodec.Encode(Frame);
   SendFrame(FrameBytes);
 end;
@@ -2508,6 +2524,12 @@ begin
   Result := TDextHttpSysWebSocketConnection.Create(
     FEngine, FConnectionId, FReqQueue, FRequestId, FSecWebSocketKey,
     FSecWebSocketExtensions);
+  // The 101 has gone out: the worker must not send a second response for
+  // this request. The WebSocket connection keeps its own operations, buffer,
+  // queue handle and request id, so the context is released as usual when
+  // the handler returns.
+  if FResponse <> nil then
+    FResponse.FDetached := True;
 end;
 
 { TDextHttpSysRequestPool }
@@ -2733,6 +2755,7 @@ begin
     PHTTP_REQUEST(@AContext.FBuffer[0]), AContext);
   AContext.FResponse := FEngine.FResponsePool.Acquire(FEngine,
     FReqQueue, AContext.FRequestId, AContext);
+  AContext.FConnection.FResponse := AContext.FResponse;
   AContext.FRefCount := 2;
 
   Connection := AContext.FConnection;
@@ -2755,6 +2778,9 @@ begin
         SafeWriteLn('--- EXCEPTION IN RawResponse.Close: ' + E.ClassName +
           ': ' + E.Message);
     end;
+    // The response goes back to its pool: a connection kept past the
+    // handler must not reach it any more
+    AContext.FConnection.FResponse := nil;
     RawRequest := nil;
     RawResponse := nil;
     Connection := nil;
