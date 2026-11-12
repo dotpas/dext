@@ -622,6 +622,11 @@ begin
       SafeWriteLn('Warning: Config file not found: ' + ConfigPath);
   end;
     
+  // A relative name such as 'docs' made ForceDirectories fail; work with
+  // full paths from here on.
+  InputDir := TPath.GetFullPath(InputDir);
+  OutputDir := TPath.GetFullPath(OutputDir);
+
   SafeWriteLn('Generating Documentation...');
   SafeWriteLn('Input: ' + InputDir);
   SafeWriteLn('Output: ' + OutputDir);

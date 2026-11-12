@@ -11,7 +11,9 @@ uses
   System.IOUtils,
   Dext.Testing,
   Dext.Utils,
-  Dext.Hosting.CLI.Tools.DocGen in '..\..\Apps\CLI\Tools\Dext.Hosting.CLI.Tools.DocGen.pas';
+  Dext.Hosting.CLI.Args,
+  Dext.Hosting.CLI.Tools.DocGen in '..\..\Apps\CLI\Tools\Dext.Hosting.CLI.Tools.DocGen.pas',
+  Dext.Hosting.CLI.Commands.Doc in '..\..\Apps\CLI\Commands\Dext.Hosting.CLI.Commands.Doc.pas';
 
 const
   SOURCE =
@@ -106,7 +108,67 @@ begin
     .Contain('<h1>Teste</h1><p>Select a unit');
 end;
 
+type
+  [TestFixture]
+  TDocCommandTests = class
+  private
+    FDir: string;
+    FOldDir: string;
+    procedure Run(const AArgs: TArray<string>);
+  public
+    [Setup]
+    procedure Prepare;
+    [TearDown]
+    procedure Clean;
+    [Test]
+    procedure Relative_Output_Without_Dot_Slash_Is_Created;
+    [Test]
+    procedure Nested_Relative_Output_Is_Created;
+  end;
+
+procedure TDocCommandTests.Prepare;
+begin
+  FOldDir := GetCurrentDir;
+  FDir := TPath.Combine(TPath.GetTempPath, 'dext_doccmd_' + TGUID.NewGuid.ToString);
+  TDirectory.CreateDirectory(TPath.Combine(FDir, 'src'));
+  TFile.WriteAllText(TPath.Combine(FDir, 'src\Amostra.pas'), SOURCE);
+  SetCurrentDir(FDir);
+end;
+
+procedure TDocCommandTests.Clean;
+begin
+  SetCurrentDir(FOldDir);
+  TDirectory.Delete(FDir, True);
+end;
+
+procedure TDocCommandTests.Run(const AArgs: TArray<string>);
+var
+  Args: TCommandLineArgs;
+  Cmd: IConsoleCommand;
+begin
+  Args := TCommandLineArgs.Create;
+  try
+    Args.Parse(AArgs);
+    Cmd := TDocCommand.Create;
+    Cmd.Execute(Args);
+  finally
+    Args.Free;
+  end;
+end;
+
+procedure TDocCommandTests.Relative_Output_Without_Dot_Slash_Is_Created;
+begin
+  Run(['doc', '--input', 'src', '--output', 'saida', '--title', 'T']);
+  Should(TFile.Exists(TPath.Combine(FDir, 'saida\index.html'))).BeTrue;
+end;
+
+procedure TDocCommandTests.Nested_Relative_Output_Is_Created;
+begin
+  Run(['doc', '--input', 'src', '--output', 'a\b', '--title', 'T']);
+  Should(TFile.Exists(TPath.Combine(FDir, 'a\b\Amostra.html'))).BeTrue;
+end;
+
 begin
   SetConsoleCharSet;
-  RunTests(TTest.Configure.Verbose.RegisterFixtures([TDocGenTests]));
+  RunTests(TTest.Configure.Verbose.RegisterFixtures([TDocGenTests, TDocCommandTests]));
 end.
