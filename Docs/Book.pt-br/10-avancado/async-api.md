@@ -83,3 +83,31 @@ CTS.Cancel;
 ---
 
 [← Configuração](configuracao.md) | [Próximo: Apêndice →](../apendice/sistema-tipos.md)
+
+
+## Callbacks, Cancelamento e Falhas
+
+- **Callbacks na thread principal** (`OnComplete`, `OnException`, `OnCancelled`) entram na fila
+  com `TThread.Queue`. Em VCL/FMX o loop de mensagens os executa. Em um programa console, ou em
+  qualquer thread sem loop de mensagens, eles só rodam quando a thread principal chama
+  `CheckSynchronize`. `TAsyncTask.WaitPumping(Task, TimeoutMs)` espera a tarefa processando
+  essa fila. Use `OnCompleteAsync` / `OnExceptionAsync` para executar o callback na thread de
+  trabalho.
+- **`OnCancelled`** trata um token cancelado (antes, durante ou depois do trabalho) e substitui
+  `OnException` nos cancelamentos. Um cancelamento sem tratador termina a tarefa em silêncio.
+- **Uma falha sem `OnException`** não é engolida: a tarefa a registra e `Task.Wait` levanta
+  `EAggregateException`.
+- **`Await`** executa o pipeline de forma síncrona na thread chamadora; não é um await não
+  bloqueante e não chama os callbacks. As exceções (inclusive `EOperationCancelled`) chegam ao
+  chamador.
+
+```pascal
+var Task := TAsyncTask.Run<Integer>(LoadTotal)
+  .WithCancellation(CTS.Token)
+  .OnComplete(procedure(Total: Integer) begin ShowTotal(Total); end)
+  .OnCancelled(procedure begin ShowCancelled; end)
+  .OnException(procedure(E: Exception) begin ShowError(E.Message); end)
+  .Start;
+
+TAsyncTask.WaitPumping(Task, 5000);   // programas console
+```

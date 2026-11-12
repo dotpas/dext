@@ -47,6 +47,11 @@ type
 
   /// <summary>
   ///   Generic class representing an asynchronous task with a result of type T.
+  ///   Callbacks registered as "main thread" (OnComplete, OnException, OnCancelled)
+  ///   are queued with TThread.Queue: in a console program, or any thread without
+  ///   a message loop, they run only when the main thread calls CheckSynchronize
+  ///   (or TAsyncTask.WaitPumping). An exception with no handler is not swallowed:
+  ///   it is recorded in the task and raised by its Wait.
   ///   Inherits directly from TTask to ensure full compatibility with the Delphi Parallel Library.
   ///   orchestrates the execution pipeline including chaining, cancellation, and main thread callbacks.
   /// </summary>
@@ -56,6 +61,7 @@ type
     FWork: TFunc<T>;
     FOnComplete: TProc<T>;
     FOnException: TProc<Exception>;
+    FOnCancelled: TProc;
     FToken: ICancellationToken;
     FSyncComplete: Boolean;
     FSyncException: Boolean;
@@ -71,7 +77,8 @@ type
       const OnException: TProc<Exception>; 
       const AToken: ICancellationToken = nil;
       const SyncComplete: Boolean = True;
-      const SyncException: Boolean = True);
+      const SyncException: Boolean = True;
+      const OnCancelled: TProc = nil);
     destructor Destroy; override;
   end;
 
@@ -85,6 +92,7 @@ type
     FWork: TFunc<T>;
     FOnComplete: TProc<T>;
     FOnException: TProc<Exception>;
+    FOnCancelled: TProc;
     FToken: ICancellationToken;
     FSyncComplete: Boolean;
     FSyncException: Boolean;
@@ -120,9 +128,17 @@ type
 
     /// <summary>
     ///   Sets a callback to be executed on the Main Thread if an exception occurs at any point in the pipeline.
-    ///   Also handles OperationCancelled exceptions.
+    ///   Also receives EOperationCancelled when no OnCancelled handler is set.
     /// </summary>
     function OnException(const AProc: TProc<Exception>): TAsyncBuilder<T>;
+
+    /// <summary>
+    ///   Sets a callback for cancellation (the token was cancelled before, during or
+    ///   after the work). It runs where OnException would run (main thread unless
+    ///   OnExceptionAsync was used) and replaces OnException for cancellations.
+    ///   A cancellation with no handler at all ends the task quietly.
+    /// </summary>
+    function OnCancelled(const AProc: TProc): TAsyncBuilder<T>;
 
     /// <summary>
     ///   Sets a callback to be executed on the Background Thread if an exception occurs.
@@ -143,8 +159,10 @@ type
     function Start: IAsyncTask;
 
     /// <summary>
-    ///   Executes the pipeline synchronously on the current thread and returns the result.
-    ///   This blocks the calling thread until the operation completes.
+    ///   Executes the pipeline synchronously on the CURRENT thread and returns the result.
+    ///   It blocks the calling thread (it is not a non-blocking await), does not use the
+    ///   thread pool, does not invoke OnComplete/OnException/OnCancelled, and lets
+    ///   exceptions, including EOperationCancelled, propagate to the caller.
     /// </summary>
     function Await: T;
   end;
@@ -163,9 +181,21 @@ type
     ///   Starts defining an async task that performs an action (procedure) and returns Boolean (True).
     /// </summary>
     class function Run(const AProc: TProc): TAsyncBuilder<Boolean>; overload; static;
+
+    /// <summary>
+    ///   Waits for a task while processing the main-thread queue, so callbacks queued
+    ///   with TThread.Queue run even in a console program. Call it from the main
+    ///   thread. Returns False if ATimeoutMs elapsed first. After the task finishes the
+    ///   queue is drained once more, so callbacks queued by its last step also run.
+    /// </summary>
+    class function WaitPumping(const ATask: ITask;
+      ATimeoutMs: Cardinal = INFINITE): Boolean; static;
   end;
 
 implementation
+
+uses
+  System.Diagnostics;
 
 { TAsyncTask<T> }
 
@@ -174,12 +204,14 @@ constructor TAsyncTask<T>.Create(const AWork: TFunc<T>;
   const OnException: TProc<Exception>; 
   const AToken: ICancellationToken;
   const SyncComplete: Boolean;
-  const SyncException: Boolean);
+  const SyncException: Boolean;
+  const OnCancelled: TProc);
 begin
   // Initialize internal state
   FWork := AWork;
   FOnComplete := OnComplete;
   FOnException := OnException;
+  FOnCancelled := OnCancelled;
   FToken := AToken;
   FSyncComplete := SyncComplete;
   FSyncException := SyncException;
@@ -210,79 +242,91 @@ var
   Res: T;
   LOnComplete: TProc<T>;
   LOnException: TProc<Exception>;
+  LOnCancelled: TProc;
   CapturedException: TObject;
 begin
   try
-    try
-      // 1. Check for Cancellation (Native Task Status)
-      if GetStatus = TTaskStatus.Canceled then Exit;
+    // 1. Check for Cancellation (Native Task Status)
+    if GetStatus = TTaskStatus.Canceled then Exit;
 
-      // 2. Check for Cancellation (Token) - Before execution
-      if (FToken <> nil) and (FToken.IsCancellationRequested) then
-        FToken.ThrowIfCancellationRequested;
+    // 2. Check for Cancellation (Token) - Before execution
+    if (FToken <> nil) and (FToken.IsCancellationRequested) then
+      FToken.ThrowIfCancellationRequested;
 
-      // 3. Execute the Work Pipeline
-      Res := Default(T);
-      if Assigned(FWork) then
-        Res := FWork();
+    // 3. Execute the Work Pipeline
+    Res := Default(T);
+    if Assigned(FWork) then
+      Res := FWork();
 
-      // 4. Check for Cancellation (Token) - After execution (before callbacks)
-      if (FToken <> nil) and (FToken.IsCancellationRequested) then
-        FToken.ThrowIfCancellationRequested;
+    // 4. Check for Cancellation (Token) - After execution (before callbacks)
+    if (FToken <> nil) and (FToken.IsCancellationRequested) then
+      FToken.ThrowIfCancellationRequested;
 
-      // 5. Execute Success Callback
-      LOnComplete := FOnComplete;
-      if Assigned(LOnComplete) then
+    // 5. Execute Success Callback
+    LOnComplete := FOnComplete;
+    if Assigned(LOnComplete) then
+    begin
+      if FSyncComplete then
       begin
-        if FSyncComplete then
-        begin
-          // Compiler captures "Res" (type T) automatically for the closure.
-          TThread.Queue(nil,
-            procedure
-            begin
-              LOnComplete(Res);
-            end);
-        end
-        else
-        begin
-          LOnComplete(Res);
-        end;
-      end;
-
-    except
-      on E: Exception do
+        // Compiler captures "Res" (type T) automatically for the closure.
+        TThread.Queue(nil,
+          procedure
+          begin
+            LOnComplete(Res);
+          end);
+      end
+      else
+        LOnComplete(Res);
+    end;
+  except
+    on E: Exception do
+    begin
+      // 6. Cancellation has its own handler, and is not an error when nobody listens.
+      if E is EOperationCancelled then
       begin
-        // 6. Handle Exceptions and Cancellation
-        LOnException := FOnException;
-
-        if Assigned(LOnException) then
+        LOnCancelled := FOnCancelled;
+        if Assigned(LOnCancelled) then
         begin
           if FSyncException then
-          begin
-            // "Steal" exception ownership from RTL
-            CapturedException := AcquireExceptionObject;
-            
             TThread.Queue(nil,
               procedure
               begin
-                try
-                  if CapturedException is Exception then
-                    LOnException(Exception(CapturedException));
-                finally
-                  CapturedException.Free;
-                end;
-              end);
-          end
+                LOnCancelled();
+              end)
           else
-          begin
-            // Async: Current thread still owns exception
-            LOnException(E);
-          end;
+            LOnCancelled();
+          Exit;
         end;
+        if not Assigned(FOnException) then
+          Exit;
       end;
+
+      // 7. Failures: the handler, or else the task itself records the exception
+      // (raised by Wait) instead of losing it.
+      LOnException := FOnException;
+      if not Assigned(LOnException) then
+        raise;
+
+      if FSyncException then
+      begin
+        // "Steal" exception ownership from RTL
+        CapturedException := AcquireExceptionObject;
+
+        TThread.Queue(nil,
+          procedure
+          begin
+            try
+              if CapturedException is Exception then
+                LOnException(Exception(CapturedException));
+            finally
+              CapturedException.Free;
+            end;
+          end);
+      end
+      else
+        // Async: Current thread still owns exception
+        LOnException(E);
     end;
-  except
-    // Catch-all to prevent exceptions from crashing the thread pool worker
   end;
 end;
 
@@ -293,6 +337,7 @@ begin
   FWork := AWork;
   FOnComplete := nil;
   FOnException := nil;
+  FOnCancelled := nil;
   FToken := AToken;
   FSyncComplete := True;
   FSyncException := True;
@@ -360,6 +405,12 @@ begin
   Result := Self;
 end;
 
+function TAsyncBuilder<T>.OnCancelled(const AProc: TProc): TAsyncBuilder<T>;
+begin
+  FOnCancelled := AProc;
+  Result := Self;
+end;
+
 function TAsyncBuilder<T>.WithCancellation(const AToken: ICancellationToken): TAsyncBuilder<T>;
 begin
   FToken := AToken;
@@ -385,7 +436,8 @@ var
   Task: TAsyncTask<T>;
 begin
   // Create the specific TAsyncTask instance
-  Task := TAsyncTask<T>.Create(FWork, FOnComplete, FOnException, FToken, FSyncComplete, FSyncException);
+  Task := TAsyncTask<T>.Create(FWork, FOnComplete, FOnException, FToken,
+    FSyncComplete, FSyncException, FOnCancelled);
   // Start execution in the ThreadPool
   Task.Start;
   Result := Task;
@@ -396,6 +448,27 @@ end;
 class function TAsyncTask.Run<T>(const AFunc: TFunc<T>): TAsyncBuilder<T>;
 begin
   Result := TAsyncBuilder<T>.Create(AFunc, nil);
+end;
+
+class function TAsyncTask.WaitPumping(const ATask: ITask;
+  ATimeoutMs: Cardinal): Boolean;
+var
+  LWatch: TStopwatch;
+begin
+  LWatch := TStopwatch.StartNew;
+  Result := True;
+  while not (ATask.Status in [TTaskStatus.Completed, TTaskStatus.Canceled,
+    TTaskStatus.Exception]) do
+  begin
+    CheckSynchronize(5);
+    if (ATimeoutMs <> INFINITE) and (LWatch.ElapsedMilliseconds >= ATimeoutMs) then
+    begin
+      Result := False;
+      Break;
+    end;
+  end;
+  // Callbacks queued by the last step of the task.
+  CheckSynchronize(0);
 end;
 
 class function TAsyncTask.Run(const AProc: TProc): TAsyncBuilder<Boolean>;
