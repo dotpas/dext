@@ -58,6 +58,7 @@ type
     FReached: TEvent;
     FGate: TEvent;
     FEmitTicks: Int64;
+    FFlushCount: Integer;
   public
     constructor Create(ATarget: Integer = 1; ABlockFirstEmit: Boolean = False);
     destructor Destroy; override;
@@ -72,6 +73,7 @@ type
     function CategoryAt(Index: Integer): string;
     function HasMessageContaining(const Text: string): Boolean;
     property EmitTicks: Int64 read FEmitTicks;
+    property FlushCount: Integer read FFlushCount;
   end;
 
   [TestFixture('TRingBuffer: bounded MPSC queue of log entries')]
@@ -104,6 +106,8 @@ type
     procedure Category_Reaches_The_Sink;
     [Test('Dropped entries are counted and reported to the sinks')]
     procedure Dropped_Entries_Are_Reported;
+    [Test('Stopping right after the first log still delivers and flushes')]
+    procedure Immediate_Stop_Delivers_And_Flushes;
     [Test('An idle consumer delivers an entry in under 5 ms (median)')]
     [Category('Performance')]
     procedure Idle_Consumer_Wakes_Fast;
@@ -163,6 +167,7 @@ end;
 
 procedure TCollectSink.Flush;
 begin
+  TInterlocked.Increment(FFlushCount);
 end;
 
 function TCollectSink.WaitTarget(TimeoutMs: Cardinal): Boolean;
@@ -487,6 +492,35 @@ begin
     Should(Sink.Count).Be(Total - Factory.Dropped + 1); // + the drop report
   finally
     Factory.Free;
+  end;
+end;
+
+procedure TAsyncLoggerTests.Immediate_Stop_Delivers_And_Flushes;
+var
+  Factory: TAsyncLoggerFactory;
+  Sink: TCollectSink;
+  SinkRef: ILogSink;
+  Logger: ILogger;
+  I: Integer;
+begin
+  // Repeated: the consumer thread may not have started running when Stop
+  // terminates it, and TThread then skips Execute altogether
+  for I := 1 to 50 do
+  begin
+    Factory := TAsyncLoggerFactory.Create;
+    try
+      Sink := TCollectSink.Create(1);
+      SinkRef := Sink;
+      Factory.AddSink(SinkRef);
+      Logger := Factory.CreateLogger('Tests');
+      Logger.Info('last words');
+      Logger := nil;
+      Factory.Dispose;
+      Should(Sink.Count).Be(1);
+      Should(Sink.FlushCount).Be(1);
+    finally
+      Factory.Free;
+    end;
   end;
 end;
 

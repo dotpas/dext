@@ -133,10 +133,14 @@ type
     FSinks: IList<ILogSink>;
     FLock: TObject;
     FReportedDropped: Integer;
+    FStartRequested: Boolean;
+    FExecuted: Integer;
+    FFinished: Integer;
 
     function DrainBatch: Integer;
     procedure DispatchEntry(const Entry: TLogEntry);
     procedure ReportDropped;
+    procedure Finish;
     function SpinForData: Boolean;
   protected
     procedure Execute; override;
@@ -144,6 +148,13 @@ type
     /// <summary>Creates the (suspended) consumer of ABuffer.</summary>
     constructor Create(ABuffer: TRingBuffer; AState: TAsyncLogState = nil);
     destructor Destroy; override;
+
+    /// <summary>
+    ///   Starts the thread. TThread.Started only turns True once the thread is
+    ///   already running, so Stop could not tell "never started" from "about
+    ///   to run": the request is recorded here.
+    /// </summary>
+    procedure Start; reintroduce;
 
     /// <summary>Registers a sink. Thread-safe.</summary>
     procedure AddSink(const ASink: ILogSink);
@@ -331,6 +342,12 @@ begin
   inherited;
 end;
 
+procedure TLogConsumerThread.Start;
+begin
+  FStartRequested := True;
+  inherited Start;
+end;
+
 procedure TLogConsumerThread.AddSink(const ASink: ILogSink);
 begin
   TMonitor.Enter(FLock);
@@ -360,11 +377,15 @@ end;
 
 procedure TLogConsumerThread.Stop;
 begin
-  if Finished or not Started then
+  if not FStartRequested then
     Exit;
   Terminate;
   FBuffer.Wake;
   WaitFor;
+  // TThread skips Execute when it is terminated before the thread starts
+  // running: the final drain and flush must still happen
+  if FExecuted = 0 then
+    Finish;
 end;
 
 procedure TLogConsumerThread.DispatchEntry(const Entry: TLogEntry);
@@ -441,22 +462,10 @@ begin
   Result := False;
 end;
 
-procedure TLogConsumerThread.Execute;
-var
-  Count: Integer;
+procedure TLogConsumerThread.Finish;
 begin
-  while True do
-  begin
-    Count := DrainBatch;
-    // After a drain, so the warning lands next to the gap it explains
-    ReportDropped;
-    if Terminated then
-      Break;
-    // Sleep only when the stream really stopped
-    if (Count = 0) and not SpinForData then
-      FBuffer.WaitForData(ASYNC_LOG_IDLE_TIMEOUT_MS);
-  end;
-
+  if TInterlocked.Exchange(FFinished, 1) <> 0 then
+    Exit;
   // Entries published while we were stopping
   DrainBatch;
   ReportDropped;
@@ -471,6 +480,25 @@ begin
   finally
     TMonitor.Exit(FLock);
   end;
+end;
+
+procedure TLogConsumerThread.Execute;
+var
+  Count: Integer;
+begin
+  FExecuted := 1;
+  while True do
+  begin
+    Count := DrainBatch;
+    // After a drain, so the warning lands next to the gap it explains
+    ReportDropped;
+    if Terminated then
+      Break;
+    // Sleep only when the stream really stopped
+    if (Count = 0) and not SpinForData then
+      FBuffer.WaitForData(ASYNC_LOG_IDLE_TIMEOUT_MS);
+  end;
+  Finish;
 end;
 
 { TAsyncLoggerFactory }
