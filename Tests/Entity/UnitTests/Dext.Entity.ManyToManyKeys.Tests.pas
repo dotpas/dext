@@ -177,6 +177,8 @@ type
     [Test]
     procedure Lazy_Remove_SaveChanges_DeletesTheRow;
     [Test]
+    procedure Lazy_Loaded_RemoveItem_SaveChanges_DeletesTheRow;
+    [Test]
     procedure Lazy_Untouched_SaveChanges_KeepsTheRows;
     [Test]
     procedure Lazy_Loaded_AddThird_SaveChanges_AddsOneRow;
@@ -369,6 +371,21 @@ begin
   Student := FCtx.Entities<TLzStudent>.Find(1);
   Should(Student.Courses.Value.Count).Be(2);
   Student.Courses.Value.Delete(0);
+  FCtx.SaveChanges;
+  Should(Scalar('SELECT COUNT(*) FROM LzStudentCourses')).Be(1);
+end;
+
+procedure TManyToManyLazyTests.Lazy_Loaded_RemoveItem_SaveChanges_DeletesTheRow;
+var
+  Student: TLzStudent;
+begin
+  FCtx.Entities<TLzStudent>.LinkManyToMany(FCtx.Entities<TLzStudent>.Find(1), 'Courses', Courses.Find(1));
+  FCtx.Entities<TLzStudent>.LinkManyToMany(FCtx.Entities<TLzStudent>.Find(1), 'Courses', Courses.Find(2));
+  FCtx.DetachAll;
+
+  Student := FCtx.Entities<TLzStudent>.Find(1);
+  Should(Student.Courses.Value.Count).Be(2);
+  Student.Courses.Value.Remove(Student.Courses.Value[0]);
   FCtx.SaveChanges;
   Should(Scalar('SELECT COUNT(*) FROM LzStudentCourses')).Be(1);
 end;
