@@ -11,7 +11,12 @@ uses
 type
   /// <summary>Interface for thread-safe dictionaries optimized for high concurrency.</summary>
   IDextConcurrentDictionary<K, V> = interface
-    /// <summary>Gets the value if it exists or creates it using a factory (ValueFactory) atomically.</summary>
+    /// <summary>
+    ///   Gets the value if it exists or creates it with ValueFactory. The factory
+    ///   runs outside any lock, so under contention it can run in several threads
+    ///   for the same key; exactly one result is stored and every caller receives
+    ///   that stored value. Each caller runs the factory at most once.
+    /// </summary>
     function GetOrAdd(const Key: K; const ValueFactory: TFunc<K, V>): V;
     /// <summary>Attempts to add a key-value pair. Returns False if the key already exists.</summary>
     function TryAdd(const Key: K; const Value: V): Boolean;
@@ -87,7 +92,8 @@ var
   HashCode: Integer;
 begin
   HashCode := FComparer.GetHashCode(Key);
-  Result := Abs(HashCode) mod FConcurrencyLevel;
+  // Unsigned arithmetic: Abs(Low(Integer)) would stay negative.
+  Result := Integer(Cardinal(HashCode) mod Cardinal(FConcurrencyLevel));
 end;
 
 function TConcurrentDictionary<K, V>.GetCount: Integer;
@@ -126,6 +132,7 @@ end;
 function TConcurrentDictionary<K, V>.GetOrAdd(const Key: K; const ValueFactory: TFunc<K, V>): V;
 var
   StripeIdx: Integer;
+  Created, Existing: V;
 begin
   StripeIdx := GetStripeIndex(Key);
   
@@ -138,17 +145,19 @@ begin
     FStripes[StripeIdx].Lock.Exit;
   end;
   
-  // Create value outside to minimize lock time
-  Result := ValueFactory(Key);
+  // The factory runs outside the lock: it may be slow, may call back into
+  // this dictionary, and must never be able to hold a spin lock hostage.
+  Created := ValueFactory(Key);
   
   FStripes[StripeIdx].Lock.Enter;
   try
-    // Check again inside lock
-    if not FStripes[StripeIdx].Items.TryGetValue(Key, Result) then
+    // Another thread may have won the race: its value is the one that counts.
+    if FStripes[StripeIdx].Items.TryGetValue(Key, Existing) then
+      Result := Existing
+    else
     begin
-      // Result here initially holds the factory value. If TryGetValue fails, it retains the factory value.
-      Result := ValueFactory(Key);
-      FStripes[StripeIdx].Items.AddOrSetValue(Key, Result);
+      FStripes[StripeIdx].Items.AddOrSetValue(Key, Created);
+      Result := Created;
     end;
   finally
     FStripes[StripeIdx].Lock.Exit;

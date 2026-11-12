@@ -6,25 +6,55 @@ uses
   System.SysUtils,
   System.SyncObjs,
   System.TypInfo,
-  Dext.Collections.Memory;
+  Dext.Collections.Memory,
+  Dext.Threading.CancellationToken;
 
 type
+  /// <summary>Base class of the channel exceptions.</summary>
+  EChannelException = class(Exception);
+
+  /// <summary>Raised by Write when the channel was closed.</summary>
+  EChannelClosedException = class(EChannelException);
+
   /// <summary>
-  ///   Represents a concurrent communication channel for passing data between threads.
+  ///   Raised by Read when the channel was closed and every item was already
+  ///   consumed: the normal end of a stream, not a fault.
+  /// </summary>
+  EChannelCompletedException = class(EChannelException);
+
+  /// <summary>
+  ///   Represents a concurrent communication channel for passing data between
+  ///   threads. Blocking members have variants with a timeout and with a
+  ///   cancellation token, so a thread is never stuck forever by design.
   /// </summary>
   IChannel<T> = interface
     /// <summary>Attempts to write an item to the channel without blocking. Returns true if successful.</summary>
-    function TryWrite(const Value: T): Boolean;
+    function TryWrite(const Value: T): Boolean; overload;
+    /// <summary>Waits up to ATimeoutMs for room. False if the channel stayed full or was closed.</summary>
+    function TryWrite(const Value: T; ATimeoutMs: Cardinal): Boolean; overload;
     /// <summary>Attempts to read an item from the channel without blocking. Returns true if an item was read.</summary>
-    function TryRead(out Value: T): Boolean;
-    /// <summary>Writes an item to the channel. Blocks if the channel is bounded and full.</summary>
-    procedure Write(const Value: T);
-    /// <summary>Reads an item from the channel. Blocks until an item becomes available.</summary>
-    function Read: T;
-    /// <summary>Closes the channel, preventing further writes.</summary>
+    function TryRead(out Value: T): Boolean; overload;
+    /// <summary>
+    ///   Waits up to ATimeoutMs for an item. False on timeout or when the
+    ///   channel is completed (tell them apart with IsCompleted).
+    /// </summary>
+    function TryRead(out Value: T; ATimeoutMs: Cardinal): Boolean; overload;
+    /// <summary>Writes an item. Blocks while a bounded channel is full. Raises EChannelClosedException if closed.</summary>
+    procedure Write(const Value: T); overload;
+    /// <summary>Like Write, but raises EOperationCancelled when AToken is cancelled while waiting.</summary>
+    procedure Write(const Value: T; const AToken: ICancellationToken); overload;
+    /// <summary>Reads an item. Blocks until one arrives. Raises EChannelCompletedException at the end of the stream.</summary>
+    function Read: T; overload;
+    /// <summary>Like Read, but raises EOperationCancelled when AToken is cancelled while waiting.</summary>
+    function Read(const AToken: ICancellationToken): T; overload;
+    /// <summary>Closes the channel, preventing further writes. Items already queued can still be read.</summary>
     procedure Close;
     /// <summary>Indicates whether the channel has been closed.</summary>
     function IsClosed: Boolean;
+    /// <summary>True when the channel is closed and empty: nothing more will ever be read.</summary>
+    function IsCompleted: Boolean;
+    /// <summary>Number of items waiting to be read.</summary>
+    function Count: Integer;
   end;
 
   TChannelQueue<T> = class
@@ -44,37 +74,41 @@ type
 
   TBoundedChannel<T> = class(TInterfacedObject, IChannel<T>)
   private
+    type
+      TOutcome = (oReady, oClosed, oTimeout, oCancelled);
+  private
     FQueue: TChannelQueue<T>;
     FMaxCapacity: Integer;
     FClosed: Boolean;
     FLockObj: TObject;
+    function Await(AForWrite: Boolean; ATimeoutMs: Cardinal;
+      const AToken: ICancellationToken): TOutcome;
+    function DoRead(out Value: T; ATimeoutMs: Cardinal;
+      const AToken: ICancellationToken): TOutcome;
+    function DoWrite(const Value: T; ATimeoutMs: Cardinal;
+      const AToken: ICancellationToken): TOutcome;
   public
     constructor Create(MaxCapacity: Integer);
     destructor Destroy; override;
     
-    function TryWrite(const Value: T): Boolean;
-    function TryRead(out Value: T): Boolean;
-    procedure Write(const Value: T);
-    function Read: T;
+    function TryWrite(const Value: T): Boolean; overload;
+    function TryWrite(const Value: T; ATimeoutMs: Cardinal): Boolean; overload;
+    function TryRead(out Value: T): Boolean; overload;
+    function TryRead(out Value: T; ATimeoutMs: Cardinal): Boolean; overload;
+    procedure Write(const Value: T); overload;
+    procedure Write(const Value: T; const AToken: ICancellationToken); overload;
+    function Read: T; overload;
+    function Read(const AToken: ICancellationToken): T; overload;
     procedure Close;
     function IsClosed: Boolean;
+    function IsCompleted: Boolean;
+    function Count: Integer;
   end;
 
-  TUnboundedChannel<T> = class(TInterfacedObject, IChannel<T>)
-  private
-    FQueue: TChannelQueue<T>;
-    FClosed: Boolean;
-    FLockObj: TObject;
+  /// <summary>A bounded channel whose limit is never reached in practice.</summary>
+  TUnboundedChannel<T> = class(TBoundedChannel<T>)
   public
     constructor Create;
-    destructor Destroy; override;
-    
-    function TryWrite(const Value: T): Boolean;
-    function TryRead(out Value: T): Boolean;
-    procedure Write(const Value: T);
-    function Read: T;
-    procedure Close;
-    function IsClosed: Boolean;
   end;
 
   /// <summary>
@@ -82,13 +116,16 @@ type
   /// </summary>
   TChannel<T> = class
   public
-    /// <summary>Creates a channel with a fixed maximum capacity.</summary>
+    /// <summary>Creates a channel with a fixed maximum capacity (must be at least 1).</summary>
     class function CreateBounded(Capacity: Integer): IChannel<T>;
     /// <summary>Creates a channel with virtually unlimited capacity.</summary>
     class function CreateUnbounded: IChannel<T>;
   end;
 
 implementation
+
+uses
+  System.Diagnostics;
 
 { TChannelQueue<T> }
 
@@ -178,14 +215,23 @@ end;
 constructor TBoundedChannel<T>.Create(MaxCapacity: Integer);
 begin
   inherited Create;
-  FQueue := TChannelQueue<T>.Create(MaxCapacity);
+  if MaxCapacity < 1 then
+    raise EArgumentOutOfRangeException.CreateFmt(
+      'Channel capacity must be at least 1 (got %d).', [MaxCapacity]);
   FMaxCapacity := MaxCapacity;
+  // The queue grows on demand: a large limit does not reserve memory.
+  if MaxCapacity < 16 then
+    FQueue := TChannelQueue<T>.Create(MaxCapacity)
+  else
+    FQueue := TChannelQueue<T>.Create(16);
   FLockObj := TObject.Create;
 end;
 
 destructor TBoundedChannel<T>.Destroy;
 begin
-  Close;
+  // Also runs when the constructor raised (invalid capacity): fields may be nil.
+  if FLockObj <> nil then
+    Close;
   FQueue.Free;
   FLockObj.Free;
   inherited;
@@ -212,6 +258,137 @@ begin
   end;
 end;
 
+function TBoundedChannel<T>.IsCompleted: Boolean;
+begin
+  System.TMonitor.Enter(FLockObj);
+  try
+    Result := FClosed and (FQueue.Count = 0);
+  finally
+    System.TMonitor.Exit(FLockObj);
+  end;
+end;
+
+function TBoundedChannel<T>.Count: Integer;
+begin
+  System.TMonitor.Enter(FLockObj);
+  try
+    Result := FQueue.Count;
+  finally
+    System.TMonitor.Exit(FLockObj);
+  end;
+end;
+
+// Must be called with the lock held. Waits (releasing the lock) until the
+// operation can proceed, the channel closes, the time runs out or the token
+// is cancelled. A cancellation wakes the wait through the callback registered
+// by the caller.
+function TBoundedChannel<T>.Await(AForWrite: Boolean; ATimeoutMs: Cardinal;
+  const AToken: ICancellationToken): TOutcome;
+var
+  LWatch: TStopwatch;
+  LElapsed: Int64;
+  LWait: Cardinal;
+begin
+  LWatch := TStopwatch.StartNew;
+  while True do
+  begin
+    if AForWrite then
+    begin
+      if FClosed then Exit(oClosed);
+      if FQueue.Count < FMaxCapacity then Exit(oReady);
+    end
+    else
+    begin
+      if FQueue.Count > 0 then Exit(oReady);
+      if FClosed then Exit(oClosed);
+    end;
+
+    if (AToken <> nil) and AToken.IsCancellationRequested then
+      Exit(oCancelled);
+
+    if ATimeoutMs = INFINITE then
+      LWait := INFINITE
+    else
+    begin
+      LElapsed := LWatch.ElapsedMilliseconds;
+      if LElapsed >= ATimeoutMs then
+        Exit(oTimeout);
+      LWait := Cardinal(ATimeoutMs - LElapsed);
+    end;
+    System.TMonitor.Wait(FLockObj, LWait);
+  end;
+end;
+
+function TBoundedChannel<T>.DoRead(out Value: T; ATimeoutMs: Cardinal;
+  const AToken: ICancellationToken): TOutcome;
+var
+  LReg: ICancellationRegistration;
+begin
+  LReg := nil;
+  if AToken <> nil then
+    LReg := AToken.Register(
+      procedure
+      begin
+        System.TMonitor.Enter(FLockObj);
+        try
+          System.TMonitor.PulseAll(FLockObj);
+        finally
+          System.TMonitor.Exit(FLockObj);
+        end;
+      end);
+  try
+    System.TMonitor.Enter(FLockObj);
+    try
+      Result := Await(False, ATimeoutMs, AToken);
+      if Result = oReady then
+      begin
+        FQueue.Dequeue(Value);
+        System.TMonitor.PulseAll(FLockObj);
+      end;
+    finally
+      System.TMonitor.Exit(FLockObj);
+    end;
+  finally
+    if LReg <> nil then
+      LReg.Unregister;
+  end;
+end;
+
+function TBoundedChannel<T>.DoWrite(const Value: T; ATimeoutMs: Cardinal;
+  const AToken: ICancellationToken): TOutcome;
+var
+  LReg: ICancellationRegistration;
+begin
+  LReg := nil;
+  if AToken <> nil then
+    LReg := AToken.Register(
+      procedure
+      begin
+        System.TMonitor.Enter(FLockObj);
+        try
+          System.TMonitor.PulseAll(FLockObj);
+        finally
+          System.TMonitor.Exit(FLockObj);
+        end;
+      end);
+  try
+    System.TMonitor.Enter(FLockObj);
+    try
+      Result := Await(True, ATimeoutMs, AToken);
+      if Result = oReady then
+      begin
+        FQueue.Enqueue(Value);
+        System.TMonitor.PulseAll(FLockObj);
+      end;
+    finally
+      System.TMonitor.Exit(FLockObj);
+    end;
+  finally
+    if LReg <> nil then
+      LReg.Unregister;
+  end;
+end;
+
 function TBoundedChannel<T>.TryRead(out Value: T): Boolean;
 begin
   System.TMonitor.Enter(FLockObj);
@@ -226,6 +403,11 @@ begin
   finally
     System.TMonitor.Exit(FLockObj);
   end;
+end;
+
+function TBoundedChannel<T>.TryRead(out Value: T; ATimeoutMs: Cardinal): Boolean;
+begin
+  Result := DoRead(Value, ATimeoutMs, nil) = oReady;
 end;
 
 function TBoundedChannel<T>.TryWrite(const Value: T): Boolean;
@@ -245,39 +427,38 @@ begin
   end;
 end;
 
+function TBoundedChannel<T>.TryWrite(const Value: T; ATimeoutMs: Cardinal): Boolean;
+begin
+  Result := DoWrite(Value, ATimeoutMs, nil) = oReady;
+end;
+
 function TBoundedChannel<T>.Read: T;
 begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    while (FQueue.Count = 0) and not FClosed do
-      System.TMonitor.Wait(FLockObj, INFINITE);
+  Result := Read(nil);
+end;
 
-    if FQueue.Count > 0 then
-    begin
-      FQueue.Dequeue(Result);
-      System.TMonitor.PulseAll(FLockObj);
-      Exit;
-    end;
-  finally
-    System.TMonitor.Exit(FLockObj);
+function TBoundedChannel<T>.Read(const AToken: ICancellationToken): T;
+begin
+  case DoRead(Result, INFINITE, AToken) of
+    oReady: Exit;
+    oCancelled: AToken.ThrowIfCancellationRequested;
   end;
-  raise Exception.Create('Channel is closed or empty.');
+  raise EChannelCompletedException.Create(
+    'Channel is closed and has no more items.');
 end;
 
 procedure TBoundedChannel<T>.Write(const Value: T);
 begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    if FClosed then raise Exception.Create('Channel is closed.');
-    while (FQueue.Count >= FMaxCapacity) and not FClosed do
-      System.TMonitor.Wait(FLockObj, INFINITE);
+  Write(Value, nil);
+end;
 
-    if FClosed then raise Exception.Create('Channel is closed.');
-    FQueue.Enqueue(Value);
-    System.TMonitor.PulseAll(FLockObj);
-  finally
-    System.TMonitor.Exit(FLockObj);
+procedure TBoundedChannel<T>.Write(const Value: T; const AToken: ICancellationToken);
+begin
+  case DoWrite(Value, INFINITE, AToken) of
+    oReady: Exit;
+    oCancelled: AToken.ThrowIfCancellationRequested;
   end;
+  raise EChannelClosedException.Create('Channel is closed.');
 end;
 
 
@@ -285,96 +466,7 @@ end;
 
 constructor TUnboundedChannel<T>.Create;
 begin
-  inherited Create;
-  FQueue := TChannelQueue<T>.Create;
-  FLockObj := TObject.Create;
-end;
-
-destructor TUnboundedChannel<T>.Destroy;
-begin
-  Close;
-  FQueue.Free;
-  FLockObj.Free;
-  inherited;
-end;
-
-procedure TUnboundedChannel<T>.Close;
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    FClosed := True;
-    System.TMonitor.PulseAll(FLockObj);
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
-end;
-
-function TUnboundedChannel<T>.IsClosed: Boolean;
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    Result := FClosed;
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
-end;
-
-function TUnboundedChannel<T>.TryRead(out Value: T): Boolean;
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    if FQueue.Count > 0 then
-    begin
-      FQueue.Dequeue(Value);
-      Exit(True);
-    end;
-    Result := False;
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
-end;
-
-function TUnboundedChannel<T>.TryWrite(const Value: T): Boolean;
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    if FClosed then Exit(False);
-    FQueue.Enqueue(Value);
-    System.TMonitor.PulseAll(FLockObj);
-    Result := True;
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
-end;
-
-function TUnboundedChannel<T>.Read: T;
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    while (FQueue.Count = 0) and not FClosed do
-      System.TMonitor.Wait(FLockObj, INFINITE);
-
-    if FQueue.Count > 0 then
-    begin
-      FQueue.Dequeue(Result);
-      Exit;
-    end;
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
-  raise Exception.Create('Channel is closed or empty.');
-end;
-
-procedure TUnboundedChannel<T>.Write(const Value: T);
-begin
-  System.TMonitor.Enter(FLockObj);
-  try
-    if FClosed then raise Exception.Create('Channel is closed.');
-    FQueue.Enqueue(Value);
-    System.TMonitor.PulseAll(FLockObj);
-  finally
-    System.TMonitor.Exit(FLockObj);
-  end;
+  inherited Create(High(Integer));
 end;
 
 

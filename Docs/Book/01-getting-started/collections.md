@@ -173,29 +173,43 @@ read-heavy multi-threaded workloads (e.g., routing tables, cached metadata, sess
 3. Read concurrently from hundreds of threads **100% Lock-Free** without any
    locks (`TCriticalSection` or `TSpinLock`) or memory barrier penalties.
 
-### 3. `IChannel<T>` (Go-Style Lock-Free Message Passing) 🚀
-Located in `Dext.Collections.Channels.pas`, `IChannel<T>` replaces shared thread-locked
-queues with lock-free message channels.
+### 3. `IChannel<T>` (Go-Style Message Passing)
+Located in `Dext.Collections.Channels.pas`, `IChannel<T>` replaces shared, hand-locked
+queues with channels. Each channel guards its queue with a single monitor: it is
+thread-safe and blocks efficiently, but it is **not** lock-free.
 
-- **Zero Lock Contention**: Producers and consumers communicate without locking arrays.
-- **Native Backpressure**: Bounded channels (`TChannel<T>.CreateBounded(1000)`) prevent
-  fast producers from overwhelming memory when consumers process slow network operations.
+- **Native Backpressure**: Bounded channels (`TChannel<T>.CreateBounded(1000)`) make a
+  fast producer wait (`Write`) or give up (`TryWrite`) instead of exhausting memory.
+  The capacity must be at least 1.
+- **End of stream**: `Close` stops new writes; items already queued can still be read.
+  `Read` on a closed, empty channel raises `EChannelCompletedException`;
+  `Write` on a closed channel raises `EChannelClosedException`.
+  `IsCompleted` tells you whether anything more can ever be read.
+- **Never stuck by design**: `TryRead(Value, TimeoutMs)` and `TryWrite(Value, TimeoutMs)`
+  wait a bounded time; `Read(Token)` and `Write(Value, Token)` wake up with
+  `EOperationCancelled` when the token is cancelled.
 
 ```pascal
 var
   Chan: IChannel<TSessionMessage> := TChannel<TSessionMessage>.CreateBounded(1000);
 
-// Producer Thread (adds network payload)
+// Producer thread
 TTask.Run(procedure
   begin
     Chan.Write(Msg);
+    // ... when there is nothing more to send:
+    Chan.Close;
   end);
 
-// Consumer Thread (sends data to slow clients without holding locks)
+// Consumer thread: drains everything, then stops on its own
 TTask.Run(procedure
   begin
-    while Chan.IsOpen do
-      SendToNetwork(Chan.Read);
+    try
+      while True do
+        SendToNetwork(Chan.Read);
+    except
+      on EChannelCompletedException do ; // end of stream
+    end;
   end);
 ```
 
@@ -237,7 +251,7 @@ var HasVip := Users.Any(function(User: TUser): Boolean
 | `Dext.Collections.OrderedDict.pas` | Generic `TOrderedDictionary<K,V>` frontend wrapper |
 | `Dext.Collections.HashSet.pas` | Set collection interface and open-addressing implementation (`IHashSet<T>`) |
 | `Dext.Collections.Frozen.pas` | Read-only lock-free structures (`IFrozenDictionary`, `IFrozenSet`) |
-| `Dext.Collections.Channels.pas` | Go-style lock-free channel concurrency (`IChannel<T>`) |
+| `Dext.Collections.Channels.pas` | Go-style channel concurrency (`IChannel<T>`) |
 | `Dext.Collections.Concurrent.pas` | Thread-safe concurrent queues, stacks, and collections |
 | `Dext.Collections.Queue.pas` | Generic Queue data structure (`IQueue<T>`) |
 | `Dext.Collections.Stack.pas` | Generic Stack data structure (`IStack<T>`) |
