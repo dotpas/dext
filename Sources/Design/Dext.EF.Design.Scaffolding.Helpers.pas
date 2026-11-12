@@ -93,7 +93,14 @@ begin
       ftLargeint: Col.DataType := 'BIGINT';
       // A Float has no fixed scale: it must not be read as NUMERIC(15,0),
       // which the generator turns into an integer property.
-      ftFloat: Col.DataType := 'DOUBLE';
+      ftFloat:
+        begin
+          Col.DataType := 'DOUBLE';
+          // The field reports Precision 15 (digits of a Double), which
+          // is not a NUMERIC(15,0) for the schema.
+          Col.Precision := 0;
+          Col.Scale := 0;
+        end;
       ftCurrency:
         begin
           Col.DataType := 'NUMERIC';

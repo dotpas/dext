@@ -62,6 +62,7 @@ type
   TEntityDesignDataSetMappingTests = class
   private
     function DelphiTypeOf(AType: TFieldType; ASize: Integer = 0): string;
+    function ColumnOf(AType: TFieldType): TMetaColumn;
   public
     [Test('A Currency field becomes Currency, not an integer')]
     procedure Currency_BecomesCurrency;
@@ -73,6 +74,10 @@ type
     procedure ByteAndWord_FitTheirRange;
     [Test('A Time field becomes TTime, not a string')]
     procedure Time_BecomesTime;
+    [Test('A Float field carries no precision into the entity')]
+    procedure Float_HasNoPrecision;
+    [Test('A Currency field carries precision 18 and scale 4')]
+    procedure Currency_HasPrecisionAndScale;
     [Test('The types that were already right stay right')]
     procedure Existing_Mappings_Stay;
   end;
@@ -117,7 +122,7 @@ var
   I: Integer;
 begin
   GetMemoryManagerState(State);
-  Result := State.TotalAllocatedMediumBlockSize + State.TotalAllocatedLargeBlockSize;
+  Result := 0;
   for I := 0 to High(State.SmallBlockTypeStates) do
     Result := Result + NativeInt(State.SmallBlockTypeStates[I].AllocatedBlockCount);
 end;
@@ -321,6 +326,38 @@ begin
 end;
 
 { TEntityDesignDataSetMappingTests }
+
+function TEntityDesignDataSetMappingTests.ColumnOf(
+  AType: TFieldType): TMetaColumn;
+var
+  Mem: TFDMemTable;
+  Def: TFieldDef;
+begin
+  Mem := TFDMemTable.Create(nil);
+  try
+    Def := Mem.FieldDefs.AddFieldDef;
+    Def.Name := 'Value';
+    Def.DataType := AType;
+    Mem.CreateDataSet;
+    Result := TScaffoldingHelper.DataSetToMetaTable(Mem).Columns[0];
+  finally
+    Mem.Free;
+  end;
+end;
+
+procedure TEntityDesignDataSetMappingTests.Float_HasNoPrecision;
+begin
+  // The field reports Precision 15, which is the digits a Double holds, not
+  // a NUMERIC(15,0) to put in the schema.
+  Should(ColumnOf(ftFloat).Precision).Be(0);
+  Should(ColumnOf(ftFloat).Scale).Be(0);
+end;
+
+procedure TEntityDesignDataSetMappingTests.Currency_HasPrecisionAndScale;
+begin
+  Should(ColumnOf(ftCurrency).Precision).Be(18);
+  Should(ColumnOf(ftCurrency).Scale).Be(4);
+end;
 
 function TEntityDesignDataSetMappingTests.DelphiTypeOf(AType: TFieldType;
   ASize: Integer): string;
