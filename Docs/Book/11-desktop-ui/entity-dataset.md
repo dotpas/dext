@@ -151,7 +151,7 @@ The body of `apply` is an object with a `changes` array. Each item has a `state`
 
 The response has one item per change: `Index`, `Success`, `ErrorMessage` and, for an insert, the generated `Keys`. By default the batch is **atomic**: one `SaveChanges`, one transaction, and if any item fails none is applied and every item is reported as failed (`Batch not applied: ...`). A store created with `ContinueOnError` applies each item on its own instead. A body without `changes` answers 400.
 
-Known limit: two or more deletes of the same type use the context's batch `DELETE`, which does not check the affected rows, so a key that does not exist passes without an error (a single delete of a missing key fails). `TEntityDataSetApi.ListToJson<T>` and `ResultsToJson` are the helpers that write the two responses.
+`TEntityDataSet.ChangesAsJson` writes this body from the change log. The batch `DELETE` checks the rows it affects: a delete of a key that does not exist fails the whole batch, as `SaveChanges` does in EF Core. `TEntityDataSetApi.ListToJson<T>` and `ResultsToJson` are the helpers that write the two responses.
 
 Nothing in the framework builds the `apply` body from `Changes`; the client does it (see the book chapter on the entity dataset).
 

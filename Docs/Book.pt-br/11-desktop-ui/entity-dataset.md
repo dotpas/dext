@@ -151,7 +151,7 @@ O corpo do `apply` é um objeto com um array `changes`. Cada item tem um `state`
 
 A resposta traz um item por alteração: `Index`, `Success`, `ErrorMessage` e, numa inclusão, as `Keys` geradas. Por padrão o lote é **atômico**: um `SaveChanges`, uma transação, e se um item falha nenhum é aplicado e todos são reportados como falhos (`Batch not applied: ...`). Um armazenamento criado com `ContinueOnError` aplica cada item por si. Um corpo sem `changes` responde 400.
 
-Limite conhecido: dois ou mais deletes do mesmo tipo usam o `DELETE` em lote do contexto, que não confere as linhas afetadas, então uma chave inexistente passa sem erro (um delete sozinho de chave inexistente falha). `TEntityDataSetApi.ListToJson<T>` e `ResultsToJson` escrevem as duas respostas.
+`TEntityDataSet.ChangesAsJson` escreve esse corpo a partir do log de mudanças. O `DELETE` em lote confere as linhas afetadas: um delete de chave inexistente faz o lote inteiro falhar, como o `SaveChanges` do EF Core. `TEntityDataSetApi.ListToJson<T>` e `ResultsToJson` escrevem as duas respostas.
 
 Nada no framework monta o corpo do `apply` a partir de `Changes`; o cliente o faz (veja o capítulo do livro sobre o dataset de entidades).
 
