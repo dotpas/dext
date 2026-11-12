@@ -254,8 +254,12 @@ begin
   
   if Index < FCount - 1 then
   begin
+    // The target slot is already finalized; shift the tail down by one slot
+    // (ownership of managed values moves with the bytes) and clear the
+    // vacated last slot so nothing is finalized twice.
     NextPtr := GetItemPtr(Index + 1);
-    RawMove(NextPtr, TargetPtr, FCount - 1 - Index, SizeOf(T), System.TypeInfo(T));
+    System.Move(NextPtr^, TargetPtr^, (FCount - 1 - Index) * SizeOf(T));
+    FillChar(GetItemPtr(FCount - 1)^, SizeOf(T), 0);
   end;
   
   Dec(FCount);

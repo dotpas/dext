@@ -20,11 +20,95 @@ type
     procedure Clear_ShouldResetCountAndFreeHeap;
     [Test]
     procedure ToArray_ShouldCopyData;
+    [Test]
+    procedure Remove_String_KeepsTheOthers;
+    [Test]
+    procedure RemoveAt_String_Last_And_Middle;
+    [Test]
+    procedure Remove_String_OnHeap;
+    [Test]
+    procedure Remove_Integer_KeepsTheOthers;
+    [Test]
+    procedure Remove_Missing_DoesNothing;
   end;
 
 implementation
 
 { TVectorTests }
+
+function Join(var V: TVector<string>): string;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 0 to V.Count - 1 do
+  begin
+    if Result <> '' then
+      Result := Result + ',';
+    Result := Result + V[I];
+  end;
+end;
+
+procedure TVectorTests.Remove_String_KeepsTheOthers;
+var
+  V: TVector<string>;
+begin
+  V.Add('A');
+  V.Add('B');
+  V.Add('C');
+  V.Remove('A');
+  Should(V.Count).Be(2);
+  Should(Join(V)).Be('B,C');
+end;
+
+procedure TVectorTests.RemoveAt_String_Last_And_Middle;
+var
+  V: TVector<string>;
+begin
+  V.Add('A');
+  V.Add('B');
+  V.Add('C');
+  V.Add('D');
+  V.RemoveAt(1);
+  Should(Join(V)).Be('A,C,D');
+  V.RemoveAt(2);
+  Should(Join(V)).Be('A,C');
+end;
+
+procedure TVectorTests.Remove_String_OnHeap;
+var
+  V: TVector<string>;
+  I: Integer;
+begin
+  for I := 1 to 40 do
+    V.Add('item' + IntToStr(I));
+  V.Remove('item3');
+  Should(V.Count).Be(39);
+  Should(V[2]).Be('item4');
+  Should(V[38]).Be('item40');
+end;
+
+procedure TVectorTests.Remove_Integer_KeepsTheOthers;
+var
+  V: TVector<Integer>;
+begin
+  V.Add(1);
+  V.Add(2);
+  V.Add(3);
+  V.Remove(1);
+  Should(V.Count).Be(2);
+  Should(V[0]).Be(2);
+  Should(V[1]).Be(3);
+end;
+
+procedure TVectorTests.Remove_Missing_DoesNothing;
+var
+  V: TVector<string>;
+begin
+  V.Add('A');
+  V.Remove('Z');
+  Should(Join(V)).Be('A');
+end;
 
 procedure TVectorTests.Add_ShouldStoreValue;
 var
