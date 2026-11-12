@@ -941,7 +941,10 @@ begin
   end;
 
   // INTEGERS / ROWID / COUNTERS
-  if LType.Contains('INT') or LType.Contains('SERIAL') or LType.Contains('COUNTER') or LType.Contains('ROWID') then
+  // INTERVAL and POINT contain 'INT' but are not integers.
+  if (LType.Contains('INT') and not LType.Contains('INTERVAL') and
+      not LType.Contains('POINT')) or LType.Contains('SERIAL') or
+     LType.Contains('COUNTER') or LType.Contains('ROWID') then
   begin
     if LType.Contains('64') or LType.Contains('BIG') then
     begin
