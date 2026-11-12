@@ -3485,8 +3485,13 @@ begin
                     FDialect.QuoteIdentifier(LFullRelatedTable), 
                     FDialect.QuoteIdentifier(RelatedPK)]);
                     
-                 if FK.OnDelete <> caNoAction then
-                   LConstraint := LConstraint + ' ON DELETE ' + TSQLGeneratorHelper.GetCascadeSQL(FK.OnDelete);
+                 // The action of [ForeignKey] itself wins; without one, the
+                 // [DeleteBehavior] of the navigation property applies
+                 OnDeleteAction := FK.OnDelete;
+                 if (OnDeleteAction = caNoAction) and (PropMap <> nil) then
+                   OnDeleteAction := PropMap.DeleteBehavior;
+                 if OnDeleteAction <> caNoAction then
+                   LConstraint := LConstraint + ' ON DELETE ' + TSQLGeneratorHelper.GetCascadeSQL(OnDeleteAction);
                    
                  if FK.OnUpdate <> caNoAction then
                    LConstraint := LConstraint + ' ON UPDATE ' + TSQLGeneratorHelper.GetCascadeSQL(FK.OnUpdate);
@@ -3616,6 +3621,14 @@ begin
         else
           ColType := Format('VARCHAR(%d)', [MaxLen]);
       end;
+
+      // [ColumnType('...')]: the declared type wins over the derived one
+      for Attr in Prop.GetAttributes do
+        if Attr is ColumnTypeAttribute then
+        begin
+          ColType := ColumnTypeAttribute(Attr).TypeName;
+          Break;
+        end;
 
       SB.Append(ColType);
       

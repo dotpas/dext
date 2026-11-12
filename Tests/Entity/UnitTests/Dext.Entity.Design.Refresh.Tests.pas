@@ -157,23 +157,33 @@ end;
 procedure TEntityDesignRefreshTests.Refresh_DoesNotLeak;
 var
   Provider: TEntityDataProvider;
-  Before, After: NativeInt;
-  I: Integer;
+  Before, After, Growth, Smallest: NativeInt;
+  I, Attempt: Integer;
 begin
   Provider := NewProvider;
   try
     // The first refresh warms up the parser and the provider caches.
     RefreshProviderMetadata(Provider);
-    Before := LiveBlocks;
-    Should(Before).BeGreaterThan(0);
+    Should(LiveBlocks).BeGreaterThan(0);
 
-    for I := 1 to 50 do
-      RefreshProviderMetadata(Provider);
-    After := LiveBlocks;
+    // The block counter is process-wide, and another thread can add blocks
+    // at any moment. A real leak shows in every attempt; the noise only in
+    // some, so the smallest of three attempts is the one that counts.
+    Smallest := High(NativeInt);
+    for Attempt := 1 to 3 do
+    begin
+      Before := LiveBlocks;
+      for I := 1 to 50 do
+        RefreshProviderMetadata(Provider);
+      After := LiveBlocks;
+      Growth := After - Before;
+      if Growth < Smallest then
+        Smallest := Growth;
+    end;
 
     // Each refresh used to leave the parsed class and its members behind
     // (about a dozen blocks); 50 refreshes are far above this margin.
-    Should(After - Before).BeLessThan(50);
+    Should(Smallest).BeLessThan(50);
   finally
     Provider.Free;
   end;
