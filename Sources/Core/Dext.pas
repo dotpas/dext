@@ -154,6 +154,7 @@ type
 
   // Dext.Threading.CancellationToken
   ICancellationToken = Dext.Threading.CancellationToken.ICancellationToken;
+  ICancellationRegistration = Dext.Threading.CancellationToken.ICancellationRegistration;
   TCancellationToken = Dext.Threading.CancellationToken.TCancellationToken;
   TCancellationTokenSource = Dext.Threading.CancellationToken.TCancellationTokenSource;
 
