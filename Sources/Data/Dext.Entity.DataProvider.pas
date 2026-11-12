@@ -41,6 +41,7 @@ type
     FDialect: TDatabaseDialect;
     FDebugMode: Boolean;
     FLastRefreshSummary: string;
+    FLastPreviewError: string;
     FEntitiesMetadata: TEntityClassCollection;
     FOnRefreshUnit: TRefreshUnitEvent;
     FDataSets: IList<TComponent>;
@@ -67,7 +68,12 @@ type
     destructor Destroy; override;
     procedure ClearMetadata;
     procedure AddOrSetMetadata(const AMetadata: TEntityClassMetadata);
-    procedure UpdateRefreshSummary;
+    procedure UpdateRefreshSummary; overload;
+    /// <summary>
+    ///   Same summary, naming the units that could not be read, so a stale
+    ///   entry in ModelUnits does not look like a unit without entities.
+    /// </summary>
+    procedure UpdateRefreshSummary(const AMissingUnits: TArray<string>); overload;
     procedure RefreshMetadata;
     procedure RefreshUnit(const AFileName: string);
     function GetEntities: TArray<string>;
@@ -83,6 +89,11 @@ type
     procedure SyncMetadata(const AEntityClassName: string);
     procedure RegisterDataSet(ADataSet: TComponent);
     procedure UnregisterDataSet(ADataSet: TComponent);
+    /// <summary>
+    ///   Why the last GetPreviewData returned no rows (no connection, an
+    ///   unknown entity, or the error of the query); empty when it worked.
+    /// </summary>
+    property LastPreviewError: string read FLastPreviewError;
   published
     property DatabaseConnection: TFDCustomConnection read FDatabaseConnection write SetDatabaseConnection;
     property ModelUnits: TStrings read FModelUnits write SetModelUnits;
@@ -564,8 +575,25 @@ end;
 
 procedure TEntityDataProvider.UpdateRefreshSummary;
 begin
+  UpdateRefreshSummary(nil);
+end;
+
+procedure TEntityDataProvider.UpdateRefreshSummary(
+  const AMissingUnits: TArray<string>);
+var
+  Names: TArray<string>;
+  I: Integer;
+begin
   FLastRefreshSummary := Format('%d entity(ies) found in %d unit(s).',
     [FMetadataCache.Count, FModelUnits.Count]);
+  if Length(AMissingUnits) > 0 then
+  begin
+    SetLength(Names, Length(AMissingUnits));
+    for I := 0 to High(AMissingUnits) do
+      Names[I] := ExtractFileName(AMissingUnits[I]);
+    FLastRefreshSummary := FLastRefreshSummary + Format(
+      ' Could not read %d unit(s): %s.', [Length(Names), string.Join(', ', Names)]);
+  end;
 end;
 
 procedure TEntityDataProvider.RefreshMetadata;
@@ -629,9 +657,23 @@ var
   i: Integer;
 begin
   Result := TCollections.CreateList<IDictionary<string, Variant>>;
+  FLastPreviewError := '';
   Sql := BuildPreviewSql(AClassName, AMaxRows);
-  if (Sql = '') or (FDatabaseConnection = nil) or (not FDatabaseConnection.Connected) then
+  if Sql = '' then
+  begin
+    FLastPreviewError := Format('Unknown entity "%s".', [AClassName]);
     Exit;
+  end;
+  if FDatabaseConnection = nil then
+  begin
+    FLastPreviewError := 'The provider has no DatabaseConnection.';
+    Exit;
+  end;
+  if not FDatabaseConnection.Connected then
+  begin
+    FLastPreviewError := 'The DatabaseConnection is not connected.';
+    Exit;
+  end;
 
   Query := TFDQuery.Create(nil);
   try
@@ -648,7 +690,13 @@ begin
         Query.Next;
       end;
     except
-      // Silently ignore preview errors
+      // A failed preview query must not break the designer, but the reason
+      // stays available instead of an empty grid with no explanation.
+      on E: Exception do
+      begin
+        Result.Clear;
+        FLastPreviewError := E.Message;
+      end;
     end;
   finally
     Query.Free;
