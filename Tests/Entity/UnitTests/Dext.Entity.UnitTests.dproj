@@ -133,6 +133,7 @@
         <DCCReference Include="Dext.Entity.Sequences.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SaveChanges.Tests.pas"/>
         <DCCReference Include="Dext.Entity.PersistOwnership.Tests.pas"/>
+        <DCCReference Include="Dext.Entity.BatchDelete.Tests.pas"/>
         <DCCReference Include="Dext.Entity.ChangeTracker.Tests.pas"/>
         <DCCReference Include="Dext.Entity.SmartAttributes.Tests.pas"/>
         <DCCReference Include="Dext.Entity.MappingNames.Tests.pas"/>

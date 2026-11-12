@@ -165,6 +165,9 @@ type
     [Test('Should free the entity of a deleted item that failed')]
     procedure TestFailedDeletedItemIsFreed;
 
+    [Test('Should refuse a batch whose delete finds no row, and keep the others')]
+    procedure TestBatchWithAMissingDeleteIsRefused;
+
     [Test('Should delete the instance the context already tracks, not a twin')]
     procedure TestDeleteUsesTheTrackedInstance;
 
@@ -549,6 +552,21 @@ begin
 
   Should(Results[0].Success).BeTrue.Because(Results[0].ErrorMessage);
   Should(Ord(FContext.ChangeTracker.GetState(Loaded))).Be(Ord(esDetached));
+end;
+
+procedure TEntityDataSetStoreTypesTests.TestBatchWithAMissingDeleteIsRefused;
+var
+  Results: IList<TApplyItemResult>;
+begin
+  // Two deletes go to the context's batch DELETE, which checks the rows it
+  // affects: key 999 has none, so the whole batch is refused and rolled back.
+  Results := Apply('{"changes":[{"state":"deleted","key":{"Id":1}},' +
+    '{"state":"deleted","key":{"Id":999}}]}');
+
+  Should(Results[0].Success).BeFalse;
+  Should(Results[1].Success).BeFalse;
+  Should(Results[0].ErrorMessage).StartWith('Batch not applied');
+  Should(Integer(Scalar('SELECT COUNT(*) FROM eds_typed'))).Be(1);
 end;
 
 procedure TEntityDataSetStoreTypesTests.TestFailedDeletedItemIsFreed;

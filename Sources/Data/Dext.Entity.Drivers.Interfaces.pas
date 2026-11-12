@@ -118,7 +118,11 @@ type
     // Array DML Support
     procedure SetArraySize(const ASize: Integer);
     procedure SetParamArray(const AName: string; const AValues: TArray<TValue>);
-    procedure ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0);
+    /// <summary>
+    ///   Runs the command once per array element. Returns the total of rows
+    ///   affected, or -1 when the driver does not report it.
+    /// </summary>
+    function ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0): Integer;
   end;
 
   /// <summary>

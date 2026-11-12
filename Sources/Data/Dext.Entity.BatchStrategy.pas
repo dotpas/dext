@@ -142,6 +142,19 @@ type
       ADialect: TDatabaseDialect): TValue; static;
   end;
 
+/// <summary>
+///   A DELETE that affects fewer rows than it has keys means some row was
+///   already gone or changed: SaveChanges raises, as it does for a delete
+///   alone (and as EF Core does for every command of a batch). The rows
+///   affected come from the driver; -1 means it does not report them.
+/// </summary>
+procedure CheckDeletedRows(AAffected, AExpected: Integer);
+begin
+  if (AAffected >= 0) and (AAffected < AExpected) then
+    raise EOptimisticConcurrencyException.Create(
+      'Concurrency violation: The record has been modified or deleted by another user.');
+end;
+
 { TDEXTBatchHelper }
 
 class function TDEXTBatchHelper.GetFieldType(ATypeInfo: PTypeInfo): TFieldType;
@@ -452,7 +465,7 @@ begin
         end;
       end;
 
-      Cmd.ExecuteNonQuery;
+      CheckDeletedRows(Cmd.ExecuteNonQuery, ChunkCount);
       ChunkStart := ChunkStart + ChunkCount;
     end;
     if OwnsTx and (Tx <> nil) then
@@ -753,7 +766,7 @@ begin
         Cmd.SetParamArray(ParamName, ParamValues);
       end;
 
-      Cmd.ExecuteBatch(ChunkCount);
+      CheckDeletedRows(Cmd.ExecuteBatch(ChunkCount), ChunkCount);
       ChunkStart := ChunkStart + ChunkCount;
     end;
     if OwnsTx and (Tx <> nil) then

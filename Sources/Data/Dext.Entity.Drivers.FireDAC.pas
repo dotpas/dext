@@ -139,7 +139,7 @@ type
     
     procedure SetArraySize(const ASize: Integer);
     procedure SetParamArray(const AName: string; const AValues: TArray<TValue>);
-    procedure ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0);
+    function ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0): Integer;
     property Query: TFDQuery read FQuery;
   end;
 
@@ -1454,11 +1454,12 @@ begin
   end;
 end;
 
-procedure TFireDACCommand.ExecuteBatch(const ATimes: Integer; const AOffset: Integer);
+function TFireDACCommand.ExecuteBatch(const ATimes: Integer; const AOffset: Integer): Integer;
 begin
   LogSqlCommand(FQuery.SQL.Text + Format(' (Batch size: %d, Offset: %d)', [ATimes, AOffset]), FQuery.Params);
   try
     FQuery.Execute(ATimes, AOffset);
+    Result := FQuery.RowsAffected;
   except
     on E: Exception do
     begin

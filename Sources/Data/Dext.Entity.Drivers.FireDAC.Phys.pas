@@ -132,7 +132,7 @@ type
     
     procedure SetArraySize(const ASize: Integer);
     procedure SetParamArray(const AName: string; const AValues: TArray<TValue>);
-    procedure ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0);
+    function ExecuteBatch(const ATimes: Integer; const AOffset: Integer = 0): Integer;
   end;
 
   /// <summary>
@@ -852,9 +852,10 @@ begin
   end;
 end;
 
-procedure TFireDACPhysCommand.ExecuteBatch(const ATimes: Integer; const AOffset: Integer);
+function TFireDACPhysCommand.ExecuteBatch(const ATimes: Integer; const AOffset: Integer): Integer;
 begin
   FCommand.Execute(ATimes, AOffset);
+  Result := FCommand.RowsAffected;
 end;
 
 { TFireDACPhysConnection }
