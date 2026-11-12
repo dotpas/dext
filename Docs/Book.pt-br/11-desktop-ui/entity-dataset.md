@@ -23,6 +23,10 @@ begin
 end;
 ```
 
+### Lista Viva ou Cópia
+
+`Load(IObjectList, TClass)` trabalha sobre a **lista viva**: o que o dataset acrescenta ou apaga aparece na lista do chamador. `Load<T>(IList<T>)` copia as referências para uma lista própria: editar um campo muda o mesmo objeto, mas o que entra ou sai fica só no dataset. `LoadFromJson` cria as entidades e é dono delas.
+
 ### Carregando diretamente de um Buffer Utf8 JSON
 
 ```pascal
@@ -51,6 +55,8 @@ Você pode setar filtros nativamente usando tokens clássicos de String:
 DataSet.Filter := 'Score > 100';
 DataSet.Filtered := True;
 ```
+
+A expressão aceita comparações como `=` e `>`, `AND`, `OR`, `NOT (...)`, `IN (...)` e `LIKE` com `%`. Um filtro que não pode ser lido levanta `EFilterSyntaxError`; nunca é ignorado em silêncio. `IndexFieldNames` ordena a visão (`'Limite DESC'`, `'Cidade;Nome'`) sem tocar na lista de origem.
 
 ### Buscas Rápidas (Lookup)
 
@@ -89,6 +95,13 @@ O Dext garante que o estado de design-time não polua seus arquivos de código:
 O dataset registra nativamente inserções, atualizações e exclusões, facilitando
 a sincronização com um servidor REST.
 
+### Semântica de Edição
+
+- `Edit` e `Post` gravam direto na entidade da lista. `Cancel` desfaz a edição em curso, e só ela.
+- `Append` cria a entidade no fim do dataset.
+- Um dataset somente leitura (`ReadOnly := True`) recusa `Edit`, `Append` e `Delete` com `EDatabaseError`.
+- `RejectChanges` desfaz tudo o que está no log: reverte as edições, remove as entidades acrescentadas e devolve as apagadas.
+
 ### Log de Alterações Nativo
 
 Quando um registro é editado, inserido ou excluído, o `TEntityDataSet` rastreia
@@ -126,6 +139,21 @@ App.MapEntityDataSet<TCustomer>('/api/customers', TMyDbContext);
 Isso registra as seguintes rotas:
 - `GET /api/customers` para buscar a lista de registros.
 - `POST /api/customers/apply` para persistir o lote de alterações recebido.
+
+O corpo do `apply` é um objeto com um array `changes`. Cada item tem um `state` (`inserted`, `modified` ou `deleted`), uma `key` (em `modified` e `deleted`) e `values` (em `inserted` e `modified`):
+
+```json
+{"changes":[
+  {"state":"modified","key":{"Id":2},"values":{"Limite":900}},
+  {"state":"inserted","values":{"Nome":"Eva","Limite":100}},
+  {"state":"deleted","key":{"Id":4}}]}
+```
+
+A resposta traz um item por alteração: `Index`, `Success`, `ErrorMessage` e, numa inclusão, as `Keys` geradas. Por padrão o lote é **atômico**: um `SaveChanges`, uma transação, e se um item falha nenhum é aplicado e todos são reportados como falhos (`Batch not applied: ...`). Um armazenamento criado com `ContinueOnError` aplica cada item por si. Um corpo sem `changes` responde 400.
+
+Limite conhecido: dois ou mais deletes do mesmo tipo usam o `DELETE` em lote do contexto, que não confere as linhas afetadas, então uma chave inexistente passa sem erro (um delete sozinho de chave inexistente falha). `TEntityDataSetApi.ListToJson<T>` e `ResultsToJson` escrevem as duas respostas.
+
+Nada no framework monta o corpo do `apply` a partir de `Changes`; o cliente o faz (veja o capítulo do livro sobre o dataset de entidades).
 
 ---
 

@@ -23,6 +23,10 @@ begin
 end;
 ```
 
+### Live List or Copy
+
+`Load(IObjectList, TClass)` works on the **live list**: what the dataset appends or deletes shows in the caller's list. `Load<T>(IList<T>)` copies the references into a list of its own: editing a field changes the same object, but what enters or leaves stays in the dataset. `LoadFromJson` creates the entities itself and owns them.
+
 ### Loading directly from Utf8 JSON Buffer
 
 ```pascal
@@ -51,6 +55,8 @@ You can set filtering natively using familiar string tokens:
 DataSet.Filter := 'Score > 100';
 DataSet.Filtered := True;
 ```
+
+The expression accepts comparisons such as `=` and `>`, `AND`, `OR`, `NOT (...)`, `IN (...)` and `LIKE` with `%`. A filter that cannot be parsed raises `EFilterSyntaxError`; it is never silently ignored. `IndexFieldNames` sorts the view (`'Limit DESC'`, `'City;Name'`) without touching the source list.
 
 ### Quick Lookups
 
@@ -89,6 +95,13 @@ Dext ensures that the design-time state doesn't pollute your source files:
 The dataset natively records insertions, updates, and deletions, making
 it easy to synchronize changes with a remote REST API.
 
+### Editing Semantics
+
+- `Edit` and `Post` write straight into the entity in the list. `Cancel` undoes the edit in progress, and only that one.
+- `Append` creates the entity at the end of the dataset.
+- A read-only dataset (`ReadOnly := True`) refuses `Edit`, `Append` and `Delete` with `EDatabaseError`.
+- `RejectChanges` undoes everything in the change log: it reverts edits, removes appended entities and brings back deleted ones.
+
 ### Native Change Log
 
 When a user edits, inserts, or deletes records, `TEntityDataSet` tracks
@@ -126,6 +139,21 @@ App.MapEntityDataSet<TCustomer>('/api/customers', TMyDbContext);
 This registers the conventional routes:
 - `GET /api/customers` to fetch the entity list.
 - `POST /api/customers/apply` to apply the change-log payload.
+
+The body of `apply` is an object with a `changes` array. Each item has a `state` (`inserted`, `modified` or `deleted`), a `key` (for `modified` and `deleted`) and `values` (for `inserted` and `modified`):
+
+```json
+{"changes":[
+  {"state":"modified","key":{"Id":2},"values":{"Limit":900}},
+  {"state":"inserted","values":{"Name":"Eva","Limit":100}},
+  {"state":"deleted","key":{"Id":4}}]}
+```
+
+The response has one item per change: `Index`, `Success`, `ErrorMessage` and, for an insert, the generated `Keys`. By default the batch is **atomic**: one `SaveChanges`, one transaction, and if any item fails none is applied and every item is reported as failed (`Batch not applied: ...`). A store created with `ContinueOnError` applies each item on its own instead. A body without `changes` answers 400.
+
+Known limit: two or more deletes of the same type use the context's batch `DELETE`, which does not check the affected rows, so a key that does not exist passes without an error (a single delete of a missing key fails). `TEntityDataSetApi.ListToJson<T>` and `ResultsToJson` are the helpers that write the two responses.
+
+Nothing in the framework builds the `apply` body from `Changes`; the client does it (see the book chapter on the entity dataset).
 
 ---
 
