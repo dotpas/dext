@@ -168,6 +168,10 @@ type
     FCloseAtEnd: Boolean;
     /// The size line of the chunk sent by Close (kept until it completes).
     FChunkHead: array[0..19] of AnsiChar;
+    /// True once the request was upgraded to a WebSocket: the 101 has gone
+    /// out, the WebSocket connection owns the request from then on, and
+    /// Flush and Close send nothing.
+    FDetached: Boolean;
     FStatusCode: USHORT;
     FHeaderData: array[0..4095] of AnsiChar;
     FHeaderDataLen: Integer;
@@ -351,6 +355,9 @@ type
     FSecWebSocketKey: string;
     FSecWebSocketExtensions: string;
     FEngine: TDextHttpSysEngine;
+    /// The response of the same request (set by the worker): detached by
+    /// UpgradeToWebSocket.
+    FResponse: TDextHttpSysResponse;
   public
     /// <summary>Initializes a new http.sys connection wrapper.</summary>
     /// <param name="ARequest">The native HTTP_REQUEST structure of the connection.</param>
@@ -780,6 +787,8 @@ end;
 constructor TDextHttpSysBufferPool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -821,9 +830,12 @@ begin
 end;
 
 procedure TDextHttpSysBufferPool.Release(ABuffer: TMemoryStream);
+var
+  Pooled: Boolean;
 begin
   if ABuffer = nil then Exit;
-  
+
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
@@ -832,14 +844,14 @@ begin
       if ABuffer.Size > 65536 then
         ABuffer.Size := 65536;
       FPool.Add(ABuffer);
-    end
-    else
-    begin
-      ABuffer.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
   end;
+  // A full pool frees the buffer outside the lock
+  if not Pooled then
+    ABuffer.Free;
 end;
 
 { TDextHttpSysRequest }
@@ -1110,6 +1122,7 @@ begin
   FResponseComplete := False;
   FChunked := False;
   FCloseAtEnd := False;
+  FDetached := False;
   FStatusCode := 200;
 
   FReasonBuffer[0] := 'O';
@@ -1145,6 +1158,7 @@ begin
   FResponseComplete := False;
   FChunked := False;
   FCloseAtEnd := False;
+  FDetached := False;
   FStatusCode := 200;
 
   FReasonBuffer[0] := 'O';
@@ -1243,6 +1257,8 @@ begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FResponseComplete then Exit;
   FResponseComplete := True;
+  // Upgraded to a WebSocket: the request belongs to the WebSocket connection
+  if FDetached then Exit;
   Ret := ERROR_IO_PENDING;
 
   // Retain context interface references to keep this response alive during async IOCP
@@ -1624,6 +1640,7 @@ var
 begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FHeadersSent then Exit;
+  if FDetached then Exit;
 
   // Chunked (HTTP/1.1) or the end of the connection (HTTP/1.0) when the
   // length is not known
@@ -2022,7 +2039,9 @@ begin
     Ret := HttpSendHttpResponse(
       FReqQueue,
       FRequestId,
-      HTTP_SEND_RESPONSE_FLAG_OPAQUE,
+      // OPAQUE alone fails with ERROR_INVALID_PARAMETER (87): the response
+      // goes on as opaque data, so MORE_DATA is needed too
+      HTTP_SEND_RESPONSE_FLAG_OPAQUE or HTTP_SEND_RESPONSE_FLAG_MORE_DATA,
       @Response,
       nil,
       BytesSent,
@@ -2066,6 +2085,7 @@ begin
     Frame.Payload := CompressMessage(Payload)
   else
     Frame.Payload := Payload;
+  Frame.PayloadLength := Length(Frame.Payload);
   FrameBytes := TWebSocketFrameCodec.Encode(Frame);
   SendFrame(FrameBytes);
 end;
@@ -2085,6 +2105,7 @@ begin
   else
     Payload := AData;
   Frame.Payload := Payload;
+  Frame.PayloadLength := Length(Frame.Payload);
   FrameBytes := TWebSocketFrameCodec.Encode(Frame);
   SendFrame(FrameBytes);
 end;
@@ -2634,6 +2655,12 @@ begin
   Result := TDextHttpSysWebSocketConnection.Create(
     FEngine, FConnectionId, FReqQueue, FRequestId, FSecWebSocketKey,
     FSecWebSocketExtensions);
+  // The 101 has gone out: the worker must not send a second response for
+  // this request. The WebSocket connection keeps its own operations, buffer,
+  // queue handle and request id, so the context is released as usual when
+  // the handler returns.
+  if FResponse <> nil then
+    FResponse.FDetached := True;
 end;
 
 { TDextHttpSysRequestPool }
@@ -2641,6 +2668,8 @@ end;
 constructor TDextHttpSysRequestPool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -2684,22 +2713,27 @@ begin
 end;
 
 procedure TDextHttpSysRequestPool.Release(ARequest: TDextHttpSysRequest);
+var
+  Pooled: Boolean;
 begin
   if ARequest = nil then Exit;
 
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
     begin
       FPool.Add(ARequest);
-    end
-    else
-    begin
-      ARequest.FEngine := nil;
-      ARequest.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
+  end;
+  // A full pool frees the object outside the lock
+  if not Pooled then
+  begin
+    ARequest.FEngine := nil;
+    ARequest.Free;
   end;
 end;
 
@@ -2708,6 +2742,8 @@ end;
 constructor TDextHttpSysResponsePool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -2751,22 +2787,27 @@ begin
 end;
 
 procedure TDextHttpSysResponsePool.Release(AResponse: TDextHttpSysResponse);
+var
+  Pooled: Boolean;
 begin
   if AResponse = nil then Exit;
 
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
     begin
       FPool.Add(AResponse);
-    end
-    else
-    begin
-      AResponse.FEngine := nil;
-      AResponse.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
+  end;
+  // A full pool frees the object outside the lock
+  if not Pooled then
+  begin
+    AResponse.FEngine := nil;
+    AResponse.Free;
   end;
 end;
 
@@ -2845,6 +2886,7 @@ begin
     PHTTP_REQUEST(@AContext.FBuffer[0]), AContext);
   AContext.FResponse := FEngine.FResponsePool.Acquire(FEngine,
     FReqQueue, AContext.FRequestId, AContext);
+  AContext.FConnection.FResponse := AContext.FResponse;
   AContext.FRefCount := 2;
 
   Connection := AContext.FConnection;
@@ -2867,6 +2909,9 @@ begin
         SafeWriteLn('--- EXCEPTION IN RawResponse.Close: ' + E.ClassName +
           ': ' + E.Message);
     end;
+    // The response goes back to its pool: a connection kept past the
+    // handler must not reach it any more
+    AContext.FConnection.FResponse := nil;
     RawRequest := nil;
     RawResponse := nil;
     Connection := nil;
