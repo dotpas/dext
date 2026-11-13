@@ -770,6 +770,8 @@ end;
 constructor TDextHttpSysBufferPool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -811,9 +813,12 @@ begin
 end;
 
 procedure TDextHttpSysBufferPool.Release(ABuffer: TMemoryStream);
+var
+  Pooled: Boolean;
 begin
   if ABuffer = nil then Exit;
-  
+
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
@@ -822,14 +827,14 @@ begin
       if ABuffer.Size > 65536 then
         ABuffer.Size := 65536;
       FPool.Add(ABuffer);
-    end
-    else
-    begin
-      ABuffer.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
   end;
+  // A full pool frees the buffer outside the lock
+  if not Pooled then
+    ABuffer.Free;
 end;
 
 { TDextHttpSysRequest }
@@ -2515,6 +2520,8 @@ end;
 constructor TDextHttpSysRequestPool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -2558,22 +2565,27 @@ begin
 end;
 
 procedure TDextHttpSysRequestPool.Release(ARequest: TDextHttpSysRequest);
+var
+  Pooled: Boolean;
 begin
   if ARequest = nil then Exit;
 
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
     begin
       FPool.Add(ARequest);
-    end
-    else
-    begin
-      ARequest.FEngine := nil;
-      ARequest.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
+  end;
+  // A full pool frees the object outside the lock
+  if not Pooled then
+  begin
+    ARequest.FEngine := nil;
+    ARequest.Free;
   end;
 end;
 
@@ -2582,6 +2594,8 @@ end;
 constructor TDextHttpSysResponsePool.Create(AMaxPoolSize: Integer);
 begin
   inherited Create;
+  // A zeroed TSpinLock has thread tracking on; the pools do not need it.
+  FLock := TSpinLock.Create(False);
   FPool := TList.Create;
   FMaxPoolSize := AMaxPoolSize;
 end;
@@ -2625,22 +2639,27 @@ begin
 end;
 
 procedure TDextHttpSysResponsePool.Release(AResponse: TDextHttpSysResponse);
+var
+  Pooled: Boolean;
 begin
   if AResponse = nil then Exit;
 
+  Pooled := False;
   FLock.Enter;
   try
     if FPool.Count < FMaxPoolSize then
     begin
       FPool.Add(AResponse);
-    end
-    else
-    begin
-      AResponse.FEngine := nil;
-      AResponse.Free;
+      Pooled := True;
     end;
   finally
     FLock.Exit;
+  end;
+  // A full pool frees the object outside the lock
+  if not Pooled then
+  begin
+    AResponse.FEngine := nil;
+    AResponse.Free;
   end;
 end;
 
