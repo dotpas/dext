@@ -9,6 +9,7 @@ uses
   Dext.Entity.Attributes,
   Dext.Entity.Core,
   Dext.Entity.Setup,
+  Dext.Entity.Dialects,
   Dext.Entity.Migrations.Extractor,
   FireDAC.Phys.SQLite,
   FireDAC.Stan.Def,
@@ -82,6 +83,10 @@ type
   [TestFixture]
   TMigrationTests = class
   public
+    [Test]
+    [Description('DDL runs inside a transaction only where the server can roll it back')]
+    procedure Ddl_Transaction_Follows_The_Server;
+
     [Test]
     procedure Test_Rename_Table_Detection;
     [Test]
@@ -695,6 +700,19 @@ begin
   // What cannot be inverted without the old definition is flagged, not lost.
   Should(Down.Contains('Irreversible')).BeTrue;
   Should(Down.Contains('Legacy')).BeTrue;
+end;
+
+procedure TMigrationTests.Ddl_Transaction_Follows_The_Server;
+begin
+  // MySQL and MariaDB commit on every DDL statement: a transaction around the
+  // migration ends under it, and the final Commit fails.
+  Should(TMigrator.RunsDdlInTransaction(TMySQLDialect.Create)).BeFalse;
+  Should(TMigrator.RunsDdlInTransaction(TMariaDBDialect.Create)).BeFalse;
+  Should(TMigrator.RunsDdlInTransaction(TPostgreSQLDialect.Create)).BeTrue;
+  Should(TMigrator.RunsDdlInTransaction(TSQLiteDialect.Create)).BeTrue;
+  Should(TMigrator.RunsDdlInTransaction(TFirebirdDialect.Create)).BeTrue;
+  Should(TMigrator.RunsDdlInTransaction(TInterBaseDialect.Create)).BeTrue;
+  Should(TMigrator.RunsDdlInTransaction(TSQLServerDialect.Create)).BeTrue;
 end;
 
 end.

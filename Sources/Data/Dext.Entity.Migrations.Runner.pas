@@ -32,6 +32,7 @@ uses
   System.Classes,
   Dext.Collections,
   Dext.Entity.Core,
+  Dext.Entity.Dialects,
   Dext.Entity.Migrations,
   Dext.Entity.Migrations.Builder,
   Dext.Entity.Migrations.Operations,
@@ -47,8 +48,18 @@ type
     procedure ApplyMigration(AMigration: IMigration);
     procedure DownMigration(AMigration: IMigration);
     procedure LogInfo(const AMsg: string);
+    procedure BeginDdlTransaction;
+    procedure CommitDdlTransaction;
+    procedure RollbackDdlTransaction;
   public
     constructor Create(AContext: IDbContext; ALogger: ILogger = nil);
+
+    /// <summary>
+    ///   True where a transaction can undo DDL. MySQL and MariaDB commit on
+    ///   every DDL statement, so a transaction around a migration ends under
+    ///   it and its Commit fails: there the statements run one by one.
+    /// </summary>
+    class function RunsDdlInTransaction(const ADialect: ISQLDialect): Boolean; static;
     function GetAppliedMigrations: IList<string>;
     procedure Migrate;
     procedure Rollback(const ATargetId: string = '');
@@ -67,6 +78,29 @@ uses
   Dext.Utils;
 
 { TMigrator }
+
+class function TMigrator.RunsDdlInTransaction(const ADialect: ISQLDialect): Boolean;
+begin
+  Result := not (ADialect.GetDialect in [ddMySQL, ddMariaDB]);
+end;
+
+procedure TMigrator.BeginDdlTransaction;
+begin
+  if RunsDdlInTransaction(FContext.Dialect) then
+    FContext.BeginTransaction;
+end;
+
+procedure TMigrator.CommitDdlTransaction;
+begin
+  if RunsDdlInTransaction(FContext.Dialect) then
+    FContext.Commit;
+end;
+
+procedure TMigrator.RollbackDdlTransaction;
+begin
+  if RunsDdlInTransaction(FContext.Dialect) then
+    FContext.Rollback;
+end;
 
 constructor TMigrator.Create(AContext: IDbContext; ALogger: ILogger);
 begin
@@ -153,7 +187,7 @@ var
 begin
   LogInfo('   → Applying migration: ' + AMigration.GetId);
 
-  FContext.BeginTransaction;
+  BeginDdlTransaction;
   try
     Builder := TSchemaBuilder.Create;
     try
@@ -186,9 +220,9 @@ begin
       Builder.Free;
     end;
 
-    FContext.Commit;
+    CommitDdlTransaction;
   except
-    FContext.Rollback;
+    RollbackDdlTransaction;
     raise;
   end;
 end;
@@ -203,7 +237,7 @@ var
 begin
   LogInfo('   ↩ Rolling back migration: ' + AMigration.GetId);
 
-  FContext.BeginTransaction;
+  BeginDdlTransaction;
   try
     Builder := TSchemaBuilder.Create;
     try
@@ -234,9 +268,9 @@ begin
       Builder.Free;
     end;
 
-    FContext.Commit;
+    CommitDdlTransaction;
   except
-    FContext.Rollback;
+    RollbackDdlTransaction;
     raise;
   end;
 end;

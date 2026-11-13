@@ -3989,7 +3989,15 @@ begin
     jtInner: Result := 'INNER JOIN';
     jtLeft: Result := 'LEFT JOIN';
     jtRight: Result := 'RIGHT JOIN';
-    jtFull: Result := 'FULL JOIN';
+    jtFull:
+      begin
+        // MySQL and MariaDB have no FULL JOIN: they read "FULL" as a table
+        // alias and fail later, on the ON clause, with a misleading message.
+        if TSQLGeneratorHelper.ResolveDialect(FDialect) in [ddMySQL, ddMariaDB] then
+          raise ENotSupportedException.Create(
+            'FULL JOIN is not supported by MySQL/MariaDB. Combine JoinLeft and JoinRight instead.');
+        Result := 'FULL JOIN';
+      end;
     jtCross: Result := 'CROSS JOIN';
   else
     Result := 'INNER JOIN';

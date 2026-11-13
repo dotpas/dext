@@ -375,6 +375,10 @@ type
     procedure OrderBy_Prop_Of_The_Joined_Table;
     [Test]
     procedure OrderBy_Base_Column_Still_Works_With_A_Join;
+
+    [Test]
+    [Description('MySQL and MariaDB have no FULL JOIN: it is refused, not misparsed as an alias')]
+    procedure JoinFull_Is_Refused_By_MySQL_And_MariaDB;
     [Test]
     procedure GroupBy_Projects_Key_And_Aggregates_To_A_Dto;
     [Test]
@@ -1041,6 +1045,32 @@ begin
   Should(Items[1].Id).Be(6);
   Should(Items[2].Id).Be(2);
   Should(Items[5].Id).Be(4);
+end;
+
+procedure TDslLinqTests.JoinFull_Is_Refused_By_MySQL_And_MariaDB;
+var
+  Dialect: TDatabaseDialect;
+  Other: TDlDb;
+  O: TDlOrder;
+  C: TDlCustomer;
+begin
+  O := Prototype.Entity<TDlOrder>;
+  C := Prototype.Entity<TDlCustomer>;
+  // The same connection, with the dialect of each server: the SQL is what
+  // matters. MySQL would read "FULL" as a table alias and fail on the ON.
+  for Dialect in [ddMySQL, ddMariaDB] do
+  begin
+    Other := TDlDb.Create(FDb.Connection, TDialectFactory.CreateDialect(Dialect), nil, nil);
+    try
+      Should(
+        procedure
+        begin
+          Other.Orders.QueryAll.JoinFull<TDlCustomer>('c', O.CustomerId = C.Id).Count;
+        end).Throw<ENotSupportedException>.AndAlso.ThrowWithMessageContaining('FULL JOIN');
+    finally
+      Other.Free;
+    end;
+  end;
 end;
 
 procedure TDslLinqTests.OrderBy_Prop_Of_The_Joined_Table;
