@@ -70,6 +70,9 @@ type
   /// </summary>
   TTestFilter = record
     Categories: TArray<string>;
+    /// <summary>A test with any of these categories does not run, even if it
+    /// also has an included one.</summary>
+    ExcludedCategories: TArray<string>;
     TestNamePattern: string;
     FixtureNamePattern: string;
     IncludeExplicit: Boolean;
@@ -771,6 +774,12 @@ begin
   if (TestNamePattern <> '') and
      not ContainsText(ATestName, TestNamePattern) then
     Exit(False);
+
+  // Excluded categories win over the included ones
+  for FilterCat in ExcludedCategories do
+    for Cat in ACategories do
+      if SameText(Cat, FilterCat) then
+        Exit(False);
 
   // Check categories
   if Length(Categories) > 0 then

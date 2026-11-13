@@ -62,6 +62,7 @@ type
     FTRXFile: string;
     FHTMLFile: string;
     FCategories: TArray<string>;
+    FExcludedCategories: TArray<string>;
     FTestPattern: string;
     FFixturePattern: string;
     FIncludeExplicit: Boolean;
@@ -140,6 +141,13 @@ type
     ///   Filters tests by multiple categories.
     /// </summary>
     function FilterByCategories(const Categories: array of string): TTestConfigurator;
+
+    /// <summary>
+    ///   Leaves out the tests that have this category (the opposite of
+    ///   FilterByCategory). A run for a server without a feature can leave out
+    ///   the tests tagged for another one.
+    /// </summary>
+    function ExcludeCategory(const Category: string): TTestConfigurator;
 
     /// <summary>
     ///   Filters tests by name pattern.
@@ -348,6 +356,13 @@ begin
   Result := Self;
 end;
 
+function TTestConfigurator.ExcludeCategory(const Category: string): TTestConfigurator;
+begin
+  SetLength(FExcludedCategories, Length(FExcludedCategories) + 1);
+  FExcludedCategories[High(FExcludedCategories)] := Category;
+  Result := Self;
+end;
+
 function TTestConfigurator.FilterByCategories(const Categories: array of string): TTestConfigurator;
 var
   I, Start: Integer;
@@ -444,6 +459,8 @@ begin
       FFixturePattern := P.Substring(9).DeQuotedString('"')
     else if P.StartsWith('-category:', True) or P.StartsWith('/category:', True) then
       FilterByCategory(P.Substring(10).DeQuotedString('"'))
+    else if P.StartsWith('-exclude-category:', True) or P.StartsWith('/exclude-category:', True) then
+      ExcludeCategory(P.Substring(18).DeQuotedString('"'))
       
     // Behavior overrides
     else if  (P = '-no-wait') or (P = '/no-wait') then
@@ -489,12 +506,13 @@ begin
   // Build filter
   Filter := Default(TTestFilter);
   Filter.Categories := FCategories;
+  Filter.ExcludedCategories := FExcludedCategories;
   Filter.TestNamePattern := FTestPattern;
   Filter.FixtureNamePattern := FFixturePattern;
   Filter.IncludeExplicit := FIncludeExplicit;
 
   // Run tests
-  if (Length(FCategories) > 0) or (FTestPattern <> '') or 
+  if (Length(FCategories) > 0) or (Length(FExcludedCategories) > 0) or (FTestPattern <> '') or 
      (FFixturePattern <> '') or FIncludeExplicit then
     TTestRunner.RunFiltered(Filter)
   else
