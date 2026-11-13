@@ -58,6 +58,7 @@ type
   private
     FDataSet: TEntityDataSet;
     FRefreshLog: string;
+    FPrepareCalls: Integer;
     procedure DoPrepareField(Sender: TObject; AField: TField);
     procedure DoBeforeRefresh(ADataSet: TDataSet);
     procedure DoAfterRefresh(ADataSet: TDataSet);
@@ -71,6 +72,8 @@ type
     procedure Test_DisplayAttributes_Mapping;
     [Test]
     procedure Test_OnPrepareField_Event;
+    [Test]
+    procedure Test_OnPrepareField_RunsOncePerField;
     [Test]
     procedure Test_Grid_Painting_Simulation_MultiBuffer;
     [Test]
@@ -107,6 +110,7 @@ end;
 
 procedure TEntityDataSetFeaturesTests.DoPrepareField(Sender: TObject; AField: TField);
 begin
+  Inc(FPrepareCalls);
   if AField.FieldName = 'Name' then
     AField.ReadOnly := True;
 end;
@@ -169,6 +173,20 @@ begin
   
   Should(FDataSet.FieldByName('Name').ReadOnly).BeTrue;
   Should(FDataSet.FieldByName('Price').ReadOnly).BeFalse;
+end;
+
+procedure TEntityDataSetFeaturesTests.Test_OnPrepareField_RunsOncePerField;
+var
+  LList: IList<TProductFeaturesTest>;
+begin
+  LList := TCollections.CreateList<TProductFeaturesTest>;
+  FPrepareCalls := 0;
+  FDataSet.OnPrepareField := DoPrepareField;
+
+  FDataSet.Load<TProductFeaturesTest>(LList);
+
+  // One call per field, not one per pass over the metadata
+  Should(FPrepareCalls).Be(FDataSet.FieldCount);
 end;
 
 procedure TEntityDataSetFeaturesTests.Test_Grid_Painting_Simulation_MultiBuffer;

@@ -156,7 +156,7 @@ type
     procedure ApplyFilterAndSort(AFiltered: Boolean); overload;
     procedure ApplyFilterAndSort(AFiltered: Boolean; ATrackObj: TObject); overload;
     procedure ApplyFilterAndSort; overload;
-    procedure ApplyMapMetadataToFields;
+    procedure ApplyMapMetadataToFields(ARaisePrepareField: Boolean);
     procedure ClearResolvedEntityMetadata;
     procedure EnsureEntityMapResolved;
     procedure ResolveEntityClassFromProvider;
@@ -2089,7 +2089,7 @@ begin
   end;
 
   // Apply metadata (labels, formats, etc) to fields (persistent or dynamic)
-  ApplyMapMetadataToFields;
+  ApplyMapMetadataToFields(False);
 
   // Design-time preview: populate virtual index from preview data
   // Calcular tamanho necessário para campos calculados
@@ -2119,7 +2119,7 @@ begin
 
   FCurrentRec := -1;
   BindFields(True);
-  ApplyMapMetadataToFields;
+  ApplyMapMetadataToFields(True);
 
   // Now that fields are bound and ready, sync and filter
   SyncMasterDetail;
@@ -3111,7 +3111,7 @@ begin
   end;
 end;
 
-procedure TEntityDataSet.ApplyMapMetadataToFields;
+procedure TEntityDataSet.ApplyMapMetadataToFields(ARaisePrepareField: Boolean);
 var
   Field: TField;
   LPropMap: TPropertyMap;
@@ -3194,8 +3194,9 @@ begin
       ApplyAttributesToField(Field, RttiField);
     end;
 
-    // User-defined preparation (highest precedence)
-    if Assigned(FOnPrepareField) then
+    // User-defined preparation (highest precedence). Only on the last pass
+    // over the metadata, so each field is prepared once per open
+    if ARaisePrepareField and Assigned(FOnPrepareField) then
       FOnPrepareField(Self, Field);
   end;
 end;
