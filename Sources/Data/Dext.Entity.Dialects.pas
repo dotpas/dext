@@ -345,12 +345,19 @@ type
   end;
 
   /// <summary>
-  ///   InterBase (2020+) Dialect implementation.
+  ///   InterBase (2020+) Dialect implementation. It shares the quoting and
+  ///   most types with Firebird, but InterBase has no BIGINT, no identity
+  ///   column, no INSERT ... RETURNING, no OFFSET/FETCH and no CREATE
+  ///   SEQUENCE: those are written the InterBase way (checked on InterBase 15).
   /// </summary>
   TInterBaseDialect = class(TFirebirdDialect)
   public
     function BooleanToSQL(AValue: Boolean): string; override;
+    function GeneratePaging(const ASQL: string; ASkip, ATake: Integer): string; override;
     function GetColumnType(ATypeInfo: PTypeInfo; AIsAutoInc: Boolean = False; APrecision: Integer = 0; AScale: Integer = 0): string; override;
+    function SupportsInsertReturning: Boolean; override;
+    function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
+    function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetDialect: TDatabaseDialect; override;
   end;
 
@@ -1130,9 +1137,38 @@ begin
   if AValue then Result := '1' else Result := '0';
 end;
 
+function TInterBaseDialect.GeneratePaging(const ASQL: string; ASkip, ATake: Integer): string;
+begin
+  // InterBase: ROWS <first> TO <last>, counted from 1
+  Result := ASQL + Format(' ROWS %d TO %d', [ASkip + 1, ASkip + ATake]);
+end;
+
 function TInterBaseDialect.GetColumnType(ATypeInfo: PTypeInfo; AIsAutoInc: Boolean; APrecision, AScale: Integer): string;
 begin
+  if AIsAutoInc then
+    raise ENotSupportedException.Create(
+      'InterBase has no identity column. Map the key with [Sequence(''name'')] ' +
+      'instead of [AutoInc]: the Dext then takes the id from a generator.');
+  // InterBase has no BIGINT keyword
+  if ATypeInfo = TypeInfo(Int64) then
+    Exit('NUMERIC(18,0)');
   Result := inherited GetColumnType(ATypeInfo, AIsAutoInc, APrecision, AScale);
+end;
+
+function TInterBaseDialect.SupportsInsertReturning: Boolean;
+begin
+  Result := False;
+end;
+
+function TInterBaseDialect.GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer): string;
+begin
+  // InterBase has no NEXT VALUE FOR: GEN_ID with the step
+  Result := Format('SELECT GEN_ID(%s, %d) FROM rdb$database', [ASequenceName, AAllocationSize]);
+end;
+
+function TInterBaseDialect.GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer): string;
+begin
+  Result := Format('CREATE GENERATOR %s', [ASequenceName]);
 end;
 
 function TInterBaseDialect.GetDialect: TDatabaseDialect;

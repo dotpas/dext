@@ -1706,7 +1706,22 @@ begin
   end;
      
   FDialect := TDialectFactory.DetectDialect(DriverID.ToLower);
-  
+
+  // MySQL and MariaDB share the driver: only the server version tells them
+  // apart. The context fixes its dialect when it is created, so the version
+  // must be readable by then; connect now instead of leaving a MariaDB
+  // server with the MySQL dialect. If the server is unreachable the MySQL
+  // dialect stays (MariaDB is compatible with it) and the first command
+  // reports the connection error.
+  if (FDialect = ddMySQL) and not FConnection.Connected then
+  try
+    Connect;
+  except
+    on E: Exception do
+      if Assigned(FOnLog) then
+        FOnLog('Could not read the server version to tell MariaDB from MySQL: ' + E.Message);
+  end;
+
   if (FDialect = ddMySQL) and FConnection.Connected then
   begin
     Query := TFDQuery.Create(nil);
