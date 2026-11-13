@@ -59,6 +59,7 @@ type
     procedure SendText(ASocket: TSocket; const AText: string);
     function ReadUntil(ASocket: TSocket; const AEnd: string): string;
     function ReadResponse(ASocket: TSocket): string;
+    function ReadChunked(ASocket: TSocket): string;
     procedure CheckLargeBody;
     procedure CheckFlushThenClose;
     procedure CheckDisconnectMidResponse;
@@ -124,9 +125,7 @@ begin
   else if ARequest.GetPath = '/big' then
   begin
     // One large body, sent by Close with its Content-Length: the client can
-    // go away while it is being sent. (Not several Write + Flush: after the
-    // first Flush, a Write sends the LAST part of the response, so the
-    // response ends at the second part.)
+    // go away while it is being sent.
     AResponse.SetStatus(200);
     AResponse.SetHeader('Content-Type', 'application/octet-stream');
     SetLength(Body, BIG_RESPONSE);
@@ -233,6 +232,30 @@ begin
   end;
 end;
 
+function TDextHttpSysSkipIocpTests.ReadChunked(ASocket: TSocket): string;
+var
+  SizeLine: string;
+  Size, I: Integer;
+  Ch: AnsiChar;
+begin
+  // The body of a chunked response; '<malformed>' when the framing is wrong.
+  Result := '';
+  repeat
+    SizeLine := ReadUntil(ASocket, CRLF);
+    Size := StrToIntDef('$' + Trim(SizeLine), -1);
+    if Size < 0 then
+      Exit('<malformed: ' + Result + SizeLine + '>');
+    for I := 1 to Size do
+    begin
+      if recv(ASocket, Ch, 1, 0) <> 1 then
+        Exit('<malformed: ' + Result + '>');
+      Result := Result + Char(Ch);
+    end;
+    if ReadUntil(ASocket, CRLF) <> CRLF then
+      Exit('<malformed: ' + Result + '>');
+  until Size = 0;
+end;
+
 procedure TDextHttpSysSkipIocpTests.CheckLargeBody;
 var
   S: TSocket;
@@ -268,24 +291,20 @@ end;
 procedure TDextHttpSysSkipIocpTests.CheckFlushThenClose;
 var
   S: TSocket;
-  Head, Body: string;
-  Ch: AnsiChar;
+  Head: string;
 begin
   S := Connect;
   try
     SendText(S, 'GET /stream HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
     Head := ReadUntil(S, CRLF + CRLF);
     Should(Head).StartWith('HTTP/1.1 200');
-    // The headers go with neither a length nor chunked encoding (as on main
-    // today): read up to the end of the second part.
-    Body := '';
-    while not Body.EndsWith('second-part') do
-    begin
-      if recv(S, Ch, 1, 0) <> 1 then
-        Break;
-      Body := Body + Char(Ch);
-    end;
-    Should(Body).Be('first-part;second-part');
+    // No length at Flush: the body goes chunked, and ends with the last chunk
+    Should(Head).Contain('Transfer-Encoding: chunked' + CRLF);
+    Should(ReadChunked(S)).Be('first-part;second-part');
+    // The response ended where the client thought: the next one on the
+    // same connection.
+    SendText(S, 'GET /ok HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
+    Should(ReadResponse(S)).StartWith('HTTP/1.1 200').&And.EndWith(CRLF + 'ok');
   finally
     closesocket(S);
   end;

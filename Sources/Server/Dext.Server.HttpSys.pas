@@ -161,6 +161,13 @@ type
     FRequestId: HTTP_REQUEST_ID;
     FHeadersSent: Boolean;
     FResponseComplete: Boolean;
+    /// Set by Flush when the length is not known: the parts after it go in
+    /// chunked framing (HTTP/1.1) ...
+    FChunked: Boolean;
+    /// ... or the response ends with the connection (HTTP/1.0).
+    FCloseAtEnd: Boolean;
+    /// The size line of the chunk sent by Close (kept until it completes).
+    FChunkHead: array[0..19] of AnsiChar;
     /// True once the request was upgraded to a WebSocket: the 101 has gone
     /// out, the WebSocket connection owns the request from then on, and
     /// Flush and Close send nothing.
@@ -191,7 +198,10 @@ type
     ///   chunks to pass to http.sys. Above MaxEntityChunks segments, consecutive
     ///   segments are copied into larger buffers so that the count stays within
     ///   the limit.</summary>
-    function BuildEntityChunks: Integer;
+    function BuildEntityChunks(AReserve: Integer = 0): Integer;
+    function FrameEntityChunks(ACount: Integer; ALast: Boolean): Integer;
+    procedure ChooseBodyFraming;
+    procedure SendBodyPart(AData: Pointer; ALength: Integer);
     /// <summary>Releases the segments and the merged buffers.</summary>
     procedure ResetBody;
     /// <summary>A send failed: cancel the request so that the client gets a
@@ -1110,6 +1120,8 @@ begin
   FRequestId := ARequestId;
   FHeadersSent := False;
   FResponseComplete := False;
+  FChunked := False;
+  FCloseAtEnd := False;
   FDetached := False;
   FStatusCode := 200;
 
@@ -1144,6 +1156,8 @@ begin
   FContext := AContext;
   FHeadersSent := False;
   FResponseComplete := False;
+  FChunked := False;
+  FCloseAtEnd := False;
   FDetached := False;
   FStatusCode := 200;
 
@@ -1238,6 +1252,7 @@ var
   Ret: ULONG;
   BytesSent: ULONG;
   Context: TDextHttpSysContext;
+  Flags: ULONG;
 begin
   if FContext.FGeneration <> FSendOp.Generation then Exit;
   if FResponseComplete then Exit;
@@ -1321,7 +1336,17 @@ begin
     end
     else
     begin
-      ChunkCount := BuildEntityChunks;
+      // The headers went with Flush (or WriteFile): this is the last part.
+      // Chunked: the remaining body as one chunk, then the last chunk.
+      ChunkCount := BuildEntityChunks(3);
+      if FChunked then
+        ChunkCount := FrameEntityChunks(ChunkCount, True);
+      // HTTP/1.0 without a length: the end of the response is the end of
+      // the connection
+      if FCloseAtEnd then
+        Flags := HTTP_SEND_RESPONSE_FLAG_DISCONNECT
+      else
+        Flags := 0;
       FillChar(FSendOp.Overlapped, SizeOf(TOverlapped), 0);
       FSendOp.Generation := FContext.FGeneration;
 
@@ -1330,7 +1355,7 @@ begin
         Ret := HttpSendResponseEntityBody(
           FReqQueue,
           FRequestId,
-          0,
+          Flags,
           ChunkCount,
           @FChunks[0],
           BytesSent,
@@ -1345,7 +1370,7 @@ begin
         Ret := HttpSendResponseEntityBody(
           FReqQueue,
           FRequestId,
-          0,
+          Flags,
           0,
           nil,
           BytesSent,
@@ -1394,17 +1419,19 @@ const
   // count must never go above 65,535 anyway.
   MaxEntityChunks = 9999;
 
-function TDextHttpSysResponse.BuildEntityChunks: Integer;
+function TDextHttpSysResponse.BuildEntityChunks(AReserve: Integer): Integer;
 var
-  SegCount, PerChunk, Chunk, First, Last, I: Integer;
+  SegCount, PerChunk, Chunk, First, Last, I, MaxChunks: Integer;
   Seg: PDextBufferSegment;
   Size, Offset: NativeInt;
 begin
+  // AReserve: entity chunks the caller adds around the body (chunked framing)
+  MaxChunks := MaxEntityChunks - AReserve;
   SegCount := FResponseWriter.SegmentCount;
   if SegCount = 0 then
     Exit(0);
   Seg := FResponseWriter.Segments;
-  if SegCount <= MaxEntityChunks then
+  if SegCount <= MaxChunks then
   begin
     // The common case: one chunk per segment, no copy.
     SetLength(FChunks, SegCount);
@@ -1422,7 +1449,7 @@ begin
   // Too many segments for one call (a body of about 40 MB or more with 4 KB
   // segments): copy each run of PerChunk consecutive segments into one buffer.
   // The copy happens only here, so smaller responses are sent as before.
-  PerChunk := (SegCount + MaxEntityChunks - 1) div MaxEntityChunks;
+  PerChunk := (SegCount + MaxChunks - 1) div MaxChunks;
   Result := (SegCount + PerChunk - 1) div PerChunk;
   SetLength(FChunks, Result);
   SetLength(FCoalesced, Result);
@@ -1459,6 +1486,138 @@ begin
   end;
 end;
 
+const
+  ChunkCrLf: array[0..1] of AnsiChar = (#13, #10);
+  ChunkLast: array[0..4] of AnsiChar = ('0', #13, #10, #13, #10);
+
+procedure SetMemoryChunk(var AChunk: HTTP_DATA_CHUNK; AData: Pointer;
+  ALength: Integer);
+begin
+  FillChar(AChunk, SizeOf(HTTP_DATA_CHUNK), 0);
+  AChunk.DataChunkType := hctFromMemory;
+  AChunk.pBuffer := AData;
+  AChunk.BufferLength := ALength;
+end;
+
+/// Writes the size line of a chunk (hex digits and CRLF) into ABuffer, which
+/// has room for 20 characters; returns its length.
+function FormatChunkSize(ASize: Int64; ABuffer: PAnsiChar): Integer;
+const
+  Digits: array[0..15] of AnsiChar = '0123456789ABCDEF';
+var
+  Temp: array[0..15] of AnsiChar;
+  N, I: Integer;
+begin
+  N := 0;
+  repeat
+    Temp[N] := Digits[Integer(ASize and $F)];
+    ASize := ASize shr 4;
+    Inc(N);
+  until ASize = 0;
+  for I := 0 to N - 1 do
+    ABuffer[I] := Temp[N - 1 - I];
+  ABuffer[N] := #13;
+  ABuffer[N + 1] := #10;
+  Result := N + 2;
+end;
+
+/// Chunked framing around the ACount entity chunks of FChunks (one chunk
+/// with their total size), plus the last chunk when ALast. Returns the new
+/// count. BuildEntityChunks(3) leaves room for the three added here.
+function TDextHttpSysResponse.FrameEntityChunks(ACount: Integer;
+  ALast: Boolean): Integer;
+var
+  Total: Int64;
+  I: Integer;
+begin
+  Result := 0;
+  if ACount > 0 then
+  begin
+    Total := 0;
+    for I := 0 to ACount - 1 do
+      Inc(Total, FChunks[I].BufferLength);
+    SetLength(FChunks, ACount + 3);
+    Move(FChunks[0], FChunks[1], ACount * SizeOf(HTTP_DATA_CHUNK));
+    SetMemoryChunk(FChunks[0], @FChunkHead[0],
+      FormatChunkSize(Total, @FChunkHead[0]));
+    SetMemoryChunk(FChunks[ACount + 1], @ChunkCrLf[0], Length(ChunkCrLf));
+    Result := ACount + 2;
+  end;
+  if ALast then
+  begin
+    if Length(FChunks) < Result + 1 then
+      SetLength(FChunks, Result + 1);
+    SetMemoryChunk(FChunks[Result], @ChunkLast[0], Length(ChunkLast));
+    Inc(Result);
+  end;
+end;
+
+/// Called by Flush, before the headers go: when the handler gave neither a
+/// Content-Length nor a Transfer-Encoding and the response has a body, the
+/// client needs another way to find its end. http.sys adds none by itself
+/// (with MORE_DATA and no length the headers go out bare).
+procedure TDextHttpSysResponse.ChooseBodyFraming;
+var
+  Req: PHTTP_REQUEST;
+begin
+  FChunked := False;
+  FCloseAtEnd := False;
+  if (FHeaderValues[11].Length > 0) or (FHeaderValues[6].Length > 0) then
+    Exit; // Content-Length or Transfer-Encoding from the handler
+  if (FStatusCode < 200) or (FStatusCode = 204) or (FStatusCode = 304) then
+    Exit; // no body
+  Req := nil;
+  if (FContext <> nil) and (FContext.FRequest <> nil) then
+    Req := FContext.FRequest.FRequest;
+  if Req = nil then
+    Exit;
+  if Req^.Verb = HttpVerbHEAD then
+    Exit; // no body
+  if Req^.Version.MajorVersion <> 1 then
+    Exit; // HTTP/2: the stream has its own framing
+  if Req^.Version.MinorVersion >= 1 then
+  begin
+    SetHeader('Transfer-Encoding', 'chunked');
+    FChunked := True;
+  end
+  else
+  begin
+    // HTTP/1.0 has no chunked encoding
+    SetHeader('Connection', 'close');
+    FCloseAtEnd := True;
+  end;
+end;
+
+/// A part of the body after the headers (Flush): MORE_DATA, because Close
+/// sends the last part; in a chunk of its own when chunked.
+procedure TDextHttpSysResponse.SendBodyPart(AData: Pointer; ALength: Integer);
+var
+  Chunks: array[0..2] of HTTP_DATA_CHUNK;
+  Head: array[0..19] of AnsiChar;
+  Count: Integer;
+  BytesSent: ULONG;
+  Ret: ULONG;
+begin
+  if FChunked then
+  begin
+    SetMemoryChunk(Chunks[0], @Head[0], FormatChunkSize(ALength, @Head[0]));
+    SetMemoryChunk(Chunks[1], AData, ALength);
+    SetMemoryChunk(Chunks[2], @ChunkCrLf[0], Length(ChunkCrLf));
+    Count := 3;
+  end
+  else
+  begin
+    SetMemoryChunk(Chunks[0], AData, ALength);
+    Count := 1;
+  end;
+  Ret := HttpSendResponseEntityBody(FReqQueue, FRequestId,
+    HTTP_SEND_RESPONSE_FLAG_MORE_DATA, Count, @Chunks[0], BytesSent, nil, nil,
+    nil, nil);
+  if Ret <> ERROR_SUCCESS then
+    raise EOSError.Create('HttpSendResponseEntityBody failed with error code: '
+      + IntToStr(Ret));
+end;
+
 procedure TDextHttpSysResponse.ResetBody;
 begin
   FResponseWriter.Reset;
@@ -1483,9 +1642,9 @@ begin
   if FHeadersSent then Exit;
   if FDetached then Exit;
 
-  // Retain context interface references to keep this response alive during async IOCP
-  FContext.FResponseIntf := Self;
-  FContext.FRequestIntf := FContext.FRequest;
+  // Chunked (HTTP/1.1) or the end of the connection (HTTP/1.0) when the
+  // length is not known
+  ChooseBodyFraming;
 
   try
     FillChar(FNativeResponse, SizeOf(FNativeResponse), 0);
@@ -1512,16 +1671,18 @@ begin
       FNativeResponse.Headers.pUnknownHeaders := @FUnknownHeaders[0];
     end;
 
-    ChunkCount := BuildEntityChunks;
+    ChunkCount := BuildEntityChunks(3);
+    if FChunked then
+      ChunkCount := FrameEntityChunks(ChunkCount, False);
     if ChunkCount > 0 then
     begin
       FNativeResponse.EntityChunkCount := ChunkCount;
       FNativeResponse.pEntityChunks := @FChunks[0];
     end;
 
-    FillChar(FSendOp.Overlapped, SizeOf(TOverlapped), 0);
-    FSendOp.Generation := FContext.FGeneration;
-
+    // Synchronous, like the Write calls after it: the body written so far
+    // is released here, so Close does not send it again, and no overlapped
+    // send of this response is pending when the next one starts.
     Ret := HttpSendHttpResponse(
       FReqQueue,
       FRequestId,
@@ -1531,27 +1692,18 @@ begin
       BytesSent,
       nil,
       0,
-      @FSendOp.Overlapped,
+      nil,
       nil
     );
-    Ret := RequeueIfCompletedInline(FEngine, Ret, BytesSent,
-      @FSendOp.Overlapped);
-
-    if (Ret <> ERROR_SUCCESS) and (Ret <> ERROR_IO_PENDING) then
+    if Ret <> ERROR_SUCCESS then
     begin
       CancelRequest;
       raise EOSError.Create('HttpSendHttpResponse failed with error code: ' + IntToStr(Ret));
     end;
 
     FHeadersSent := True;
-  except
-    on E: Exception do
-    begin
-      FContext.FResponseIntf := nil;
-      FContext.FRequestIntf := nil;
-      ResetBody;
-      raise;
-    end;
+  finally
+    ResetBody;
   end;
 end;
 procedure TDextHttpSysResponse.SendHeaders;
@@ -1719,37 +1871,11 @@ begin
 end;
 
 procedure TDextHttpSysResponse.Write(const ABuffer: TBytes; AOffset, ACount: Integer);
-var
-  Chunk: HTTP_DATA_CHUNK;
-  BytesSent: ULONG;
-  Ret: ULONG;
 begin
   if ACount <= 0 then Exit;
 
   if FHeadersSent then
-  begin
-    FillChar(Chunk, SizeOf(Chunk), 0);
-    Chunk.DataChunkType := hctFromMemory;
-    Chunk.pBuffer := @ABuffer[AOffset];
-    Chunk.BufferLength := ACount;
-
-    Ret := HttpSendResponseEntityBody(
-      FReqQueue,
-      FRequestId,
-      0,
-      1,
-      @Chunk,
-      BytesSent,
-      nil,
-      nil,
-      nil,
-      nil
-    );
-    if Ret <> ERROR_SUCCESS then
-      raise EOSError.Create('HttpSendResponseEntityBody failed with error code: '
-        + IntToStr(Ret));
-    FResponseComplete := True;
-  end
+    SendBodyPart(@ABuffer[AOffset], ACount)
   else
   begin
     FResponseWriter.Write(TByteSpan.Create(@ABuffer[AOffset], ACount));
@@ -2712,10 +2838,6 @@ begin
 end;
 
 procedure TDextHttpSysResponse.WriteBytes(AData: Pointer; ALength: Integer);
-var
-  Chunk: HTTP_DATA_CHUNK;
-  BytesSent: ULONG;
-  ResultCode: ULONG;
 begin
   if ALength <= 0 then
     Exit;
@@ -2724,17 +2846,7 @@ begin
     FResponseWriter.Write(TByteSpan.Create(AData, ALength));
     Exit;
   end;
-
-  FillChar(Chunk, SizeOf(Chunk), 0);
-  Chunk.DataChunkType := hctFromMemory;
-  Chunk.pBuffer := AData;
-  Chunk.BufferLength := ALength;
-  ResultCode := HttpSendResponseEntityBody(FReqQueue, FRequestId, 0, 1,
-    @Chunk, BytesSent, nil, nil, nil, nil);
-  if ResultCode <> ERROR_SUCCESS then
-    raise EOSError.Create('HttpSendResponseEntityBody failed with error code: '
-      + IntToStr(ResultCode));
-  FResponseComplete := True;
+  SendBodyPart(AData, ALength);
 end;
 
 procedure TDextHttpSysWorker.PostBodyReceive(AContext: TDextHttpSysContext);
