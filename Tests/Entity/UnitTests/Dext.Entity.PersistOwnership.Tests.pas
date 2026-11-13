@@ -78,6 +78,18 @@ type
     property NAME: StringType read FNAME write FNAME;
   end;
 
+  // An entity whose key the database generates
+  [Table('AUTO_WIDGETS')]
+  TAutoWidget = class
+  private
+    FId: Integer;
+    FName: string;
+  public
+    [PK, AutoInc]
+    property Id: Integer read FId write FId;
+    property Name: string read FName write FName;
+  end;
+
   [TestFixture('PersistAddRange/UpdateRange/RemoveRange - ownership and validation')]
   TPersistRangeTests = class
   private
@@ -139,6 +151,10 @@ type
     [Test]
     [Description('PersistRemoveRange does not validate: an invalid entity can be deleted')]
     procedure PersistRemoveRange_DoesNotValidate;
+
+    [Test]
+    [Description('PersistAddRange with a generated key gives each entity its own Id')]
+    procedure PersistAddRange_AutoIncKey_FillsTheIds;
 
     [Test]
     [Description('PersistAdd must adopt the entity it inserts')]
@@ -294,6 +310,7 @@ begin
   Result := TDbContext.Create(Conn, TSQLiteDialect.Create);
   Result.Entities<TOwnershipWidget>;
   Result.Entities<TRangeWidget>;
+  Result.Entities<TAutoWidget>;
 end;
 
 function TPersistRangeTests.NewWidget(const AId: Integer): TOwnershipWidget;
@@ -512,6 +529,32 @@ begin
     Ctx.Free;
   end;
   Should(CountRows('RANGE_WIDGETS')).Be(0);
+end;
+
+procedure TPersistRangeTests.PersistAddRange_AutoIncKey_FillsTheIds;
+var
+  Ctx: TDbContext;
+  A, B, C: TAutoWidget;
+begin
+  Ctx := NewContext;
+  try
+    Ctx.EnsureCreated;
+    A := TAutoWidget.Create;
+    A.Name := 'a';
+    B := TAutoWidget.Create;
+    B.Name := 'b';
+    C := TAutoWidget.Create;
+    C.Name := 'c';
+    (Ctx.Entities<TAutoWidget> as IDbSet).PersistAddRange(
+      TArray<TObject>.Create(A, B, C));
+    Should(CountRows('AUTO_WIDGETS')).Be(3);
+    // The ids come back from the database, one per entity
+    Should(A.Id).Be(1);
+    Should(B.Id).Be(2);
+    Should(C.Id).Be(3);
+  finally
+    Ctx.Free;
+  end;
 end;
 
 procedure TPersistRangeTests.RunPersistAdd;

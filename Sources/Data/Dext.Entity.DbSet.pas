@@ -2641,6 +2641,14 @@ begin
     Adopt(AEntities[i]);
   for i := 0 to High(AEntities) do
     FContext.ValidateForPersist(AEntities[i]);
+  // The batch INSERT cannot hand back generated keys (or fill shadow
+  // properties): one INSERT per entity, so each one gets its own Id
+  if not IsBulkInsertSafe then
+  begin
+    for i := 0 to High(AEntities) do
+      PersistAdd(AEntities[i]);
+    Exit;
+  end;
   SetLength(EntitiesT, Length(AEntities));
   for i := 0 to High(AEntities) do
   begin
