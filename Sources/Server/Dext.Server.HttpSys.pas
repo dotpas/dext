@@ -202,6 +202,7 @@ type
     function FrameEntityChunks(ACount: Integer; ALast: Boolean): Integer;
     procedure ChooseBodyFraming;
     procedure SendBodyPart(AData: Pointer; ALength: Integer);
+    function BufferedLength: Int64;
     /// <summary>Releases the segments and the merged buffers.</summary>
     procedure ResetBody;
     /// <summary>A send failed: cancel the request so that the client gets a
@@ -1246,9 +1247,7 @@ end;
 procedure TDextHttpSysResponse.Close;
 var
   I: Integer;
-  Seg: PDextBufferSegment;
   ChunkCount: Integer;
-  TotalLen: Int64;
   Ret: ULONG;
   BytesSent: ULONG;
   Context: TDextHttpSysContext;
@@ -1276,16 +1275,7 @@ begin
       FNativeResponse.Version.MinorVersion := 1;
 
       if FHeaderValues[11].Length = 0 then
-      begin
-        TotalLen := 0;
-        Seg := FResponseWriter.Segments;
-        for I := 0 to FResponseWriter.SegmentCount - 1 do
-        begin
-          TotalLen := TotalLen + Seg^.Length;
-          Inc(Seg);
-        end;
-        SetHeaderInt(11, TotalLen);
-      end;
+        SetHeaderInt(11, BufferedLength);
 
       for I := 0 to 29 do
       begin
@@ -1618,6 +1608,21 @@ begin
       + IntToStr(Ret));
 end;
 
+/// The length of the body written and not yet sent.
+function TDextHttpSysResponse.BufferedLength: Int64;
+var
+  I: Integer;
+  Seg: PDextBufferSegment;
+begin
+  Result := 0;
+  Seg := FResponseWriter.Segments;
+  for I := 0 to FResponseWriter.SegmentCount - 1 do
+  begin
+    Inc(Result, Seg^.Length);
+    Inc(Seg);
+  end;
+end;
+
 procedure TDextHttpSysResponse.ResetBody;
 begin
   FResponseWriter.Reset;
@@ -1885,7 +1890,9 @@ end;
 procedure TDextHttpSysResponse.WriteFile(const APath: string; AOffset, ACount: Int64);
 var
   FileHandle: THandle;
-  Chunk: HTTP_DATA_CHUNK_FILEHANDLE;
+  Chunks: array[0..2] of HTTP_DATA_CHUNK;
+  Head: array[0..19] of AnsiChar;
+  Count: Integer;
   Ret: ULONG;
   BytesSent: ULONG;
   Remaining: Int64;
@@ -1915,23 +1922,44 @@ begin
 
     if not FHeadersSent then
     begin
-      if FHeaderValues[11].Length = 0 then
-        SetHeaderInt(11, Remaining);
-      SendHeadersInternal(True);
+      // The body written so far goes before the file: Flush sends it with
+      // the headers. Without a length from the handler, the length is that
+      // body plus the file.
+      if (FHeaderValues[11].Length = 0) and (FHeaderValues[6].Length = 0) then
+        SetHeaderInt(11, BufferedLength + Remaining);
+      Flush;
+      if not FHeadersSent then
+        Exit; // upgraded to a WebSocket, or a response no longer current
     end;
 
-    FillChar(Chunk, SizeOf(Chunk), 0);
-    Chunk.DataChunkType := hctFromFileHandle;
-    Chunk.ByteRange.StartingOffset.QuadPart := AOffset;
-    Chunk.ByteRange.Length.QuadPart := Remaining;
-    Chunk.FileHandle := FileHandle;
+    // Chunked (after a Flush without a length): the file goes in a chunk of
+    // its own, like the Write calls. An empty chunk would end the body.
+    if Remaining <= 0 then
+      Exit;
+    Count := 0;
+    if FChunked then
+    begin
+      SetMemoryChunk(Chunks[0], @Head[0], FormatChunkSize(Remaining, @Head[0]));
+      Count := 1;
+    end;
+    FillChar(Chunks[Count], SizeOf(HTTP_DATA_CHUNK), 0);
+    Chunks[Count].DataChunkType := hctFromFileHandle;
+    Chunks[Count].ByteRange.StartingOffset.QuadPart := AOffset;
+    Chunks[Count].ByteRange.Length.QuadPart := Remaining;
+    Chunks[Count].FileHandle := FileHandle;
+    Inc(Count);
+    if FChunked then
+    begin
+      SetMemoryChunk(Chunks[Count], @ChunkCrLf[0], Length(ChunkCrLf));
+      Inc(Count);
+    end;
 
     Ret := HttpSendResponseEntityBody(
       FReqQueue,
       FRequestId,
       HTTP_SEND_RESPONSE_FLAG_MORE_DATA,
-      1,
-      @Chunk,
+      Count,
+      @Chunks[0],
       BytesSent,
       nil,
       nil,
