@@ -258,6 +258,8 @@ type
     function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetSequenceExistsSQL(const ASequenceName: string): string; override;
     function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
+    function GetLockingSQL(ALockMode: TLockMode): string; override;
+    function GenerateRenameColumn(AOp: TRenameColumnOperation): string; override;
   end;
 
   /// <summary>
@@ -358,6 +360,7 @@ type
     function SupportsInsertReturning: Boolean; override;
     function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
+    function GetLockingSQL(ALockMode: TLockMode): string; override;
     function GetDialect: TDatabaseDialect; override;
   end;
 
@@ -1171,6 +1174,12 @@ begin
   Result := Format('CREATE GENERATOR %s', [ASequenceName]);
 end;
 
+function TInterBaseDialect.GetLockingSQL(ALockMode: TLockMode): string;
+begin
+  raise ENotSupportedException.Create('InterBase has no row lock clause in SELECT ' +
+    '(no FOR UPDATE WITH LOCK, no FOR SHARE).');
+end;
+
 function TInterBaseDialect.GetDialect: TDatabaseDialect;
 begin
   Result := ddInterbase;
@@ -1247,6 +1256,28 @@ begin
   else
     Result := 'VARCHAR(255)';
   end;
+end;
+
+function TFirebirdDialect.GetLockingSQL(ALockMode: TLockMode): string;
+begin
+  // Firebird: SELECT ... FOR UPDATE WITH LOCK locks row by row as they are
+  // fetched. There is no shared lock and no per-statement NOWAIT.
+  case ALockMode of
+    lmExclusive: Result := 'FOR UPDATE WITH LOCK';
+    lmShared:
+      raise ENotSupportedException.Create('Firebird has no shared row lock (FOR SHARE).');
+    lmExclusiveNoWait:
+      raise ENotSupportedException.Create('Firebird has no NOWAIT per statement: ' +
+        'set the transaction to NO WAIT instead.');
+  else
+    Result := '';
+  end;
+end;
+
+function TFirebirdDialect.GenerateRenameColumn(AOp: TRenameColumnOperation): string;
+begin
+  Result := Format('ALTER TABLE %s ALTER COLUMN %s TO %s',
+    [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.OldName), QuoteIdentifier(AOp.NewName)]);
 end;
 
 function TFirebirdDialect.GetLastInsertIdSQL: string;

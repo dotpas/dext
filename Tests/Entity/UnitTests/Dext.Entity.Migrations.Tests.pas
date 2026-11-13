@@ -10,6 +10,7 @@ uses
   Dext.Entity.Core,
   Dext.Entity.Setup,
   Dext.Entity.Dialects,
+  Dext.Specifications.Interfaces,
   Dext.Entity.Migrations.Extractor,
   FireDAC.Phys.SQLite,
   FireDAC.Stan.Def,
@@ -86,6 +87,26 @@ type
     [Test]
     [Description('DDL runs inside a transaction only where the server can roll it back')]
     procedure Ddl_Transaction_Follows_The_Server;
+
+    [Test]
+    [Description('A script with several statements is split into one command each')]
+    procedure SplitStatements_Splits_On_Semicolons;
+
+    [Test]
+    [Description('A semicolon inside a string literal does not end a statement')]
+    procedure SplitStatements_Ignores_Semicolons_In_Strings;
+
+    [Test]
+    [Description('Seed data on Firebird becomes one INSERT per command')]
+    procedure Seed_Data_Becomes_One_Command_Per_Row;
+
+    [Test]
+    [Description('Firebird and InterBase rename a column with ALTER COLUMN ... TO')]
+    procedure Firebird_Renames_Column_With_Alter_To;
+
+    [Test]
+    [Description('Firebird locks with WITH LOCK and refuses what it cannot do')]
+    procedure Firebird_Locking_Clause;
 
     [Test]
     procedure Test_Rename_Table_Detection;
@@ -702,17 +723,92 @@ begin
   Should(Down.Contains('Legacy')).BeTrue;
 end;
 
+procedure TMigrationTests.SplitStatements_Splits_On_Semicolons;
+var
+  Parts: TArray<string>;
+begin
+  Parts := TMigrator.SplitStatements('INSERT INTO a VALUES (1);' + sLineBreak + 'INSERT INTO a VALUES (2);' + sLineBreak);
+  Should(Length(Parts)).Be(2);
+  Should(Parts[0]).Be('INSERT INTO a VALUES (1)');
+  Should(Parts[1]).Be('INSERT INTO a VALUES (2)');
+  Should(Length(TMigrator.SplitStatements('CREATE TABLE a (id INT)'))).Be(1);
+  Should(Length(TMigrator.SplitStatements(''))).Be(0);
+end;
+
+procedure TMigrationTests.SplitStatements_Ignores_Semicolons_In_Strings;
+var
+  Parts: TArray<string>;
+begin
+  Parts := TMigrator.SplitStatements('INSERT INTO a VALUES (''x;y'');INSERT INTO a VALUES (''it''''s;'')');
+  Should(Length(Parts)).Be(2);
+  Should(Parts[0]).Be('INSERT INTO a VALUES (''x;y'')');
+  Should(Parts[1]).Be('INSERT INTO a VALUES (''it''''s;'')');
+end;
+
+procedure TMigrationTests.Seed_Data_Becomes_One_Command_Per_Row;
+var
+  Op: TSeedDataOperation;
+  Sql: string;
+  Dialect: ISQLDialect;
+begin
+  Dialect := TFirebirdDialect.Create;
+  Op := TSeedDataOperation.Create('T', ['A'], [[1], [2]]);
+  try
+    Sql := Dialect.GenerateMigration(Op);
+    Should(Length(TMigrator.SplitStatements(Sql))).Be(2);
+  finally
+    Op.Free;
+  end;
+end;
+
+procedure TMigrationTests.Firebird_Renames_Column_With_Alter_To;
+var
+  Op: TRenameColumnOperation;
+  Firebird, InterBase: ISQLDialect;
+begin
+  Firebird := TFirebirdDialect.Create;
+  InterBase := TInterBaseDialect.Create;
+  Op := TRenameColumnOperation.Create('T', 'Old', 'New');
+  try
+    Should(Firebird.GenerateMigration(Op)).Be('ALTER TABLE "T" ALTER COLUMN "Old" TO "New"');
+    Should(InterBase.GenerateMigration(Op)).Be('ALTER TABLE "T" ALTER COLUMN "Old" TO "New"');
+  finally
+    Op.Free;
+  end;
+end;
+
+procedure TMigrationTests.Firebird_Locking_Clause;
+var
+  Firebird, InterBase: ISQLDialect;
+begin
+  Firebird := TFirebirdDialect.Create;
+  InterBase := TInterBaseDialect.Create;
+  Should(Firebird.GetLockingSQL(lmExclusive)).Be('FOR UPDATE WITH LOCK');
+  Should(procedure begin Firebird.GetLockingSQL(lmShared); end).Throw<ENotSupportedException>;
+  Should(procedure begin Firebird.GetLockingSQL(lmExclusiveNoWait); end).Throw<ENotSupportedException>;
+  Should(procedure begin InterBase.GetLockingSQL(lmExclusive); end).Throw<ENotSupportedException>;
+end;
+
 procedure TMigrationTests.Ddl_Transaction_Follows_The_Server;
+var
+  D: ISQLDialect;
 begin
   // MySQL and MariaDB commit on every DDL statement: a transaction around the
   // migration ends under it, and the final Commit fails.
-  Should(TMigrator.RunsDdlInTransaction(TMySQLDialect.Create)).BeFalse;
-  Should(TMigrator.RunsDdlInTransaction(TMariaDBDialect.Create)).BeFalse;
-  Should(TMigrator.RunsDdlInTransaction(TPostgreSQLDialect.Create)).BeTrue;
-  Should(TMigrator.RunsDdlInTransaction(TSQLiteDialect.Create)).BeTrue;
-  Should(TMigrator.RunsDdlInTransaction(TFirebirdDialect.Create)).BeTrue;
-  Should(TMigrator.RunsDdlInTransaction(TInterBaseDialect.Create)).BeTrue;
-  Should(TMigrator.RunsDdlInTransaction(TSQLServerDialect.Create)).BeTrue;
+  D := TMySQLDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeFalse;
+  D := TMariaDBDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeFalse;
+  D := TPostgreSQLDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeTrue;
+  D := TSQLiteDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeTrue;
+  D := TFirebirdDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeTrue;
+  D := TInterBaseDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeTrue;
+  D := TSQLServerDialect.Create;
+  Should(TMigrator.RunsDdlInTransaction(D)).BeTrue;
 end;
 
 end.

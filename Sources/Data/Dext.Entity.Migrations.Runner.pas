@@ -60,6 +60,13 @@ type
     ///   it and its Commit fails: there the statements run one by one.
     /// </summary>
     class function RunsDdlInTransaction(const ADialect: ISQLDialect): Boolean; static;
+    /// <summary>
+    ///   Splits a script into its statements at the semicolons that are not
+    ///   inside a string literal. Seed and delete data are written as one
+    ///   INSERT/DELETE per row, and Firebird and InterBase accept a single
+    ///   statement per command.
+    /// </summary>
+    class function SplitStatements(const ASql: string): TArray<string>; static;
     function GetAppliedMigrations: IList<string>;
     procedure Migrate;
     procedure Rollback(const ATargetId: string = '');
@@ -82,6 +89,42 @@ uses
 class function TMigrator.RunsDdlInTransaction(const ADialect: ISQLDialect): Boolean;
 begin
   Result := not (ADialect.GetDialect in [ddMySQL, ddMariaDB]);
+end;
+
+class function TMigrator.SplitStatements(const ASql: string): TArray<string>;
+var
+  I, Start: Integer;
+  InString: Boolean;
+  List: TArray<string>;
+
+  procedure Add(const AText: string);
+  var
+    Part: string;
+  begin
+    Part := AText.Trim;
+    if Part <> '' then
+    begin
+      SetLength(List, Length(List) + 1);
+      List[High(List)] := Part;
+    end;
+  end;
+
+begin
+  List := nil;
+  InString := False;
+  Start := 1;
+  for I := 1 to Length(ASql) do
+  begin
+    if ASql[I] = '''' then
+      InString := not InString // a doubled quote flips twice and stays inside
+    else if (ASql[I] = ';') and not InString then
+    begin
+      Add(Copy(ASql, Start, I - Start));
+      Start := I + 1;
+    end;
+  end;
+  Add(Copy(ASql, Start, Length(ASql) - Start + 1));
+  Result := List;
 end;
 
 procedure TMigrator.BeginDdlTransaction;
@@ -182,6 +225,7 @@ var
   Builder: TSchemaBuilder;
   Op: TMigrationOperation;
   SQL: string;
+  Statement: string;
   CmdIntf: IInterface;
   Cmd: IDbCommand;
 begin
@@ -198,9 +242,12 @@ begin
         SQL := FContext.Dialect.GenerateMigration(Op);
         if SQL <> '' then
         begin
-          CmdIntf := FContext.Connection.CreateCommand(SQL);
-          Cmd := CmdIntf as IDbCommand;
-          Cmd.ExecuteNonQuery;
+          for Statement in SplitStatements(SQL) do
+          begin
+            CmdIntf := FContext.Connection.CreateCommand(Statement);
+            Cmd := CmdIntf as IDbCommand;
+            Cmd.ExecuteNonQuery;
+          end;
         end;
       end;
 
@@ -232,6 +279,7 @@ var
   Builder: TSchemaBuilder;
   Op: TMigrationOperation;
   SQL: string;
+  Statement: string;
   CmdIntf: IInterface;
   Cmd: IDbCommand;
 begin
@@ -248,9 +296,12 @@ begin
         SQL := FContext.Dialect.GenerateMigration(Op);
         if SQL <> '' then
         begin
-          CmdIntf := FContext.Connection.CreateCommand(SQL);
-          Cmd := CmdIntf as IDbCommand;
-          Cmd.ExecuteNonQuery;
+          for Statement in SplitStatements(SQL) do
+          begin
+            CmdIntf := FContext.Connection.CreateCommand(Statement);
+            Cmd := CmdIntf as IDbCommand;
+            Cmd.ExecuteNonQuery;
+          end;
         end;
       end;
 
