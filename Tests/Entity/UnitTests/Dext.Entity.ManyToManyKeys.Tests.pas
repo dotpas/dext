@@ -45,6 +45,8 @@ uses
   Dext.Entity.Drivers.FireDAC,
   Dext.Entity.Drivers.Interfaces,
   Dext.Entity.Mapping,
+  Dext.Mocks,
+  Dext.Mocks.Matching,
   Dext.Testing.Attributes,
   Dext.Types.Lazy;
 
@@ -74,6 +76,23 @@ type
     [PK, AutoInc]
     property Id: Integer read FId write FId;
     property Title: string read FTitle write FTitle;
+  end;
+
+  // Its collection is created by the constructor over a list whose Add fails
+  [Table('LzFussies')]
+  TLzFussy = class
+  private
+    FId: Integer;
+    FName: string;
+    FCourses: Lazy<IList<TLzCourse>>;
+    FMock: Mock<IList<TLzCourse>>;
+  public
+    constructor Create;
+    [PK, AutoInc]
+    property Id: Integer read FId write FId;
+    property Name: string read FName write FName;
+    [ManyToMany('LzFussyCourses', 'fussy_id', 'course_id')]
+    property Courses: Lazy<IList<TLzCourse>> read FCourses write FCourses;
   end;
 
   // A label whose key has two columns
@@ -183,6 +202,8 @@ type
     [Test]
     procedure Lazy_Untouched_SaveChanges_KeepsTheRows;
     [Test]
+    procedure Lazy_Load_FailureToAddAnItem_IsNotSwallowed;
+    [Test]
     procedure Lazy_Loaded_AddThird_SaveChanges_AddsOneRow;
   end;
 
@@ -262,6 +283,16 @@ begin
     .UsingEntity('BadJoin', 'order_series', 'label_area,label_code');
 end;
 
+{ TLzFussy }
+
+constructor TLzFussy.Create;
+begin
+  inherited Create;
+  FMock := Mock<IList<TLzCourse>>.Create;
+  FMock.Setup.Throws(EInvalidOperation, 'cannot add').When.Add(Arg.Any<TLzCourse>);
+  FCourses := Lazy<IList<TLzCourse>>.CreateFrom(FMock.Instance);
+end;
+
 { TManyToManyKeysBase }
 
 
@@ -319,6 +350,7 @@ begin
   Result := inherited NewContext;
   Result.Entities<TLzStudent>;
   Result.Entities<TLzCourse>;
+  Result.Entities<TLzFussy>;
 end;
 
 procedure TManyToManyLazyTests.Setup;
@@ -406,6 +438,26 @@ begin
   FCtx.SaveChanges;
   Should(Scalar('SELECT COUNT(*) FROM LzStudentCourses WHERE student_id = ' +
     IntToStr(Student.Id))).Be(1);
+end;
+
+procedure TManyToManyLazyTests.Lazy_Load_FailureToAddAnItem_IsNotSwallowed;
+var
+  Fussy: TLzFussy;
+begin
+  FCtx.Connection.CreateCommand(
+    'INSERT INTO LzFussies (Id, Name) VALUES (1, ''f'')').ExecuteNonQuery;
+  FCtx.Connection.CreateCommand(
+    'INSERT INTO LzFussyCourses (fussy_id, course_id) VALUES (1, 1)')
+    .ExecuteNonQuery;
+  FCtx.DetachAll;
+
+  Fussy := FCtx.Entities<TLzFussy>.Find(1);
+  // The list refuses the item: the load must report it, not hand back a
+  // collection that silently lacks the row
+  Should(procedure
+    begin
+      Fussy.Courses.Value;
+    end).Throw<EInvalidOperation>;
 end;
 
 procedure TManyToManyLazyTests.Lazy_Untouched_SaveChanges_KeepsTheRows;

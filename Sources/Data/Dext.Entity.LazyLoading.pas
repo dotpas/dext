@@ -306,17 +306,10 @@ end;
 
 function TLazyLoader.GetValue: TValue;
 begin
+  // A failed load reaches the caller; FLoaded stays False so a later read
+  // tries again
   if not FLoaded then
-  begin
-    try
-      LoadValue;
-    except
-      on E: Exception do
-      begin
-        FLoaded := True;
-      end;
-    end;
-  end;
+    LoadValue;
 
   Result := FValue;
 end;
@@ -619,11 +612,9 @@ begin
     
     FLoaded := True;
   except
-    on E: Exception do
-    begin
-      // Suppress loading errors for now
-      FLoaded := True;
-    end;
+    // A failed load must reach the caller. FLoaded stays False, so the next
+    // read tries again instead of returning a value that silently lacks data
+    raise;
   end;
 finally
   // Context is global
@@ -800,13 +791,12 @@ begin
     begin
       for Obj in ResList do
       begin
-        try
-          if UseExistingInterface then
-            AddMethod.Invoke(FValue, [Obj])
-          else
-            AddMethod.Invoke(ListObj, [Obj]);
-        except
-        end;
+        // A list that refuses an item must say so: swallowing it would hand
+        // back a collection that silently lacks the row
+        if UseExistingInterface then
+          AddMethod.Invoke(FValue, [Obj])
+        else
+          AddMethod.Invoke(ListObj, [Obj]);
       end;
     end;
     
