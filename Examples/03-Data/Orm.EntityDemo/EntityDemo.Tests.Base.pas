@@ -133,9 +133,9 @@ var
           FConn.ExecSQL('DROP TABLE IF EXISTS ' + ATableName + ' CASCADE');
         end;
 
-        dpFirebird:
+        dpFirebird, dpInterBase:
         begin
-          // Firebird: Check if table exists first (case-insensitive search in list)
+          // Firebird/InterBase: Check if table exists first (case-insensitive search in list)
           Tables := TStringList.Create;
           try
             FConn.GetTableNames('', '', '', Tables, [osMy], [tkTable], True);

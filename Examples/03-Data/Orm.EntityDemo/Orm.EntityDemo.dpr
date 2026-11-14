@@ -54,6 +54,8 @@ begin
     dpPostgreSQL: TDbConfig.ConfigurePostgreSQL('localhost', 5432, 'postgres', 'postgres', 'root');
     // Option 3: Firebird
     dpFirebird: TDbConfig.ConfigureFirebird('C:\temp\dext_test.fdb', 'SYSDBA', 'masterkey');
+    // Option 3b: InterBase (needs DEXT_ENABLE_DB_IB in Dext.inc)
+    dpInterBase: TDbConfig.ConfigureInterBase('C:\temp\dext_test.ib', 'SYSDBA', 'masterkey');
     // Option 4: SQL Server with Windows Authentication (Recommended)
     dpSQLServerWindowsAuthetication: TDbConfig.ConfigureSQLServerWindowsAuth('localhost', 'dext_test');
     // Option 5: SQL Server with SQL Authentication
@@ -168,6 +170,7 @@ begin
       else if Arg = 'sqlitememory' then Provider := dpSQLiteMemory
       else if Arg = 'postgresql' then Provider := dpPostgreSQL
       else if Arg = 'firebird' then Provider := dpFirebird
+      else if Arg = 'interbase' then Provider := dpInterBase
       else if Arg = 'mysql' then Provider := dpMySQL
       else if Arg = 'mariadb' then Provider := dpMySQL
       else if Arg = 'sqlserver' then Provider := dpSQLServer

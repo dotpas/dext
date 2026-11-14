@@ -9,6 +9,7 @@ uses
   FireDAC.Comp.Client,
   FireDAC.Stan.Def,
   {$IFDEF DEXT_ENABLE_DB_MYSQL} FireDAC.Phys.MySQL, {$ENDIF}
+  {$IFDEF DEXT_ENABLE_DB_IB} FireDAC.Phys.IB, {$ENDIF}
   Dext.Entity.Drivers.FireDAC.Links,
   Dext.Entity.Drivers.Interfaces,
   Dext.Entity.Drivers.FireDAC,
@@ -26,7 +27,8 @@ type
     dpMySQL,
     dpSQLServerWindowsAuthetication,
     dpSQLServer,
-    dpOracle
+    dpOracle,
+    dpInterBase
   );
 
   /// <summary>
@@ -45,6 +47,12 @@ type
     class var FFirebirdFile: string;
     class var FFirebirdUsername: string;
     class var FFirebirdPassword: string;
+    class var FInterBaseFile: string;
+    class var FInterBaseUsername: string;
+    class var FInterBasePassword: string;
+    {$IFDEF DEXT_ENABLE_DB_IB}
+    class var FInterBaseDriverLink: TFDPhysIBDriverLink;
+    {$ENDIF}
     class var FSQLServerHost: string;
     class var FSQLServerDatabase: string;
     class var FSQLServerUsername: string;
@@ -118,6 +126,17 @@ type
       const AFileName: string = 'test.fdb';
       const AUsername: string = 'SYSDBA';
       const APassword: string = 'masterkey'
+    ); static;
+
+    /// <summary>
+    ///   Configure InterBase connection (needs DEXT_ENABLE_DB_IB in Dext.inc).
+    ///   AVendorLib is the gds32.dll / ibclient64.dll of the same bitness as the exe.
+    /// </summary>
+    class procedure ConfigureInterBase(
+      const AFileName: string = 'test.ib';
+      const AUsername: string = 'SYSDBA';
+      const APassword: string = 'masterkey';
+      const AVendorLib: string = ''
     ); static;
 
     /// <summary>
@@ -195,6 +214,11 @@ begin
   FFirebirdUsername := 'SYSDBA';
   FFirebirdPassword := 'masterkey';
 
+  // Default InterBase configuration
+  FInterBaseFile := TPath.Combine(ExtractFilePath(ParamStr(0)), 'test.ib');
+  FInterBaseUsername := 'SYSDBA';
+  FInterBasePassword := 'masterkey';
+
   // Default SQL Server configuration
   FSQLServerHost := 'localhost';
   FSQLServerDatabase := 'dext_test';
@@ -257,6 +281,16 @@ begin
       FDConn.Params.Values['SQLDialect'] := '3';  // SQL Dialect 3
     end;
 
+    dpInterBase:
+    begin
+      FDConn.DriverName := 'IB';
+      FDConn.Params.Values['Database'] := FInterBaseFile;
+      FDConn.Params.Values['User_Name'] := FInterBaseUsername;
+      FDConn.Params.Values['Password'] := FInterBasePassword;
+      FDConn.Params.Values['CharacterSet'] := 'UTF8';
+      FDConn.Params.Values['OpenMode'] := 'OpenOrCreate';
+    end;
+
     dpSQLServer:
     begin
       FDConn.DriverName := 'MSSQL';
@@ -309,6 +343,7 @@ begin
     dpSQLite:     Result := TSQLiteDialect.Create;
     dpPostgreSQL: Result := TPostgreSQLDialect.Create;
     dpFirebird:   Result := TFirebirdDialect.Create;
+    dpInterBase:  Result := TInterBaseDialect.Create;
     dpSQLServer:  Result := TSQLServerDialect.Create;
     dpMySQL:      Result := TMySQLDialect.Create;
     else
@@ -322,6 +357,7 @@ begin
     dpSQLite:     Result := 'SQLite';
     dpPostgreSQL: Result := 'PostgreSQL';
     dpFirebird:   Result := 'Firebird';
+    dpInterBase:  Result := 'InterBase';
     dpMySQL:      Result := 'MySQL';
     dpSQLServer:  Result := 'SQL Server';
     dpOracle:     Result := 'Oracle';
@@ -371,6 +407,32 @@ begin
   FFirebirdUsername := AUsername;
   FFirebirdPassword := APassword;
   WriteLn('✅ Firebird configured: ' + AFileName);
+end;
+
+class procedure TDbConfig.ConfigureInterBase(
+  const AFileName: string;
+  const AUsername: string;
+  const APassword: string;
+  const AVendorLib: string
+);
+begin
+  TDbConfig.SetProvider(dpInterBase);
+  FInterBaseFile := AFileName;
+  FInterBaseUsername := AUsername;
+  FInterBasePassword := APassword;
+  {$IFDEF DEXT_ENABLE_DB_IB}
+  if (AVendorLib <> '') and (FInterBaseDriverLink = nil) then
+  begin
+    FInterBaseDriverLink := TFDPhysIBDriverLink.Create(nil);
+    FInterBaseDriverLink.VendorLib := AVendorLib;
+  end;
+  {$ELSE}
+  WriteLn('Warning: InterBase needs DEXT_ENABLE_DB_IB defined in Dext.inc; the driver is not linked.');
+  {$ENDIF}
+  WriteLn('InterBase configured: ' + AFileName);
+  // The demo entities map their keys with [AutoInc], and InterBase has no identity
+  // column: EnsureCreated raises ENotSupportedException asking for [Sequence].
+  WriteLn('Note: the demo entities use [AutoInc]; InterBase needs [Sequence] (no identity column).');
 end;
 
 class procedure TDbConfig.ConfigureSQLServer(
@@ -472,6 +534,16 @@ begin
       begin
         TFile.Delete(FFirebirdFile);
         WriteLn('🗑️  Deleted Firebird database: ' + FFirebirdFile);
+      end;
+    end;
+
+    dpInterBase:
+    begin
+      // Delete InterBase file if exists
+      if TFile.Exists(FInterBaseFile) then
+      begin
+        TFile.Delete(FInterBaseFile);
+        WriteLn('Deleted InterBase database: ' + FInterBaseFile);
       end;
     end;
 
@@ -589,7 +661,7 @@ begin
     end;
 
   else
-    // SQLite, Firebird - database file is created automatically
+    // SQLite, Firebird, InterBase - database file is created automatically
     WriteLn('ℹ️  Database file will be created automatically for ' + GetProviderName);
   end;
 end;
