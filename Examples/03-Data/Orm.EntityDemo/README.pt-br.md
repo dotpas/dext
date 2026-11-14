@@ -223,6 +223,29 @@ TDbConfig.ConfigureSQLServerWindowsAuth('localhost', 'dext_test');
 TDbConfig.ConfigureSQLServer('localhost', 'dext_test', 'sa', 'senha');
 ```
 
+### Oracle
+
+> **Nota**: precisa de `{$DEFINE DEXT_ENABLE_DB_ORACLE}` no `Dext.inc`. No
+> Oracle um "banco" é um usuário (esquema) do banco plugável.
+
+```pascal
+// Servidor, porta, serviço, esquema, senha do esquema, senha do DBA, oci.dll
+TDbConfig.ConfigureOracle('localhost', 1521, 'XEPDB1', 'dext_demo', 'dext_demo',
+  'senha-do-SYSTEM', 'C:\db\Oracle\21c\dbhomeXE\bin\oci.dll');
+```
+
+Rode com `Orm.EntityDemo.exe oracle`. Quando a variável de ambiente
+`DEXT_ORACLE_ADMIN_PASSWORD` tem a senha do `SYSTEM`, o esquema `dext_demo` é
+criado se não existir.
+
+- O `oci.dll` precisa ter o bitness do executável (Win64: o cliente do Oracle XE;
+  Win32: um Instant Client de 32 bits). `ConfigureOracle` põe a pasta dele no
+  `PATH` do processo.
+- O Oracle guarda a string vazia como `NULL`: duas verificações da suíte conferem
+  `IS NOT NULL` em vez de `<> ''` nele.
+- Resultado no Oracle XE 21c (Win64): 193 passam, 0 falham.
+
+
 ### MySQL / MariaDB
 
 > **Nota**: Para MySQL/MariaDB você precisa configurar o caminho da biblioteca cliente.
@@ -275,6 +298,7 @@ Certifique-se de que os drivers FireDAC estão na cláusula uses:
 - Firebird: `FireDAC.Phys.FB`
 - SQL Server: `FireDAC.Phys.MSSQL`
 - MySQL/MariaDB: `FireDAC.Phys.MySQL`
+- Oracle: `FireDAC.Phys.Oracle` e `FireDAC.Phys.OracleDef` (com `DEXT_ENABLE_DB_ORACLE`)
 
 ### MySQL "VendorLib not found"
 Para MySQL/MariaDB, certifique-se de especificar VendorHome e VendorLib corretos:

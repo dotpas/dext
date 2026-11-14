@@ -223,6 +223,29 @@ TDbConfig.ConfigureSQLServerWindowsAuth('localhost', 'dext_test');
 TDbConfig.ConfigureSQLServer('localhost', 'dext_test', 'sa', 'password');
 ```
 
+### Oracle
+
+> **Note**: needs `{$DEFINE DEXT_ENABLE_DB_ORACLE}` in `Dext.inc`. In Oracle a
+> "database" is a user (schema) of the pluggable database.
+
+```pascal
+// Host, port, service, schema, schema password, DBA password, oci.dll
+TDbConfig.ConfigureOracle('localhost', 1521, 'XEPDB1', 'dext_demo', 'dext_demo',
+  'DBA-password-of-SYSTEM', 'C:\db\Oracle\21c\dbhomeXE\bin\oci.dll');
+```
+
+Run it with `Orm.EntityDemo.exe oracle`. When the environment variable
+`DEXT_ORACLE_ADMIN_PASSWORD` holds the password of `SYSTEM`, the schema
+`dext_demo` is created if it does not exist.
+
+- `oci.dll` must have the bitness of the executable (Win64: the Oracle XE
+  client; Win32: a 32-bit Instant Client). Its folder goes into the `PATH` of
+  the process by `ConfigureOracle`.
+- Oracle stores an empty string as `NULL`: two assertions of the suite check
+  `IS NOT NULL` instead of `<> ''` there.
+- Result on Oracle XE 21c (Win64): 193 passed, 0 failed.
+
+
 ### MySQL / MariaDB
 
 > **Note**: For MySQL/MariaDB you need to configure the client library path.
@@ -275,6 +298,7 @@ Ensure FireDAC drivers are linked in your uses clause:
 - Firebird: `FireDAC.Phys.FB`
 - SQL Server: `FireDAC.Phys.MSSQL`
 - MySQL/MariaDB: `FireDAC.Phys.MySQL`
+- Oracle: `FireDAC.Phys.Oracle` and `FireDAC.Phys.OracleDef` (with `DEXT_ENABLE_DB_ORACLE`)
 
 ### MySQL "VendorLib not found"
 For MySQL/MariaDB, ensure you specify the correct VendorHome and VendorLib:
