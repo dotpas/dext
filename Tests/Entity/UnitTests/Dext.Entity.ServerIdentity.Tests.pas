@@ -58,6 +58,18 @@ type
     property NAME: StringType read FNAME write FNAME;
   end;
 
+  /// InterBase has no identity column: the key comes from a generator.
+  [Table('IDENT_ITEMS')]
+  TIdentItemSeq = class
+  private
+    FID: IntType;
+    FNAME: StringType;
+  public
+    [PK, Sequence('GEN_IDENT_ITEMS', 1)]
+    property ID: IntType read FID write FID;
+    property NAME: StringType read FNAME write FNAME;
+  end;
+
   TIdentityDb = class(TDbContext)
   end;
 
@@ -66,6 +78,7 @@ type
   private
     FCtx: TIdentityDb;
     function Quoted(const AName: string): string;
+    function InsertItem(const AName: string): Integer;
   public
     [Setup]
     procedure Setup;
@@ -109,7 +122,10 @@ procedure TServerIdentityTests.Setup;
 begin
   FCtx := TIdentityDb.Create(TestDbOptions(DbName));
   TestDbPrepare(FCtx, DbName);
-  FCtx.Entities<TIdentItem>;
+  if TestServer = tsInterBase then
+    FCtx.Entities<TIdentItemSeq>
+  else
+    FCtx.Entities<TIdentItem>;
   FCtx.EnsureCreated;
 end;
 
@@ -123,32 +139,42 @@ begin
   Result := FCtx.Dialect.QuoteIdentifier(AName);
 end;
 
-procedure TServerIdentityTests.Insert_Fills_The_AutoInc_Key;
+function TServerIdentityTests.InsertItem(const AName: string): Integer;
 var
   Item: TIdentItem;
+  Seq: TIdentItemSeq;
 begin
-  Item := TIdentItem.Create;
-  Item.NAME := 'first';
-  FCtx.Entities<TIdentItem>.Add(Item);
-  FCtx.SaveChanges;
+  if TestServer = tsInterBase then
+  begin
+    Seq := TIdentItemSeq.Create;
+    Seq.NAME := AName;
+    FCtx.Entities<TIdentItemSeq>.Add(Seq);
+    FCtx.SaveChanges;
+    Result := Integer(Seq.ID);
+  end
+  else
+  begin
+    Item := TIdentItem.Create;
+    Item.NAME := AName;
+    FCtx.Entities<TIdentItem>.Add(Item);
+    FCtx.SaveChanges;
+    Result := Integer(Item.ID);
+  end;
+end;
 
-  Should(Integer(Item.ID) > 0).BeTrue;
+procedure TServerIdentityTests.Insert_Fills_The_AutoInc_Key;
+begin
+  Should(InsertItem('first') > 0).BeTrue;
 end;
 
 procedure TServerIdentityTests.Two_Inserts_Get_Different_Keys;
 var
-  A, B: TIdentItem;
+  A, B: Integer;
 begin
-  A := TIdentItem.Create;
-  A.NAME := 'a';
-  FCtx.Entities<TIdentItem>.Add(A);
-  FCtx.SaveChanges;
-  B := TIdentItem.Create;
-  B.NAME := 'b';
-  FCtx.Entities<TIdentItem>.Add(B);
-  FCtx.SaveChanges;
+  A := InsertItem('a');
+  B := InsertItem('b');
 
-  Should(Integer(A.ID) <> Integer(B.ID)).BeTrue;
+  Should(A <> B).BeTrue;
 end;
 
 procedure TServerIdentityTests.Reader_Count_Is_An_Integer;
