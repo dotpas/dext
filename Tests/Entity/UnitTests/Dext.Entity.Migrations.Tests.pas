@@ -109,6 +109,26 @@ type
     procedure Firebird_Locking_Clause;
 
     [Test]
+    [Description('MySQL and MariaDB drop an index naming its table')]
+    procedure MySQL_Drop_Index_Names_The_Table;
+
+    [Test]
+    [Description('Firebird and InterBase change a column type with ALTER COLUMN ... TYPE')]
+    procedure Firebird_Alters_Column_Type_With_Type_Keyword;
+
+    [Test]
+    [Description('Firebird and InterBase drop a column without the COLUMN keyword')]
+    procedure Firebird_Drops_Column_Without_Column_Keyword;
+
+    [Test]
+    [Description('Firebird and InterBase have no table rename and refuse it')]
+    procedure Firebird_Refuses_Table_Rename;
+
+    [Test]
+    [Description('InterBase needs NOT NULL on every primary key column')]
+    procedure InterBase_Primary_Key_Columns_Are_Not_Null;
+
+    [Test]
     procedure Test_Rename_Table_Detection;
     [Test]
     procedure Test_Rename_Column_Detection;
@@ -787,6 +807,111 @@ begin
   Should(procedure begin Firebird.GetLockingSQL(lmShared); end).Throw<ENotSupportedException>;
   Should(procedure begin Firebird.GetLockingSQL(lmExclusiveNoWait); end).Throw<ENotSupportedException>;
   Should(procedure begin InterBase.GetLockingSQL(lmExclusive); end).Throw<ENotSupportedException>;
+end;
+
+procedure TMigrationTests.MySQL_Drop_Index_Names_The_Table;
+var
+  Op: TDropIndexOperation;
+  MySql, Maria: ISQLDialect;
+begin
+  MySql := TMySQLDialect.Create;
+  Maria := TMariaDBDialect.Create;
+  Op := TDropIndexOperation.Create('clientes', 'ux_nome');
+  try
+    Should(MySql.GenerateMigration(Op)).Be('DROP INDEX `ux_nome` ON `clientes`');
+    Should(Maria.GenerateMigration(Op)).Be('DROP INDEX `ux_nome` ON `clientes`');
+  finally
+    Op.Free;
+  end;
+end;
+
+procedure TMigrationTests.Firebird_Alters_Column_Type_With_Type_Keyword;
+var
+  B: TSchemaBuilder;
+  Firebird, InterBase: ISQLDialect;
+begin
+  Firebird := TFirebirdDialect.Create;
+  InterBase := TInterBaseDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.AlterColumn('t', 'c', 'VARCHAR(60)');
+    Should(Firebird.GenerateMigration(B.Operations[0]))
+      .Be('ALTER TABLE "t" ALTER COLUMN "c" TYPE VARCHAR(60)');
+    Should(InterBase.GenerateMigration(B.Operations[0]))
+      .Be('ALTER TABLE "t" ALTER COLUMN "c" TYPE VARCHAR(60)');
+  finally
+    B.Free;
+  end;
+end;
+
+procedure TMigrationTests.Firebird_Drops_Column_Without_Column_Keyword;
+var
+  B: TSchemaBuilder;
+  Firebird, InterBase: ISQLDialect;
+begin
+  Firebird := TFirebirdDialect.Create;
+  InterBase := TInterBaseDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.DropColumn('t', 'c');
+    Should(Firebird.GenerateMigration(B.Operations[0])).Be('ALTER TABLE "t" DROP "c"');
+    Should(InterBase.GenerateMigration(B.Operations[0])).Be('ALTER TABLE "t" DROP "c"');
+  finally
+    B.Free;
+  end;
+end;
+
+procedure TMigrationTests.Firebird_Refuses_Table_Rename;
+var
+  B: TSchemaBuilder;
+  Firebird, InterBase: ISQLDialect;
+begin
+  Firebird := TFirebirdDialect.Create;
+  InterBase := TInterBaseDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.RenameTable('a', 'b');
+    Should(procedure begin Firebird.GenerateMigration(B.Operations[0]); end)
+      .Throw<ENotSupportedException>;
+    Should(procedure begin InterBase.GenerateMigration(B.Operations[0]); end)
+      .Throw<ENotSupportedException>;
+  finally
+    B.Free;
+  end;
+end;
+
+procedure TMigrationTests.InterBase_Primary_Key_Columns_Are_Not_Null;
+var
+  B: TSchemaBuilder;
+  InterBase: ISQLDialect;
+  Sql: string;
+begin
+  InterBase := TInterBaseDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.CreateTable('t',
+      procedure(T: TTableBuilder)
+      begin
+        T.Column('Id', 'INTEGER').PrimaryKey;
+        T.Column('Nome', 'VARCHAR', 10);
+      end);
+    B.CreateTable('u',
+      procedure(T: TTableBuilder)
+      begin
+        T.Column('A', 'INTEGER');
+        T.Column('B', 'INTEGER');
+        T.PrimaryKey(['A', 'B']);
+      end);
+    Sql := InterBase.GenerateMigration(B.Operations[0]);
+    Should(Sql).Contain('"Id" INTEGER NOT NULL PRIMARY KEY');
+    Should(Sql).Contain('"Nome" VARCHAR(10)');
+    Should(Sql).NotContain('"Nome" VARCHAR(10) NOT NULL');
+    Sql := InterBase.GenerateMigration(B.Operations[1]);
+    Should(Sql).Contain('"A" INTEGER NOT NULL');
+    Should(Sql).Contain('"B" INTEGER NOT NULL');
+  finally
+    B.Free;
+  end;
 end;
 
 procedure TMigrationTests.Ddl_Transaction_Follows_The_Server;

@@ -260,6 +260,9 @@ type
     function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetLockingSQL(ALockMode: TLockMode): string; override;
     function GenerateRenameColumn(AOp: TRenameColumnOperation): string; override;
+    function GenerateRenameTable(AOp: TRenameTableOperation): string; override;
+    function GenerateDropColumn(AOp: TDropColumnOperation): string; override;
+    function GenerateAlterColumn(AOp: TAlterColumnOperation): string; override;
   end;
 
   /// <summary>
@@ -289,6 +292,9 @@ type
     function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetSequenceExistsSQL(const ASequenceName: string): string; override;
     function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
+    function GenerateDropIndex(AOp: TDropIndexOperation): string; override;
+    function GenerateRenameTable(AOp: TRenameTableOperation): string; override;
+    function GenerateRenameColumn(AOp: TRenameColumnOperation): string; override;
   end;
 
   /// <summary>
@@ -306,6 +312,7 @@ type
     
     
     function GenerateAlterColumn(AOp: TAlterColumnOperation): string; override;
+    function GenerateDropIndex(AOp: TDropIndexOperation): string; override;
     function GetSetSchemaSQL(const ASchemaName: string): string; override;
     function GetDialect: TDatabaseDialect; override;
     function GetJsonValueSQL(const AColumn, APath: string): string; override;
@@ -361,6 +368,7 @@ type
     function GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetCreateSequenceSQL(const ASequenceName: string; AAllocationSize: Integer = 1): string; override;
     function GetLockingSQL(ALockMode: TLockMode): string; override;
+    function GenerateCreateTable(AOp: TCreateTableOperation): string; override;
     function GetDialect: TDatabaseDialect; override;
   end;
 
@@ -1180,6 +1188,23 @@ begin
     '(no FOR UPDATE WITH LOCK, no FOR SHARE).');
 end;
 
+function TInterBaseDialect.GenerateCreateTable(AOp: TCreateTableOperation): string;
+var
+  Column: TColumnDefinition;
+  Name: string;
+begin
+  // InterBase refuses a primary key column that is not NOT NULL.
+  for Column in AOp.Columns do
+  begin
+    if Column.IsPrimaryKey then
+      Column.IsNullable := False;
+    for Name in AOp.PrimaryKey do
+      if SameText(Name, Column.Name) then
+        Column.IsNullable := False;
+  end;
+  Result := inherited GenerateCreateTable(AOp);
+end;
+
 function TInterBaseDialect.GetDialect: TDatabaseDialect;
 begin
   Result := ddInterbase;
@@ -1278,6 +1303,33 @@ function TFirebirdDialect.GenerateRenameColumn(AOp: TRenameColumnOperation): str
 begin
   Result := Format('ALTER TABLE %s ALTER COLUMN %s TO %s',
     [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.OldName), QuoteIdentifier(AOp.NewName)]);
+end;
+
+function TFirebirdDialect.GenerateRenameTable(AOp: TRenameTableOperation): string;
+begin
+  raise ENotSupportedException.Create('Firebird and InterBase cannot rename a table. ' +
+    'Create the new table, copy the rows and drop the old one.');
+end;
+
+function TFirebirdDialect.GenerateDropColumn(AOp: TDropColumnOperation): string;
+begin
+  // No COLUMN keyword: ALTER TABLE t DROP c
+  Result := Format('ALTER TABLE %s DROP %s', [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.Name)]);
+end;
+
+function TFirebirdDialect.GenerateAlterColumn(AOp: TAlterColumnOperation): string;
+var
+  TypeSQL: string;
+begin
+  // The type is changed with TYPE, and only the type: nullability and
+  // defaults have their own statements.
+  TypeSQL := AOp.Column.ColumnType;
+  if AOp.Column.Length > 0 then
+    TypeSQL := TypeSQL + '(' + IntToStr(AOp.Column.Length) + ')'
+  else if AOp.Column.Precision > 0 then
+    TypeSQL := TypeSQL + '(' + IntToStr(AOp.Column.Precision) + ',' + IntToStr(AOp.Column.Scale) + ')';
+  Result := Format('ALTER TABLE %s ALTER COLUMN %s TYPE %s',
+    [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.Column.Name), TypeSQL]);
 end;
 
 function TFirebirdDialect.GetLastInsertIdSQL: string;
@@ -1521,12 +1573,47 @@ begin
   Result := Format('JSON_VALUE(%s, ''$.%s'')', [AColumn, APath]);
 end;
 
+function TSQLServerDialect.GenerateDropIndex(AOp: TDropIndexOperation): string;
+begin
+  // SQL Server: the index belongs to a table, and DROP INDEX must name it.
+  Result := Format('DROP INDEX %s ON %s', [QuoteIdentifier(AOp.Name), QuoteIdentifier(AOp.Table)]);
+end;
+
+function TSQLServerDialect.GenerateRenameTable(AOp: TRenameTableOperation): string;
+begin
+  // There is no RENAME in SQL Server: sp_rename takes the current name as an
+  // object name and the new one as a plain name (no brackets).
+  Result := Format('EXEC sp_rename N''%s'', N''%s''',
+    [StringReplace(QuoteIdentifier(AOp.OldName), '''', '''''', [rfReplaceAll]),
+     StringReplace(AOp.NewName, '''', '''''', [rfReplaceAll])]);
+end;
+
+function TSQLServerDialect.GenerateRenameColumn(AOp: TRenameColumnOperation): string;
+begin
+  Result := Format('EXEC sp_rename N''%s.%s'', N''%s'', N''COLUMN''',
+    [StringReplace(QuoteIdentifier(AOp.TableName), '''', '''''', [rfReplaceAll]),
+     StringReplace(QuoteIdentifier(AOp.OldName), '''', '''''', [rfReplaceAll]),
+     StringReplace(AOp.NewName, '''', '''''', [rfReplaceAll])]);
+end;
+
 function TSQLServerDialect.GetColumnTypeForField(AFieldType: TFieldType; AIsAutoInc: Boolean; APrecision, AScale: Integer): string;
 begin
-  if AFieldType = ftGuid then
-    Result := 'UNIQUEIDENTIFIER'
+  if AIsAutoInc then
+    Exit(inherited GetColumnTypeForField(AFieldType, AIsAutoInc, APrecision, AScale));
+
+  // SQL Server has no BOOLEAN, its TIMESTAMP is a row version that holds no
+  // date, and BLOB/TEXT do not exist (TEXT is deprecated): the base names
+  // would make CREATE TABLE fail or store the wrong thing.
+  case AFieldType of
+    ftGuid: Result := 'UNIQUEIDENTIFIER';
+    ftBoolean: Result := 'BIT';
+    ftDateTime, ftTimeStamp: Result := 'DATETIME2';
+    ftBytes, ftVarBytes, ftBlob, ftGraphic, ftParadoxOle, ftDBaseOle, ftTypedBinary:
+      Result := 'VARBINARY(MAX)';
+    ftMemo, ftFmtMemo, ftWideMemo: Result := 'NVARCHAR(MAX)';
   else
     Result := inherited GetColumnTypeForField(AFieldType, AIsAutoInc, APrecision, AScale);
+  end;
 end;
 
 function TSQLServerDialect.GetSequenceNextValSQL(const ASequenceName: string; AAllocationSize: Integer): string;
@@ -1636,6 +1723,12 @@ end;
 function TMySQLDialect.GetCreateTableSQL(const ATableName, ABody: string): string;
 begin
   Result := Format('CREATE TABLE IF NOT EXISTS %s (%s)', [ATableName, ABody]);
+end;
+
+function TMySQLDialect.GenerateDropIndex(AOp: TDropIndexOperation): string;
+begin
+  // MySQL and MariaDB: the index name is only unique inside its table.
+  Result := Format('DROP INDEX %s ON %s', [QuoteIdentifier(AOp.Name), QuoteIdentifier(AOp.Table)]);
 end;
 
 function TMySQLDialect.GenerateAlterColumn(AOp: TAlterColumnOperation): string;
