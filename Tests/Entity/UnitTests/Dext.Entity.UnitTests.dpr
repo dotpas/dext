@@ -131,6 +131,7 @@ begin
         TManyToManyCompositeTests,
         TBatchDeleteTests,
         TBatchUpdateTests,
+        TBatchUpdateCompositeTests,
         TBcdKeyTests,
         TServerIdentityTests,
         TScaffoldingServerTests,

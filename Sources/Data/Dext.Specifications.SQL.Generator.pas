@@ -2245,7 +2245,10 @@ begin
       
       if not IsMapped or IsAutoInc then Continue;
       
-      AProps.Add(TPair<TRttiProperty, string>.Create(TRttiProperty(Handler.GetMember()), ColName));
+      // The bind name is the column name with a prefix: a column called Number,
+      // Date or Level is a reserved word on Oracle and cannot be a bind name
+      // (ORA-01745). The pair holds the bind name, which the array uses.
+      AProps.Add(TPair<TRttiProperty, string>.Create(TRttiProperty(Handler.GetMember()), 'p_' + ColName));
       
       if not First then
       begin
@@ -2255,9 +2258,9 @@ begin
       First := False;
       
       SBCols.Append(FDialect.QuoteIdentifier(ColName));
-      // Use Column Name as Parameter Name for Array DML. A column whose converter
+      // Use the prefixed column name as Parameter Name for Array DML. A column whose converter
       // needs a cast (jsonb, uuid on PostgreSQL) gets it, as in the single-row INSERT.
-      ValueSQL := ':' + ColName;
+      ValueSQL := ':p_' + ColName;
       Converter := nil;
       if PropMap <> nil then Converter := PropMap.Converter;
       if (Converter = nil) and (Handler.GetMember() is TRttiProperty) then

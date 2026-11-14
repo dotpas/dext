@@ -65,6 +65,24 @@ type
   TBatchUpdateDb = class(TDbContext)
   end;
 
+  /// <summary>An entity with a composite key.</summary>
+  [Table('BATCH_UPD_PAIRS')]
+  TBatchUpdPair = class
+  private
+    FSeries: string;
+    FNumber: Integer;
+    FName: string;
+  public
+    [PK]
+    property Series: string read FSeries write FSeries;
+    [PK]
+    property Number: Integer read FNumber write FNumber;
+    property Name: string read FName write FName;
+  end;
+
+  TBatchUpdateCompositeDb = class(TDbContext)
+  end;
+
   /// <summary>
   ///   Rows 1, 2 and 3 are there before every test, in a SQLite database in
   ///   memory, or in a database of the server chosen by DEXT_TEST_SERVER (see
@@ -101,6 +119,32 @@ type
     [Test]
     [Description('A single update that finds no row raises (control)')]
     procedure Single_Update_Of_A_Missing_Row_Raises;
+  end;
+
+  /// <summary>
+  ///   The batch UPDATE of an entity with a composite key: every statement of
+  ///   the batch must match its row by the whole key.
+  /// </summary>
+  [TestFixture('SaveChanges - batch UPDATE with a composite key')]
+  TBatchUpdateCompositeTests = class
+  private
+    FCtx: TBatchUpdateCompositeDb;
+    function Quoted(const AName: string): string;
+    procedure ChangePair(const ASeries: string; const ANumber: Integer);
+    function NameOf(const ASeries: string; const ANumber: Integer): string;
+  public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    [Description('A batch of updates of a composite key changes only its own rows')]
+    procedure Batch_Updates_Rows_By_The_Whole_Key;
+
+    [Test]
+    [Description('A batch with a composite key that finds no row raises')]
+    procedure Batch_With_A_Missing_Pair_Raises;
   end;
 
 implementation
@@ -224,6 +268,93 @@ procedure TBatchUpdateTests.Single_Update_Of_A_Missing_Row_Raises;
 begin
   ChangeRow(2);
   DeleteBehindTheContext(2);
+
+  Should(
+    procedure
+    begin
+      FCtx.SaveChanges;
+    end).Throw<EOptimisticConcurrencyException>;
+end;
+
+{ TBatchUpdateCompositeTests }
+
+const
+  CompositeDbName = 'dext_ut_batchupd2';
+
+procedure TBatchUpdateCompositeTests.Setup;
+var
+  Pair: TBatchUpdPair;
+  Series: string;
+  Number: Integer;
+begin
+  FCtx := TBatchUpdateCompositeDb.Create(TestDbOptions(CompositeDbName));
+  TestDbPrepare(FCtx, CompositeDbName);
+  FCtx.Entities<TBatchUpdPair>;
+  FCtx.EnsureCreated;
+
+  // (A,1) (A,2) (B,1) (B,2): the same number under two series
+  for Series in ['A', 'B'] do
+    for Number := 1 to 2 do
+    begin
+      Pair := TBatchUpdPair.Create;
+      Pair.Series := Series;
+      Pair.Number := Number;
+      Pair.Name := 'pair ' + Series + IntToStr(Number);
+      FCtx.Entities<TBatchUpdPair>.Add(Pair);
+    end;
+  FCtx.SaveChanges;
+end;
+
+procedure TBatchUpdateCompositeTests.TearDown;
+begin
+  TestDbRelease(TDbContext(FCtx), CompositeDbName);
+end;
+
+function TBatchUpdateCompositeTests.Quoted(const AName: string): string;
+begin
+  Result := FCtx.Dialect.QuoteIdentifier(AName);
+end;
+
+procedure TBatchUpdateCompositeTests.ChangePair(const ASeries: string;
+  const ANumber: Integer);
+var
+  Pair: TBatchUpdPair;
+begin
+  Pair := FCtx.Entities<TBatchUpdPair>.Find([ASeries, ANumber]);
+  Pair.Name := 'changed ' + ASeries + IntToStr(ANumber);
+  FCtx.Entities<TBatchUpdPair>.Update(Pair);
+end;
+
+function TBatchUpdateCompositeTests.NameOf(const ASeries: string;
+  const ANumber: Integer): string;
+begin
+  Result := FCtx.Connection.CreateCommand(
+    'SELECT ' + Quoted('Name') + ' FROM ' + Quoted('BATCH_UPD_PAIRS') +
+    ' WHERE ' + Quoted('Series') + ' = ''' + ASeries + ''' AND ' +
+    Quoted('Number') + ' = ' + IntToStr(ANumber)).ExecuteScalar.AsString;
+end;
+
+procedure TBatchUpdateCompositeTests.Batch_Updates_Rows_By_The_Whole_Key;
+begin
+  ChangePair('A', 1);
+  ChangePair('B', 2);
+
+  FCtx.SaveChanges;
+
+  Should(NameOf('A', 1)).Be('changed A1');
+  Should(NameOf('B', 2)).Be('changed B2');
+  // The rows that share a part of the key stay as they were
+  Should(NameOf('A', 2)).Be('pair A2');
+  Should(NameOf('B', 1)).Be('pair B1');
+end;
+
+procedure TBatchUpdateCompositeTests.Batch_With_A_Missing_Pair_Raises;
+begin
+  ChangePair('A', 1);
+  ChangePair('B', 2);
+  FCtx.Connection.CreateCommand(
+    'DELETE FROM ' + Quoted('BATCH_UPD_PAIRS') + ' WHERE ' + Quoted('Series') +
+    ' = ''B'' AND ' + Quoted('Number') + ' = 2').ExecuteNonQuery;
 
   Should(
     procedure

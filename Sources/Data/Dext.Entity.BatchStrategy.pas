@@ -595,6 +595,22 @@ begin
             SB.Append(':w').Append(IntToStr(j)).Append('_0');
           end;
           SB.Append(')');
+        end
+        else
+        begin
+          // Composite key: WHERE (k1 = :w0_0 AND k2 = :w0_1) OR (...)
+          for j := 0 to ChunkCount - 1 do
+          begin
+            if j > 0 then SB.Append(' OR ');
+            SB.Append('(');
+            for k := 0 to WhereProps.Count - 1 do
+            begin
+              if k > 0 then SB.Append(' AND ');
+              SB.Append(AContext.Dialect.QuoteIdentifier(WhereProps[k].Value))
+                .Append(' = :w').Append(IntToStr(j)).Append('_').Append(IntToStr(k));
+            end;
+            SB.Append(')');
+          end;
         end;
 
         Sql := SB.ToString;
