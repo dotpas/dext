@@ -114,12 +114,21 @@ type
   end;
 
   /// <summary>
-  ///   SQL Server batch DELETE in one statement. The array DML of the driver
-  ///   reports the rows it ran, not the rows it deleted, so a key whose row
-  ///   was already gone went unnoticed.
+  ///   SQL Server batch DELETE and UPDATE in one statement. The array DML of
+  ///   the driver reports the rows it ran, not the rows it changed, so a key
+  ///   whose row was already gone went unnoticed.
   /// </summary>
   TDextSqlServerBatchStrategy = class
   public
+    /// <summary>
+    ///   Executes a single-statement batch UPDATE for SQL Server:
+    ///   UPDATE t SET ... FROM table t JOIN (VALUES ...) v ON key match.
+    /// </summary>
+    class procedure ExecuteUpdateBatch(const AContext: IDbContext;
+      const ATableName: string;
+      SetProps, WhereProps: IList<TPair<TRttiProperty, string>>;
+      const AEntities: TArray<TObject>; const ABatchSize: Integer); static;
+
     /// <summary>Executes a single-statement batch DELETE for SQL Server.</summary>
     class procedure ExecuteDeleteBatch(const AContext: IDbContext;
       const ATableName: string;
@@ -168,6 +177,16 @@ begin
   if (AAffected >= 0) and (AAffected < AExpected) then
     raise EOptimisticConcurrencyException.Create(
       'Concurrency violation: The record has been modified or deleted by another user.');
+end;
+
+/// <summary>
+///   The same check for an UPDATE: an update that finds no row (deleted or
+///   hidden by the tenant filter since it was read) fails the batch, as a
+///   single update does.
+/// </summary>
+procedure CheckUpdatedRows(AAffected, AExpected: Integer);
+begin
+  CheckDeletedRows(AAffected, AExpected);
 end;
 
 { TDEXTBatchHelper }
@@ -265,6 +284,8 @@ begin
       TDextMySqlBatchStrategy.ExecuteUpdateBatch(AContext, ATableName, SetProps, WhereProps, AEntities, ABatchSize);
     ddOracle, ddFirebird:
       TDextNativeArrayDmlStrategy.ExecuteUpdateBatch(AContext, ATableName, SetProps, WhereProps, AEntities, ABatchSize);
+    ddSQLServer:
+      TDextSqlServerBatchStrategy.ExecuteUpdateBatch(AContext, ATableName, SetProps, WhereProps, AEntities, ABatchSize);
   else
     TDextNativeArrayDmlStrategy.ExecuteUpdateBatch(AContext, ATableName, SetProps, WhereProps, AEntities, ABatchSize);
   end;
@@ -603,7 +624,7 @@ begin
         end;
       end;
 
-      Cmd.ExecuteNonQuery;
+      CheckUpdatedRows(Cmd.ExecuteNonQuery, ChunkCount);
       ChunkStart := ChunkStart + ChunkCount;
     end;
     if OwnsTx and (Tx <> nil) then
@@ -624,6 +645,123 @@ begin
 end;
 
 { TDextSqlServerBatchStrategy }
+
+class procedure TDextSqlServerBatchStrategy.ExecuteUpdateBatch(
+  const AContext: IDbContext; const ATableName: string;
+  SetProps, WhereProps: IList<TPair<TRttiProperty, string>>;
+  const AEntities: TArray<TObject>; const ABatchSize: Integer);
+const
+  // A statement takes at most 2100 parameters and a VALUES list 1000 rows.
+  MaxParams = 2000;
+  MaxRows = 1000;
+var
+  ChunkStart, ChunkCount, TotalCount, EffectiveBatchSize, ParamsPerRow: Integer;
+  i, j: Integer;
+  Cmd: IDbCommand;
+  SB: TStringBuilder;
+  ParamName, ColName: string;
+  Prop: TRttiProperty;
+  Val: TValue;
+  Tx: IDbTransaction;
+  OwnsTx: Boolean;
+begin
+  TotalCount := Length(AEntities);
+  EffectiveBatchSize := ABatchSize;
+  if EffectiveBatchSize <= 0 then EffectiveBatchSize := 100;
+  ParamsPerRow := SetProps.Count + WhereProps.Count;
+  if EffectiveBatchSize * ParamsPerRow > MaxParams then
+    EffectiveBatchSize := MaxParams div ParamsPerRow;
+  if EffectiveBatchSize > MaxRows then EffectiveBatchSize := MaxRows;
+  if EffectiveBatchSize < 1 then EffectiveBatchSize := 1;
+
+  OwnsTx := not AContext.InTransaction;
+  if OwnsTx then
+    Tx := AContext.Connection.BeginTransaction
+  else
+    Tx := nil;
+  try
+    ChunkStart := 0;
+    while ChunkStart < TotalCount do
+    begin
+      if TotalCount - ChunkStart < EffectiveBatchSize then
+        ChunkCount := TotalCount - ChunkStart
+      else
+        ChunkCount := EffectiveBatchSize;
+
+      // UPDATE t SET t.[c] = v.[c] FROM [table] t INNER JOIN
+      //   (VALUES (:v0_w0, :v0_s0), ...) AS v([k], [c]) ON t.[k] = v.[k]
+      SB := TStringBuilder.Create;
+      try
+        SB.Append('UPDATE t SET ');
+        for i := 0 to SetProps.Count - 1 do
+        begin
+          if i > 0 then SB.Append(', ');
+          ColName := AContext.Dialect.QuoteIdentifier(SetProps[i].Value);
+          SB.Append('t.').Append(ColName).Append(' = v.').Append(ColName);
+        end;
+        SB.Append(' FROM ').Append(ATableName).Append(' t INNER JOIN (VALUES ');
+        for j := 0 to ChunkCount - 1 do
+        begin
+          if j > 0 then SB.Append(', ');
+          SB.Append('(');
+          for i := 0 to WhereProps.Count - 1 do
+          begin
+            if i > 0 then SB.Append(', ');
+            SB.Append(':v').Append(IntToStr(j)).Append('_w').Append(IntToStr(i));
+          end;
+          for i := 0 to SetProps.Count - 1 do
+            SB.Append(', :v').Append(IntToStr(j)).Append('_s').Append(IntToStr(i));
+          SB.Append(')');
+        end;
+        SB.Append(') AS v(');
+        for i := 0 to WhereProps.Count - 1 do
+        begin
+          if i > 0 then SB.Append(', ');
+          SB.Append(AContext.Dialect.QuoteIdentifier(WhereProps[i].Value));
+        end;
+        for i := 0 to SetProps.Count - 1 do
+          SB.Append(', ').Append(AContext.Dialect.QuoteIdentifier(SetProps[i].Value));
+        SB.Append(') ON ');
+        for i := 0 to WhereProps.Count - 1 do
+        begin
+          if i > 0 then SB.Append(' AND ');
+          ColName := AContext.Dialect.QuoteIdentifier(WhereProps[i].Value);
+          SB.Append('t.').Append(ColName).Append(' = v.').Append(ColName);
+        end;
+        Cmd := AContext.Connection.CreateCommand(SB.ToString);
+      finally
+        SB.Free;
+      end;
+
+      for j := 0 to ChunkCount - 1 do
+      begin
+        for i := 0 to WhereProps.Count - 1 do
+        begin
+          Prop := WhereProps[i].Key;
+          ParamName := 'v' + IntToStr(j) + '_w' + IntToStr(i);
+          Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
+          Cmd.AddParam(ParamName, Val, TDEXTBatchHelper.GetParamType(Val, Prop));
+        end;
+        for i := 0 to SetProps.Count - 1 do
+        begin
+          Prop := SetProps[i].Key;
+          ParamName := 'v' + IntToStr(j) + '_s' + IntToStr(i);
+          Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
+          Cmd.AddParam(ParamName, Val, TDEXTBatchHelper.GetParamType(Val, Prop));
+        end;
+      end;
+
+      CheckUpdatedRows(Cmd.ExecuteNonQuery, ChunkCount);
+      ChunkStart := ChunkStart + ChunkCount;
+    end;
+    if OwnsTx and (Tx <> nil) then
+      Tx.Commit;
+  except
+    if OwnsTx and (Tx <> nil) then
+      Tx.Rollback;
+    raise;
+  end;
+end;
 
 class procedure TDextSqlServerBatchStrategy.ExecuteDeleteBatch(
   const AContext: IDbContext; const ATableName: string;
@@ -803,7 +941,7 @@ begin
         Cmd.SetParamArray(ParamName, ParamValues);
       end;
 
-      Cmd.ExecuteBatch(ChunkCount);
+      CheckUpdatedRows(Cmd.ExecuteBatch(ChunkCount), ChunkCount);
       ChunkStart := ChunkStart + ChunkCount;
     end;
     if OwnsTx and (Tx <> nil) then
