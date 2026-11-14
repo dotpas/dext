@@ -193,6 +193,7 @@ var
   FDConn: TFDConnection;
   List: TStringList;
   LCatalog, LSchema: string;
+  LFullNames: Boolean;
   i: Integer;
 begin
   if not (FConnection is TFireDACConnection) then
@@ -206,8 +207,16 @@ begin
     if LSchema = '' then LSchema := FDConn.Params.Values['Schema'];
     if LSchema = '' then LSchema := FDConn.Params.Values['MetaDefSchema'];
 
-    if (SameText(FDConn.DriverName, 'Ora') or SameText(FDConn.DriverName, 'Oracle')) and (LSchema <> '') then
+    // Names come with their schema when none was configured
+    LFullNames := LSchema = '';
+    if SameText(FDConn.DriverName, 'Ora') or SameText(FDConn.DriverName, 'Oracle') then
+    begin
+      // On Oracle the schema is the user, and the connection also sees the
+      // tables of other users (WMSYS, SI_INFORMTN_SCHEMA...): ask for its own.
+      if LSchema = '' then
+        LSchema := FDConn.Params.Values['User_Name'];
       LSchema := UpperCase(LSchema);
+    end;
 
     if SameText(FDConn.DriverName, 'SQLite') then
     begin
@@ -215,7 +224,7 @@ begin
        LSchema := '';
     end;
       
-    FDConn.GetTableNames(LCatalog, LSchema, '', List, [osMy, osOther], [tkTable, tkView], LSchema = '');
+    FDConn.GetTableNames(LCatalog, LSchema, '', List, [osMy, osOther], [tkTable, tkView], LFullNames);
     
     for i := List.Count - 1 downto 0 do
     begin
