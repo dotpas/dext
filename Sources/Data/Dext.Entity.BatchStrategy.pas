@@ -137,6 +137,7 @@ type
   TDEXTBatchHelper = class
   public
     class function GetFieldType(ATypeInfo: PTypeInfo): TFieldType; static;
+    class function GetParamType(const AValue: TValue; const AProp: TRttiProperty): TFieldType; static;
     class function ExtractPropValue(const AEntity: TObject;
       const AProp: TRttiProperty; const APropMap: TPropertyMap;
       ADialect: TDatabaseDialect): TValue; static;
@@ -189,6 +190,16 @@ begin
     else
       Result := ftUnknown;
   end;
+end;
+
+class function TDEXTBatchHelper.GetParamType(const AValue: TValue;
+  const AProp: TRttiProperty): TFieldType;
+begin
+  Result := GetFieldType(AValue.TypeInfo);
+  // A NULL value carries no type (it is a Variant): FireDAC refuses a
+  // parameter without one, so the type comes from the property.
+  if (Result = ftUnknown) and (AProp <> nil) then
+    Result := GetFieldType(AProp.PropertyType.Handle);
 end;
 
 class function TDEXTBatchHelper.ExtractPropValue(const AEntity: TObject;
@@ -371,7 +382,7 @@ begin
           Prop := WhereProps[i].Key;
           ParamName := 'v' + IntToStr(j) + '_w' + IntToStr(i);
           Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
-          DataType := TDEXTBatchHelper.GetFieldType(Val.TypeInfo);
+          DataType := TDEXTBatchHelper.GetParamType(Val, Prop);
           Cmd.AddParam(ParamName, Val, DataType);
         end;
 
@@ -381,7 +392,7 @@ begin
           Prop := SetProps[i].Key;
           ParamName := 'v' + IntToStr(j) + '_s' + IntToStr(i);
           Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
-          DataType := TDEXTBatchHelper.GetFieldType(Val.TypeInfo);
+          DataType := TDEXTBatchHelper.GetParamType(Val, Prop);
           Cmd.AddParam(ParamName, Val, DataType);
         end;
       end;
@@ -460,7 +471,7 @@ begin
           Prop := WhereProps[i].Key;
           ParamName := 'p' + IntToStr(j);
           Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
-          DataType := TDEXTBatchHelper.GetFieldType(Val.TypeInfo);
+          DataType := TDEXTBatchHelper.GetParamType(Val, Prop);
           Cmd.AddParam(ParamName, Val, DataType);
         end;
       end;
@@ -562,7 +573,7 @@ begin
           Prop := WhereProps[k].Key;
           ParamName := 'w' + IntToStr(j) + '_' + IntToStr(k);
           Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
-          DataType := TDEXTBatchHelper.GetFieldType(Val.TypeInfo);
+          DataType := TDEXTBatchHelper.GetParamType(Val, Prop);
           Cmd.AddParam(ParamName, Val, DataType);
         end;
 
@@ -571,7 +582,7 @@ begin
           Prop := SetProps[i].Key;
           ParamName := 's' + IntToStr(j) + '_' + IntToStr(i);
           Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
-          DataType := TDEXTBatchHelper.GetFieldType(Val.TypeInfo);
+          DataType := TDEXTBatchHelper.GetParamType(Val, Prop);
           Cmd.AddParam(ParamName, Val, DataType);
         end;
       end;

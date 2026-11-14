@@ -35,6 +35,7 @@ uses
   Dext.Entity.Tenancy.Tests in 'Dext.Entity.Tenancy.Tests.pas',
   Dext.Entity.Validation.Tests in 'Dext.Entity.Validation.Tests.pas',
   Dext.Entity.BulkBatchSize.Tests in 'Dext.Entity.BulkBatchSize.Tests.pas',
+  Dext.Entity.BatchNullParams.Tests in 'Dext.Entity.BatchNullParams.Tests.pas',
   Dext.Entity.DynamicQueryFilter.Tests in 'Dext.Entity.DynamicQueryFilter.Tests.pas',
   Dext.Entity.LikeLiteral.Tests in 'Dext.Entity.LikeLiteral.Tests.pas',
   Dext.Entity.Sequences.Tests in 'Dext.Entity.Sequences.Tests.pas',
@@ -73,6 +74,7 @@ begin
       .VeryVerbose
       .RegisterFixtures([
         TBulkBatchSizeTests,
+        TBatchNullParamsTests,
         TCalculatedFieldsTests,
         TDataSetSmartTypesTests,
         TEntityDataSetAutomationTests,

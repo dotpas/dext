@@ -555,7 +555,8 @@ begin
   // Force the explicit data type first
   Param.DataType := ADataType;
   
-  if V.IsEmpty then
+  // A NULL arrives empty or as a Variant holding Null
+  if V.IsEmpty or ((V.Kind = tkVariant) and VarIsNull(V.AsVariant)) then
   begin
     Param.Clear;
     Exit;
