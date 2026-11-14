@@ -24,6 +24,8 @@
 {  SkipIocpOnSuccess off and on: every part arrives, and the client can     }
 {  tell where the response ends (chunked on HTTP/1.1, the connection        }
 {  closed on HTTP/1.0, the Content-Length when the handler gave one).       }
+{  WriteFile too: after Flush the file goes in a chunk of its own, and      }
+{  without Flush the body written before goes first.                        }
 {                                                                           }
 {  The port needs an http.sys URL reservation, or run as administrator.    }
 {  Another port: environment variable DEXT_HTTPSYS_TEST_PORT.               }
@@ -36,6 +38,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.IOUtils,
   System.SyncObjs,
   Winapi.Windows,
   Winapi.WinSock2,
@@ -61,8 +64,8 @@ type
     function ReadCount(ASocket: TSocket; ACount: Integer): string;
     procedure CheckOkOnSameConnection(ASocket: TSocket);
     procedure CheckChunked(const APath, AExpected: string);
-    procedure CheckHttp10;
-    procedure CheckContentLength;
+    procedure CheckHttp10(const APath, AExpected: string);
+    procedure CheckContentLength(const APath, AExpected: string);
   public
     [Test]
     procedure FlushThenWrite_Http11_ChunkedAndKeepAlive;
@@ -72,6 +75,14 @@ type
     procedure FlushThenWrite_Http10_EndsWithTheConnection;
     [Test]
     procedure FlushThenWrite_WithContentLength_NotChunked;
+    [Test]
+    procedure FlushThenWriteFile_Http11_FileInItsOwnChunk;
+    [Test]
+    procedure FlushThenWriteFile_EmptyFile_BodyGoesOn;
+    [Test]
+    procedure FlushThenWriteFile_Http10_EndsWithTheConnection;
+    [Test]
+    procedure WriteThenWriteFile_BodyFirst_LengthOfBoth;
   end;
 
 implementation
@@ -80,10 +91,13 @@ const
   DEFAULT_TEST_PORT = 28796;
   CRLF = #13#10;
   ALL_PARTS = 'part1;part2;part3;part4;';
+  FILE_TEXT = 'the file;';
 
 var
   GError: string;
   GLock: TCriticalSection;
+  GFile: string;
+  GEmptyFile: string;
 
 procedure AddError(const AText: string);
 begin
@@ -122,6 +136,28 @@ begin
         if I = 1 then
           AResponse.Flush;
       end;
+    end
+    else if (ARequest.GetPath = '/flush-file') or
+      (ARequest.GetPath = '/flush-empty-file') then
+    begin
+      // Write, Flush, WriteFile, Write
+      AResponse.SetStatus(200);
+      AResponse.SetHeader('Content-Type', 'text/plain');
+      WritePart(AResponse, 'head;');
+      AResponse.Flush;
+      if ARequest.GetPath = '/flush-file' then
+        AResponse.WriteFile(GFile, 0, 0)
+      else
+        AResponse.WriteFile(GEmptyFile, 0, 0);
+      WritePart(AResponse, 'tail;');
+    end
+    else if ARequest.GetPath = '/write-file' then
+    begin
+      // Write, then WriteFile without Flush
+      AResponse.SetStatus(200);
+      AResponse.SetHeader('Content-Type', 'text/plain');
+      WritePart(AResponse, 'head;');
+      AResponse.WriteFile(GFile, 0, 0);
     end
     else if ARequest.GetPath = '/flush-only' then
     begin
@@ -288,7 +324,7 @@ begin
   end;
 end;
 
-procedure THttpSysFlushTests.CheckHttp10;
+procedure THttpSysFlushTests.CheckHttp10(const APath, AExpected: string);
 var
   S: TSocket;
   Head: string;
@@ -296,30 +332,30 @@ var
 begin
   S := Connect;
   try
-    SendText(S, 'GET /parts HTTP/1.0' + CRLF + 'Host: x' + CRLF + CRLF);
+    SendText(S, 'GET ' + APath + ' HTTP/1.0' + CRLF + 'Host: x' + CRLF + CRLF);
     Head := ReadUntil(S, CRLF + CRLF);
     Should(Head).StartWith('HTTP/1.');
     Should(Head).NotContain('chunked');
-    Should(ReadToEnd(S, Closed)).Be(ALL_PARTS);
+    Should(ReadToEnd(S, Closed)).Be(AExpected);
     Should(Closed).BeTrue;
   finally
     closesocket(S);
   end;
 end;
 
-procedure THttpSysFlushTests.CheckContentLength;
+procedure THttpSysFlushTests.CheckContentLength(const APath, AExpected: string);
 var
   S: TSocket;
   Head: string;
 begin
   S := Connect;
   try
-    SendText(S, 'GET /parts-length HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
+    SendText(S, 'GET ' + APath + ' HTTP/1.1' + CRLF + 'Host: x' + CRLF + CRLF);
     Head := ReadUntil(S, CRLF + CRLF);
     Should(Head).StartWith('HTTP/1.1 200');
-    Should(Head).Contain('Content-Length: ' + IntToStr(Length(ALL_PARTS)) + CRLF);
+    Should(Head).Contain('Content-Length: ' + IntToStr(Length(AExpected)) + CRLF);
     Should(Head).NotContain('chunked');
-    Should(ReadCount(S, Length(ALL_PARTS))).Be(ALL_PARTS);
+    Should(ReadCount(S, Length(AExpected))).Be(AExpected);
     CheckOkOnSameConnection(S);
   finally
     closesocket(S);
@@ -366,7 +402,7 @@ begin
   begin
     StartEngine(Skip);
     try
-      CheckHttp10;
+      CheckHttp10('/parts', ALL_PARTS);
       Should(GError).Be('');
     finally
       StopEngine;
@@ -382,7 +418,72 @@ begin
   begin
     StartEngine(Skip);
     try
-      CheckContentLength;
+      CheckContentLength('/parts-length', ALL_PARTS);
+      Should(GError).Be('');
+    finally
+      StopEngine;
+    end;
+  end;
+end;
+
+procedure THttpSysFlushTests.FlushThenWriteFile_Http11_FileInItsOwnChunk;
+var
+  Skip: Boolean;
+begin
+  for Skip := False to True do
+  begin
+    StartEngine(Skip);
+    try
+      CheckChunked('/flush-file', 'head;' + FILE_TEXT + 'tail;');
+      Should(GError).Be('');
+    finally
+      StopEngine;
+    end;
+  end;
+end;
+
+procedure THttpSysFlushTests.FlushThenWriteFile_EmptyFile_BodyGoesOn;
+var
+  Skip: Boolean;
+begin
+  // An empty chunk is the last chunk: an empty file must not end the body
+  for Skip := False to True do
+  begin
+    StartEngine(Skip);
+    try
+      CheckChunked('/flush-empty-file', 'head;tail;');
+      Should(GError).Be('');
+    finally
+      StopEngine;
+    end;
+  end;
+end;
+
+procedure THttpSysFlushTests.FlushThenWriteFile_Http10_EndsWithTheConnection;
+var
+  Skip: Boolean;
+begin
+  for Skip := False to True do
+  begin
+    StartEngine(Skip);
+    try
+      CheckHttp10('/flush-file', 'head;' + FILE_TEXT + 'tail;');
+      Should(GError).Be('');
+    finally
+      StopEngine;
+    end;
+  end;
+end;
+
+procedure THttpSysFlushTests.WriteThenWriteFile_BodyFirst_LengthOfBoth;
+var
+  Skip: Boolean;
+begin
+  for Skip := False to True do
+  begin
+    StartEngine(Skip);
+    try
+      CheckContentLength('/write-file', 'head;' + FILE_TEXT);
       Should(GError).Be('');
     finally
       StopEngine;
@@ -392,8 +493,13 @@ end;
 
 initialization
   GLock := TCriticalSection.Create;
+  GFile := TPath.GetTempFileName;
+  TFile.WriteAllText(GFile, FILE_TEXT, TEncoding.ASCII);
+  GEmptyFile := TPath.GetTempFileName;
 
 finalization
+  System.SysUtils.DeleteFile(GFile);
+  System.SysUtils.DeleteFile(GEmptyFile);
   GLock.Free;
 
 end.
