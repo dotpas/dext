@@ -1147,8 +1147,9 @@ end;
 
 function TInterBaseDialect.BooleanToSQL(AValue: Boolean): string;
 begin
-  // InterBase uses 0/1 for boolean (SMALLINT)
-  if AValue then Result := '1' else Result := '0';
+  // The column is BOOLEAN (InterBase 2017 and later): COALESCE(flag, 0) is an
+  // arithmetic error there, so the literal is TRUE/FALSE, not 1/0.
+  if AValue then Result := 'TRUE' else Result := 'FALSE';
 end;
 
 function TInterBaseDialect.GeneratePaging(const ASQL: string; ASkip, ATake: Integer): string;
