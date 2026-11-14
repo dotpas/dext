@@ -114,6 +114,8 @@ type
 
     [Test]
     [Description('Firebird and InterBase change a column type with ALTER COLUMN ... TYPE')]
+    procedure PostgreSQL_Alters_Column_Type_With_Type_Keyword;
+    [Test]
     procedure Firebird_Alters_Column_Type_With_Type_Keyword;
 
     [Test]
@@ -822,6 +824,23 @@ begin
     Should(Maria.GenerateMigration(Op)).Be('DROP INDEX `ux_nome` ON `clientes`');
   finally
     Op.Free;
+  end;
+end;
+
+procedure TMigrationTests.PostgreSQL_Alters_Column_Type_With_Type_Keyword;
+var
+  B: TSchemaBuilder;
+  Postgres: ISQLDialect;
+begin
+  // PostgreSQL rejects ALTER COLUMN <name> <type>: the type needs TYPE.
+  Postgres := TPostgreSQLDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.AlterColumn('t', 'c', 'VARCHAR(60)');
+    Should(Postgres.GenerateMigration(B.Operations[0]))
+      .Be('ALTER TABLE "t" ALTER COLUMN "c" TYPE VARCHAR(60)');
+  finally
+    B.Free;
   end;
 end;
 

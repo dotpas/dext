@@ -225,6 +225,7 @@ type
     function GetColumnType(ATypeInfo: PTypeInfo; AIsAutoInc: Boolean = False; APrecision: Integer = 0; AScale: Integer = 0): string; override;
     function GetLastInsertIdSQL: string; override;
     function GetCreateTableSQL(const ATableName, ABody: string): string; override;
+    function GenerateAlterColumn(AOp: TAlterColumnOperation): string; override;
     
     function SupportsInsertReturning: Boolean; override;
     function GetReturningSQL(const AColumnName: string): string; override;
@@ -1315,6 +1316,21 @@ function TFirebirdDialect.GenerateDropColumn(AOp: TDropColumnOperation): string;
 begin
   // No COLUMN keyword: ALTER TABLE t DROP c
   Result := Format('ALTER TABLE %s DROP %s', [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.Name)]);
+end;
+
+function TPostgreSQLDialect.GenerateAlterColumn(AOp: TAlterColumnOperation): string;
+var
+  TypeSQL: string;
+begin
+  // PostgreSQL changes the type with ALTER COLUMN ... TYPE; nullability and
+  // defaults have their own statements.
+  TypeSQL := AOp.Column.ColumnType;
+  if AOp.Column.Length > 0 then
+    TypeSQL := TypeSQL + '(' + IntToStr(AOp.Column.Length) + ')'
+  else if AOp.Column.Precision > 0 then
+    TypeSQL := TypeSQL + '(' + IntToStr(AOp.Column.Precision) + ',' + IntToStr(AOp.Column.Scale) + ')';
+  Result := Format('ALTER TABLE %s ALTER COLUMN %s TYPE %s',
+    [QuoteIdentifier(AOp.TableName), QuoteIdentifier(AOp.Column.Name), TypeSQL]);
 end;
 
 function TFirebirdDialect.GenerateAlterColumn(AOp: TAlterColumnOperation): string;
