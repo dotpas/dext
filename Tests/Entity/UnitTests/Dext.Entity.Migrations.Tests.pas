@@ -3,6 +3,7 @@
 interface
 
 uses
+  System.Classes,
   Data.DB,
   Dext.Collections,
   Dext.Testing,
@@ -123,6 +124,10 @@ type
     [Test]
     [Description('Oracle changes a column type with MODIFY, and has no ALTER COLUMN')]
     procedure Oracle_Alters_Column_Type_With_Modify;
+
+    [Test]
+    [Description('Oracle stores a TStrings property in a CLOB, not in a VARCHAR2(255)')]
+    procedure Oracle_Maps_A_Strings_Property_To_Clob;
     [Test]
     procedure Firebird_Identity_Column_Has_The_Type_Of_The_Key;
     [Test]
@@ -868,6 +873,16 @@ begin
   Should(Oracle.GetColumnTypeForField(ftWideString)).Be('VARCHAR2(255)');
   Should(Oracle.GetColumnTypeForField(ftInteger)).Be('NUMBER(10)');
   Should(Oracle.GetColumnTypeForField(ftDateTime)).Be('TIMESTAMP');
+end;
+
+procedure TMigrationTests.Oracle_Maps_A_Strings_Property_To_Clob;
+var
+  Oracle: ISQLDialect;
+begin
+  // A long text bound to a VARCHAR2 column raises ORA-01461.
+  Oracle := TOracleDialect.Create;
+  Should(Oracle.GetColumnType(TypeInfo(TStrings), False, 0, 0)).Be('CLOB');
+  Should(Oracle.GetColumnType(TypeInfo(TStringList), False, 0, 0)).Be('CLOB');
 end;
 
 procedure TMigrationTests.Oracle_Alters_Column_Type_With_Modify;

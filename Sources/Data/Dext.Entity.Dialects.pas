@@ -1872,6 +1872,10 @@ begin
         if ATypeInfo = TypeInfo(TBytes) then Result := 'BLOB'
         else Result := 'CLOB';
       end;
+    tkClass:
+      // TStrings, TStringList and the classes stored as JSON text: a text of any
+      // length (a long value bound to a VARCHAR2 raises ORA-01461)
+      Result := 'CLOB';
     tkRecord:
       begin
         if ATypeInfo = TypeInfo(TBcd) then
