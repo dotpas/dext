@@ -29,7 +29,7 @@ uses
   Dext.Entity.Query,
   Dext.Entity.DbSet,
   Dext.Entity.Setup,
-  Dext.Entity.TestPostgres,
+  Dext.Entity.TestServer,
   FireDAC.Phys.SQLite;
 
 type
@@ -262,6 +262,7 @@ type
   private
     FDb: TDlDb;
     procedure Seed;
+    procedure Refused(const AQuery: TFunc<Integer>);
   public
     [Setup]
     procedure Setup;
@@ -475,28 +476,28 @@ end;
 
 procedure TDslLinqTests.Setup;
 begin
-  if TestPgConnection <> '' then
-  begin
-    // A real PostgreSQL server: its own schema, dropped after each test
-    TestPgEnsureDriver;
-    FDb := TDlDb.Create(DbContextOptions.UsePostgreSQL(TestPgConnection));
-    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_dsl CASCADE').Execute;
-    FDb.Connection.CreateCommand('CREATE SCHEMA dext_ut_dsl').Execute;
-    FDb.Connection.CreateCommand('SET search_path TO dext_ut_dsl').Execute;
-  end
-  else
-    FDb := TDlDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  FDb := TDlDb.Create(TestDbOptions('dext_ut_dsl'));
+  TestDbPrepare(FDb, 'dext_ut_dsl');
   FDb.Customers;
   FDb.Orders;
   FDb.EnsureCreated;
   Seed;
 end;
 
+// InterBase has no LOWER, CHAR_LENGTH or TRIM, and not the SUBSTRING ... FROM
+// form: the server refuses the SQL.
+procedure TDslLinqTests.Refused(const AQuery: TFunc<Integer>);
+begin
+  Should(
+    procedure
+    begin
+      AQuery();
+    end).Throw<Exception>;
+end;
+
 procedure TDslLinqTests.TearDown;
 begin
-  if (FDb <> nil) and (TestPgConnection <> '') then
-    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_dsl CASCADE').Execute;
-  FreeAndNil(FDb);
+  TestDbRelease(TDbContext(FDb), 'dext_ut_dsl');
 end;
 
 procedure TDslLinqTests.Seed;
@@ -1428,8 +1429,21 @@ var
 begin
   C := Prototype.Entity<TDlCustomer>;
   Should(FDb.Customers.Where(C.Name.ToUpper = 'CUSTOMER 1').Count).Be(1);
+  if TestServer = tsInterBase then
+  begin
+    Refused(
+      function: Integer
+      begin
+        Result := FDb.Customers.Where(C.City.ToLower = 'sp').Count;
+      end);
+    Exit;
+  end;
   Should(FDb.Customers.Where(C.City.ToLower = 'sp').Count).Be(2);
-  Should(FDb.Customers.Where(C.City.ToLower = 'SP').Count).Be(0);
+  // A server whose default collation ignores case finds 'sp' = 'SP' too.
+  if TestServer in [tsMariaDB, tsSQLServer] then
+    Should(FDb.Customers.Where(C.City.ToLower = 'SP').Count).Be(2)
+  else
+    Should(FDb.Customers.Where(C.City.ToLower = 'SP').Count).Be(0);
 end;
 
 procedure TDslLinqTests.Len_Counts_The_Characters;
@@ -1437,6 +1451,15 @@ var
   C: TDlCustomer;
 begin
   C := Prototype.Entity<TDlCustomer>;
+  if TestServer = tsInterBase then
+  begin
+    Refused(
+      function: Integer
+      begin
+        Result := FDb.Customers.Where(C.Name.Len = 10).Count;
+      end);
+    Exit;
+  end;
   Should(FDb.Customers.Where(C.Name.Len = 10).Count).Be(3);
   Should(FDb.Customers.Where(C.City.Len = 2).Count).Be(3);
   Should(FDb.Customers.Where(C.Name.Len > 10).Count).Be(0);
@@ -1447,6 +1470,15 @@ var
   C: TDlCustomer;
 begin
   C := Prototype.Entity<TDlCustomer>;
+  if TestServer = tsInterBase then
+  begin
+    Refused(
+      function: Integer
+      begin
+        Result := FDb.Customers.Where(C.Name.Substring(0, 8) = 'Customer').Count;
+      end);
+    Exit;
+  end;
   // LINQ: c.Name.Substring(0, 8) == "Customer"
   Should(FDb.Customers.Where(C.Name.Substring(0, 8) = 'Customer').Count).Be(3);
   // "Customer 3": index 9 is the digit
@@ -1466,6 +1498,15 @@ begin
   FDb.Customers.Add(X);
   FDb.SaveChanges;
   C := Prototype.Entity<TDlCustomer>;
+  if TestServer = tsInterBase then
+  begin
+    Refused(
+      function: Integer
+      begin
+        Result := FDb.Customers.Where(C.Name.Trim = 'Zed').Count;
+      end);
+    Exit;
+  end;
   Should(FDb.Customers.Where(C.Name.Trim = 'Zed').Count).Be(1);
   Should(FDb.Customers.Where(C.Name = 'Zed').Count).Be(0);
 end;
@@ -1702,7 +1743,7 @@ var
   var
     Rows: IList<TDlOrder>;
   begin
-    Rows := FDb.Orders.FromSql('SELECT * FROM dl_orders').ToList;
+    Rows := FDb.Orders.FromSql('SELECT * FROM "dl_orders"').ToList;
     Should(Rows.Count).Be(6);
   end;
 
@@ -1719,7 +1760,7 @@ var
 
   procedure Consume;
   begin
-    Should(FDb.Orders.FromSql('SELECT * FROM dl_orders').Count).Be(6);
+    Should(FDb.Orders.FromSql('SELECT * FROM "dl_orders"').Count).Be(6);
   end;
 
 begin
@@ -1733,10 +1774,10 @@ begin
   // Customer 1 has orders 1 (50) and 4 (200). Two unnamed markers in one
   // command used to fail: "Parameter [] data type is unknown".
   Should(FDb.Orders.FromSql(
-    'SELECT * FROM dl_orders WHERE "CustomerId" = ? AND "Amount" > ?',
+    'SELECT * FROM "dl_orders" WHERE "CustomerId" = ? AND "Amount" > ?',
     [1, 60]).Count).Be(1);
   Should(FDb.Orders.FromSql(
-    'SELECT * FROM dl_orders WHERE "CustomerId" = ? AND "Amount" > ?',
+    'SELECT * FROM "dl_orders" WHERE "CustomerId" = ? AND "Amount" > ?',
     [1, 0]).Count).Be(2);
 end;
 
@@ -1744,7 +1785,7 @@ procedure TDslLinqTests.FromSql_Leaves_A_Marker_Inside_A_Literal_Alone;
 begin
   // The "?" inside the quoted text is text, not a parameter
   Should(FDb.Orders.FromSql(
-    'SELECT * FROM dl_orders WHERE "Status" <> ''?'' AND "CustomerId" = ?',
+    'SELECT * FROM "dl_orders" WHERE "Status" <> ''?'' AND "CustomerId" = ?',
     [1]).Count).Be(2);
 end;
 
@@ -1755,7 +1796,7 @@ var
 begin
   Before := TDlOrder.Live;
   Order := FDb.Orders.FromSql(
-    'SELECT * FROM dl_orders ORDER BY "Id"').First;
+    'SELECT * FROM "dl_orders" ORDER BY "Id"').First;
   try
     Should(Order.Id).Be(1);
     // Only the one the caller holds is alive

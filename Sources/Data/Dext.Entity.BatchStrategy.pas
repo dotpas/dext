@@ -114,6 +114,20 @@ type
   end;
 
   /// <summary>
+  ///   SQL Server batch DELETE in one statement. The array DML of the driver
+  ///   reports the rows it ran, not the rows it deleted, so a key whose row
+  ///   was already gone went unnoticed.
+  /// </summary>
+  TDextSqlServerBatchStrategy = class
+  public
+    /// <summary>Executes a single-statement batch DELETE for SQL Server.</summary>
+    class procedure ExecuteDeleteBatch(const AContext: IDbContext;
+      const ATableName: string;
+      WhereProps: IList<TPair<TRttiProperty, string>>;
+      const AEntities: TArray<TObject>; const ABatchSize: Integer); static;
+  end;
+
+  /// <summary>
   ///   Native Array DML batch strategy for Oracle, Firebird, and fallbacks.
   /// </summary>
   TDextNativeArrayDmlStrategy = class
@@ -271,6 +285,8 @@ begin
       TDextNativeArrayDmlStrategy.ExecuteDeleteBatch(AContext, ATableName, WhereProps, AEntities, ABatchSize);
     ddMySQL, ddMariaDB:
       TDextMySqlBatchStrategy.ExecuteDeleteBatch(AContext, ATableName, WhereProps, AEntities, ABatchSize);
+    ddSQLServer:
+      TDextSqlServerBatchStrategy.ExecuteDeleteBatch(AContext, ATableName, WhereProps, AEntities, ABatchSize);
   else
     TDextNativeArrayDmlStrategy.ExecuteDeleteBatch(AContext, ATableName, WhereProps, AEntities, ABatchSize);
   end;
@@ -605,6 +621,87 @@ class procedure TDextMySqlBatchStrategy.ExecuteDeleteBatch(
   const AEntities: TArray<TObject>; const ABatchSize: Integer);
 begin
   TDextPostgresBatchStrategy.ExecuteDeleteBatch(AContext, ATableName, WhereProps, AEntities, ABatchSize);
+end;
+
+{ TDextSqlServerBatchStrategy }
+
+class procedure TDextSqlServerBatchStrategy.ExecuteDeleteBatch(
+  const AContext: IDbContext; const ATableName: string;
+  WhereProps: IList<TPair<TRttiProperty, string>>;
+  const AEntities: TArray<TObject>; const ABatchSize: Integer);
+const
+  // A statement takes at most 2100 parameters.
+  MaxParams = 2000;
+var
+  ChunkStart, ChunkCount, TotalCount, EffectiveBatchSize, i, j: Integer;
+  Cmd: IDbCommand;
+  SB: TStringBuilder;
+  ParamName: string;
+  Prop: TRttiProperty;
+  Val: TValue;
+  Tx: IDbTransaction;
+  OwnsTx: Boolean;
+begin
+  TotalCount := Length(AEntities);
+  EffectiveBatchSize := ABatchSize;
+  if EffectiveBatchSize <= 0 then EffectiveBatchSize := 100;
+  if EffectiveBatchSize * WhereProps.Count > MaxParams then
+    EffectiveBatchSize := MaxParams div WhereProps.Count;
+
+  OwnsTx := not AContext.InTransaction;
+  if OwnsTx then
+    Tx := AContext.Connection.BeginTransaction
+  else
+    Tx := nil;
+  try
+    ChunkStart := 0;
+    while ChunkStart < TotalCount do
+    begin
+      if TotalCount - ChunkStart < EffectiveBatchSize then
+        ChunkCount := TotalCount - ChunkStart
+      else
+        ChunkCount := EffectiveBatchSize;
+
+      // WHERE (k1 = :p0_0 AND k2 = :p0_1) OR (k1 = :p1_0 AND k2 = :p1_1) ...
+      SB := TStringBuilder.Create;
+      try
+        SB.Append('DELETE FROM ').Append(ATableName).Append(' WHERE ');
+        for j := 0 to ChunkCount - 1 do
+        begin
+          if j > 0 then SB.Append(' OR ');
+          SB.Append('(');
+          for i := 0 to WhereProps.Count - 1 do
+          begin
+            if i > 0 then SB.Append(' AND ');
+            SB.Append(AContext.Dialect.QuoteIdentifier(WhereProps[i].Value))
+              .Append(' = :p').Append(IntToStr(j)).Append('_').Append(IntToStr(i));
+          end;
+          SB.Append(')');
+        end;
+        Cmd := AContext.Connection.CreateCommand(SB.ToString);
+      finally
+        SB.Free;
+      end;
+
+      for j := 0 to ChunkCount - 1 do
+        for i := 0 to WhereProps.Count - 1 do
+        begin
+          Prop := WhereProps[i].Key;
+          ParamName := 'p' + IntToStr(j) + '_' + IntToStr(i);
+          Val := TDEXTBatchHelper.ExtractPropValue(AEntities[ChunkStart + j], Prop, nil, AContext.Dialect.GetDialect);
+          Cmd.AddParam(ParamName, Val, TDEXTBatchHelper.GetParamType(Val, Prop));
+        end;
+
+      CheckDeletedRows(Cmd.ExecuteNonQuery, ChunkCount);
+      ChunkStart := ChunkStart + ChunkCount;
+    end;
+    if OwnsTx and (Tx <> nil) then
+      Tx.Commit;
+  except
+    if OwnsTx and (Tx <> nil) then
+      Tx.Rollback;
+    raise;
+  end;
 end;
 
 { TDextNativeArrayDmlStrategy }

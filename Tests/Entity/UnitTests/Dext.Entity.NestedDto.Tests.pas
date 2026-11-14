@@ -19,7 +19,7 @@ uses
   Dext.Entity.Attributes,
   Dext.Entity.Core,
   Dext.Entity.Setup,
-  Dext.Entity.TestPostgres,
+  Dext.Entity.TestServer,
   FireDAC.Phys.SQLite;
 
 type
@@ -211,16 +211,8 @@ end;
 
 procedure TNestedDtoTests.Setup;
 begin
-  if TestPgConnection <> '' then
-  begin
-    TestPgEnsureDriver;
-    FDb := TNdDb.Create(DbContextOptions.UsePostgreSQL(TestPgConnection));
-    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_nested CASCADE').Execute;
-    FDb.Connection.CreateCommand('CREATE SCHEMA dext_ut_nested').Execute;
-    FDb.Connection.CreateCommand('SET search_path TO dext_ut_nested').Execute;
-  end
-  else
-    FDb := TNdDb.Create(DbContextOptions.UseSQLite(':memory:'));
+  FDb := TNdDb.Create(TestDbOptions('dext_ut_nested'));
+  TestDbPrepare(FDb, 'dext_ut_nested');
   FDb.Categories;
   FDb.Items;
   FDb.EnsureCreated;
@@ -229,9 +221,7 @@ end;
 
 procedure TNestedDtoTests.TearDown;
 begin
-  if (FDb <> nil) and (TestPgConnection <> '') then
-    FDb.Connection.CreateCommand('DROP SCHEMA IF EXISTS dext_ut_nested CASCADE').Execute;
-  FreeAndNil(FDb);
+  TestDbRelease(TDbContext(FDb), 'dext_ut_nested');
 end;
 
 procedure TNestedDtoTests.Seed;
@@ -266,7 +256,7 @@ var
 begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List.Count).Be(1);
   Should(List[0].Category <> nil).BeTrue;
   Should(List[0].Category.Name).Be('Hardware');
@@ -278,7 +268,7 @@ var
 begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Id).Be(10);
   Should(List[0].Name).Be('Keyboard');
 end;
@@ -289,7 +279,7 @@ var
 begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i LEFT JOIN nd_categories c ON c."Id" = i."CategoryId" ' +
+    'FROM "nd_items" i LEFT JOIN "nd_categories" c ON c."Id" = i."CategoryId" ' +
     'ORDER BY i."Id"');
   Should(List.Count).Be(2);
   Should(List[0].Category <> nil).BeTrue;
@@ -304,7 +294,7 @@ begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name, ' +
     '''Root'' AS Category_Parent_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Category.Name).Be('Hardware');
   Should(List[0].Category.Parent <> nil).BeTrue;
   Should(List[0].Category.Parent.Name).Be('Root');
@@ -316,7 +306,7 @@ var
 begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS NotNested_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].NotNested = nil).BeTrue;
 end;
 
@@ -326,7 +316,7 @@ var
 begin
   Item := FDb.SqlQueryFirst<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId" ' +
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId" ' +
     'WHERE i."Id" = :Id', [10]);
   try
     Should(Item <> nil).BeTrue;
@@ -342,7 +332,7 @@ var
 begin
   List := FDb.Entities<TNdItemRead>.FromSql(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"').ToList;
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"').ToList;
   Should(List.Count).Be(1);
   Should(List[0].Category <> nil).BeTrue;
   Should(List[0].Category.Name).Be('Hardware');
@@ -354,7 +344,7 @@ var
 begin
   List := FDb.Entities<TNdItemRead>.FromSql(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"').ToList;
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"').ToList;
   Should(List[0].Id).Be(10);
   Should(List[0].Name).Be('Keyboard');
 end;
@@ -365,7 +355,7 @@ var
 begin
   List := FDb.Entities<TNdItemRead>.FromSql(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i LEFT JOIN nd_categories c ON c."Id" = i."CategoryId" ' +
+    'FROM "nd_items" i LEFT JOIN "nd_categories" c ON c."Id" = i."CategoryId" ' +
     'ORDER BY i."Id"').ToList;
   Should(List.Count).Be(2);
   Should(List[0].Category <> nil).BeTrue;
@@ -380,7 +370,7 @@ begin
   List := FDb.Entities<TNdItemRead>.FromSql(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name, ' +
     '''Root'' AS Category_Parent_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"').ToList;
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"').ToList;
   Should(List[0].Category.Parent <> nil).BeTrue;
   Should(List[0].Category.Parent.Name).Be('Root');
 end;
@@ -404,7 +394,7 @@ begin
 
   List := FDb.Entities<TNdItemRead>.FromSql(
     'SELECT i."Id", i."Name", c."Name" AS Category_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId" ' +
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId" ' +
     'ORDER BY i."Id"').ToList;
   Should(List.Count).Be(2);
   Should(List[0].Category.Name).Be('Hardware');
@@ -417,7 +407,7 @@ var
 begin
   List := FDb.SqlQuery<TNdItemDto>(
     'SELECT i."Id", i."Name", c."Name" AS "Category.Name" ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Category.Name).Be('Hardware');
 end;
 
@@ -427,7 +417,7 @@ var
 begin
   List := FDb.SqlQuery<TNdPrefixDto>(
     'SELECT i."Id", c."Name" AS h_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List.Count).Be(1);
   Should(List[0].Id).Be(10);
   Should(List[0].Home <> nil).BeTrue;
@@ -441,7 +431,7 @@ var
 begin
   List := FDb.SqlQuery<TNdPrefixDto>(
     'SELECT i."Id", c."Name" AS h_Name, i."Name" AS work_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Home.Name).Be('Hardware');
   Should(List[0].Work.Name).Be('Keyboard');
 end;
@@ -452,7 +442,7 @@ var
 begin
   List := FDb.SqlQuery<TNdPrefixDto>(
     'SELECT i."Id", c."Name" AS H_NAME ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Home <> nil).BeTrue;
   Should(List[0].Home.Name).Be('Hardware');
 end;
@@ -464,7 +454,7 @@ begin
   // A prefix can reach a second level: h_Parent_Name -> Home.Parent.Name
   List := FDb.SqlQuery<TNdPrefixDto>(
     'SELECT i."Id", c."Name" AS h_Name, c."Name" AS h_Parent_Name ' +
-    'FROM nd_items i JOIN nd_categories c ON c."Id" = i."CategoryId"');
+    'FROM "nd_items" i JOIN "nd_categories" c ON c."Id" = i."CategoryId"');
   Should(List[0].Home.Parent <> nil).BeTrue;
   Should(List[0].Home.Parent.Name).Be('Hardware');
 end;

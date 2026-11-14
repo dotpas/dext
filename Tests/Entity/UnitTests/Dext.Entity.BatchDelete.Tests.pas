@@ -42,7 +42,7 @@ uses
   Dext.Entity.Dialects,
   Dext.Entity.Drivers.FireDAC,
   Dext.Entity.Drivers.Interfaces,
-  Dext.Entity.TestPostgres,
+  Dext.Entity.TestServer,
   Dext.Testing.Attributes;
 
 type
@@ -58,16 +58,23 @@ type
   end;
 
   /// <summary>
+  ///   Its own context class: the model of a context is cached by class, and
+  ///   a model shared with other tests would create their tables here too
+  ///   (a real server can refuse some of them).
+  /// </summary>
+  TBatchDeleteDb = class(TDbContext)
+  end;
+
+  /// <summary>
   ///   Rows 1, 2 and 3 are there before every test, in a SQLite database in
-  ///   memory, or in a schema of the PostgreSQL server when DEXT_TEST_PG is
-  ///   set. Row 2 is removed from the table behind the context's back when a
+  ///   memory, or in a database of the server chosen by DEXT_TEST_SERVER (see
+  ///   Dext.Entity.TestServer). Row 2 is removed from the table behind the context's back when a
   ///   test needs a delete that finds nothing.
   /// </summary>
   [TestFixture('SaveChanges - rows affected by batch DELETE')]
   TBatchDeleteTests = class
   private
-    FCtx: TDbContext;
-    FOnPostgres: Boolean;
+    FCtx: TBatchDeleteDb;
     function Quoted(const AName: string): string;
     procedure RemoveRow(const AId: Integer);
     procedure DeleteBehindTheContext(const AId: Integer);
@@ -110,33 +117,16 @@ uses
 
 { TBatchDeleteTests }
 
+const
+  DbName = 'dext_ut_batchdel';
+
 procedure TBatchDeleteTests.Setup;
 var
-  FDConn: TFDConnection;
-  Conn: IDbConnection;
   I: Integer;
   Widget: TBatchWidget;
 begin
-  FOnPostgres := TestPgConnection <> '';
-  if FOnPostgres then
-  begin
-    TestPgEnsureDriver;
-    FCtx := TDbContext.Create(DbContextOptions.UsePostgreSQL(TestPgConnection));
-    FCtx.Connection.CreateCommand(
-      'DROP SCHEMA IF EXISTS dext_ut_batchdel CASCADE').Execute;
-    FCtx.Connection.CreateCommand('CREATE SCHEMA dext_ut_batchdel').Execute;
-    FCtx.Connection.CreateCommand(
-      'SET search_path TO dext_ut_batchdel').Execute;
-  end
-  else
-  begin
-    FDConn := TFDConnection.Create(nil);
-    FDConn.DriverName := 'SQLite';
-    FDConn.Params.Values['Database'] := ':memory:';
-    Conn := TFireDACConnection.Create(FDConn);
-    Conn.Connect;
-    FCtx := TDbContext.Create(Conn, TSQLiteDialect.Create);
-  end;
+  FCtx := TBatchDeleteDb.Create(TestDbOptions(DbName));
+  TestDbPrepare(FCtx, DbName);
   FCtx.Entities<TBatchWidget>;
   FCtx.EnsureCreated;
 
@@ -152,10 +142,7 @@ end;
 
 procedure TBatchDeleteTests.TearDown;
 begin
-  if FOnPostgres and (FCtx <> nil) then
-    FCtx.Connection.CreateCommand(
-      'DROP SCHEMA IF EXISTS dext_ut_batchdel CASCADE').Execute;
-  FreeAndNil(FCtx);
+  TestDbRelease(TDbContext(FCtx), DbName);
 end;
 
 function TBatchDeleteTests.Quoted(const AName: string): string;
