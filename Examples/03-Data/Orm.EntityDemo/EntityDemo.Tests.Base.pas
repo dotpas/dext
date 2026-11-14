@@ -91,6 +91,22 @@ begin
   Builder.Entity<TProduct>;
   Builder.Entity<TOrderItem>;
   Builder.Entity<TConverterTestEntity>;  // TypeConverter example
+
+  // InterBase has no identity column: the key of each entity comes from a
+  // generator, declared here so the entities keep [AutoInc] for the other servers.
+  if TDbConfig.GetProvider = dpInterBase then
+  begin
+    Builder.Entity<TUser>.Prop('Id').UseSequence('GEN_DEMO_USERS', 1);
+    Builder.Entity<TAddress>.Prop('Id').UseSequence('GEN_DEMO_ADDRESSES', 1);
+    Builder.Entity<TProduct>.Prop('Id').UseSequence('GEN_DEMO_PRODUCTS', 1);
+    Builder.Entity<TConverterTestEntity>.Prop('Id').UseSequence('GEN_DEMO_CONVERTERS', 1);
+    Builder.Entity<TDocument>.Prop('Id').UseSequence('GEN_DEMO_DOCUMENTS', 1);
+    Builder.Entity<TArticle>.Prop('Id').UseSequence('GEN_DEMO_ARTICLES', 1);
+    Builder.Entity<TUserProfile>.Prop('Id').UseSequence('GEN_DEMO_PROFILES', 1);
+    Builder.Entity<TUserWithProfile>.Prop('Id').UseSequence('GEN_DEMO_USER_PROFILES', 1);
+    Builder.Entity<TTask>.Prop('Id').UseSequence('GEN_DEMO_TASKS', 1);
+    Builder.Entity<TFluentSoftDelete>.Prop('Id').UseSequence('GEN_DEMO_FLUENT_SOFT', 1);
+  end;
 end;
 
 { TBaseTest }
@@ -234,7 +250,7 @@ begin
   TSQLCache.Instance.Clear;
 
   // 2. Initialize Context
-  FContext := TDbContext.Create(DbConnection, Dialect);
+  FContext := TEntityDemoContext.Create(DbConnection, Dialect);
   if DebugSql then
   begin
     FContext. OnLog :=

@@ -41,15 +41,18 @@ begin
 
   // Verify Bulk Safety Guards
   Log('   Verifying Bulk Safety Guards...');
-  AssertTrue(not FContext.Entities<TUser>.IsBulkInsertSafe, 'TUser Insert should not be bulk safe (AutoInc)', 'TUser Insert bulk safe mismatch');
+  // On InterBase the key comes from a generator ([Sequence]), not an identity: the insert is bulk safe
+  AssertTrue((TDbConfig.GetProvider = dpInterBase) = FContext.Entities<TUser>.IsBulkInsertSafe, 'TUser Insert bulk safety follows the key (AutoInc: not safe)', 'TUser Insert bulk safe mismatch');
   AssertTrue(FContext.Entities<TUser>.IsBulkUpdateSafe, 'TUser Update should be bulk safe', 'TUser Update bulk safe mismatch');
   AssertTrue(FContext.Entities<TUser>.IsBulkDeleteSafe, 'TUser Delete should be bulk safe', 'TUser Delete bulk safe mismatch');
 
-  AssertTrue(not FContext.Entities<TProduct>.IsBulkInsertSafe, 'TProduct Insert should not be bulk safe (AutoInc)', 'TProduct Insert bulk safe mismatch');
+  // On InterBase the key comes from a generator ([Sequence]), not an identity: the insert is bulk safe
+  AssertTrue((TDbConfig.GetProvider = dpInterBase) = FContext.Entities<TProduct>.IsBulkInsertSafe, 'TProduct Insert bulk safety follows the key (AutoInc: not safe)', 'TProduct Insert bulk safe mismatch');
   AssertTrue(not FContext.Entities<TProduct>.IsBulkUpdateSafe, 'TProduct Update should not be bulk safe (Version)', 'TProduct Update bulk safe mismatch');
   AssertTrue(not FContext.Entities<TProduct>.IsBulkDeleteSafe, 'TProduct Delete should not be bulk safe (Version)', 'TProduct Delete bulk safe mismatch');
 
-  AssertTrue(not FContext.Entities<TTask>.IsBulkInsertSafe, 'TTask Insert should not be bulk safe (AutoInc)', 'TTask Insert bulk safe mismatch');
+  // On InterBase the key comes from a generator ([Sequence]), not an identity: the insert is bulk safe
+  AssertTrue((TDbConfig.GetProvider = dpInterBase) = FContext.Entities<TTask>.IsBulkInsertSafe, 'TTask Insert bulk safety follows the key (AutoInc: not safe)', 'TTask Insert bulk safe mismatch');
   AssertTrue(FContext.Entities<TTask>.IsBulkUpdateSafe, 'TTask Update should be bulk safe', 'TTask Update bulk safe mismatch');
   AssertTrue(not FContext.Entities<TTask>.IsBulkDeleteSafe, 'TTask Delete should not be bulk safe (SoftDelete)', 'TTask Delete bulk safe mismatch');
 

@@ -186,7 +186,8 @@ begin
     end;
     ConfigureDatabase(Provider);
     TDbConfig.EnsureDatabaseExists; // Create database if not exists
-    TBaseTest.DebugSql := False;
+    // DEXT_DEMO_DEBUGSQL=1 prints every SQL statement the tests run
+    TBaseTest.DebugSql := GetEnvironmentVariable('DEXT_DEMO_DEBUGSQL') <> '';
     RunAllTests;
   except
     on E: Exception do
