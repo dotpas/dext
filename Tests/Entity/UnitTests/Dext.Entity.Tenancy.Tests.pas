@@ -53,6 +53,8 @@ type
 
     [Test]
     procedure Test_ReadAfterTenantSwitch_ShouldUseTheTenantDatabase;
+    [Test]
+    procedure Test_SwitchWithTheConnectionAlreadyOpen_ShouldReconnect;
   end;
 
   [Fixture]
@@ -139,6 +141,46 @@ begin
     Db.SaveChanges;
     Db.Clear;
 
+  finally
+    Db.Free;
+  end;
+end;
+
+procedure TTenancyConnectionSwitchTests.Test_SwitchWithTheConnectionAlreadyOpen_ShouldReconnect;
+var
+  Provider: ITenantProvider;
+  Db: TTenantNotesContext;
+  Note: TTenantNote;
+begin
+  Provider := TTenantProvider.Create;
+  Db := TTenantNotesContext.Create(DbContextOptions.UseSQLite(FFileA), Provider);
+  try
+    Db.Notes;
+    // The connection is open before the first tenant is applied.
+    Db.Connection.Connect;
+
+    Provider.Tenant := TenantFor('a', FFileA);
+    Db.EnsureCreated;
+    Note := TTenantNote.Create;
+    Note.Id := 1;
+    Note.Text := 'from A';
+    Db.Notes.Add(Note);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Provider.Tenant := TenantFor('b', FFileB);
+    Db.EnsureCreated;
+    Note := TTenantNote.Create;
+    Note.Id := 1;
+    Note.Text := 'from B';
+    Db.Notes.Add(Note);
+    Db.SaveChanges;
+    Db.Clear;
+
+    Should(Db.Notes.Find(1).Text).Be('from B');
+    Provider.Tenant := TenantFor('a', FFileA);
+    Db.Clear;
+    Should(Db.Notes.Find(1).Text).Be('from A');
   finally
     Db.Free;
   end;

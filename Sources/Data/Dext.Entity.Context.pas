@@ -818,6 +818,7 @@ var
   Sql: string;
   CurrentTenantId: string;
   Cmd: IDbCommand;
+  WasConnected: Boolean;
 begin
   CurrentTenantId := '';
   if (FTenantProvider <> nil) and (FTenantProvider.Tenant <> nil) then
@@ -853,13 +854,13 @@ begin
     begin
       if FConnection.ConnectionString <> FTenantProvider.Tenant.ConnectionString then
       begin
+        // The connection setter closes an open connection, so ask first: an
+        // open connection has to be reopened on the new string, and one that
+        // is not open stays closed until it is used.
+        WasConnected := FConnection.IsConnected;
         FConnection.ConnectionString := FTenantProvider.Tenant.ConnectionString;
-        // If we are already connected, we need to reconnect with the new string
-        if FConnection.IsConnected then
-        begin
-          FConnection.Disconnect;
+        if WasConnected then
           FConnection.Connect;
-        end;
       end;
     end;
   end;
