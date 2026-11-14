@@ -622,6 +622,8 @@ begin
       APropMap.IsSequenced := True;
       APropMap.SequenceName := SequenceAttribute(AAttr).SequenceName;
       APropMap.SequenceAllocationSize := SequenceAttribute(AAttr).AllocationSize;
+      // The id comes from a generator, not from an identity column
+      APropMap.IsAutoInc := False;
     end;
     if AAttr is LazyAttribute then APropMap.IsLazy := True;
     if AAttr is ColumnAttribute then APropMap.ColumnName := ColumnAttribute(AAttr).Name;
@@ -637,7 +639,7 @@ begin
       APropMap.IsPK := True;
       if not FKeys.Contains(APropMap.PropertyName) then FKeys.Add(APropMap.PropertyName);
     end;
-    if AAttr is AutoIncAttribute then APropMap.IsAutoInc := True;
+    if (AAttr is AutoIncAttribute) and not APropMap.IsSequenced then APropMap.IsAutoInc := True;
     if AAttr is NotMappedAttribute then APropMap.IsIgnored := True;
     if AAttr is ForeignKeyAttribute then APropMap.ForeignKeyColumn := ForeignKeyAttribute(AAttr).ColumnName;
     if AAttr is DbTypeAttribute then APropMap.DataType := DbTypeAttribute(AAttr).DataType;
@@ -1482,6 +1484,7 @@ end;
 function TEntityBuilder<T>.UseSequence(const ASequenceName: string; AAllocationSize: Integer): TEntityBuilder<T>;
 begin
   GetCurrentProp.IsSequenced := True;
+  GetCurrentProp.IsAutoInc := False;
   GetCurrentProp.SequenceName := ASequenceName;
   GetCurrentProp.SequenceAllocationSize := AAllocationSize;
   Result := Self;
@@ -1956,6 +1959,7 @@ end;
 function TPropertyBuilder<T>.UseSequence(const ASequenceName: string; AAllocationSize: Integer): IPropertyBuilder<T>;
 begin
   FPropMap.IsSequenced := True;
+  FPropMap.IsAutoInc := False;
   FPropMap.SequenceName := ASequenceName;
   FPropMap.SequenceAllocationSize := AAllocationSize;
   Result := Self;

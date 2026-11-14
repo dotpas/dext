@@ -2503,7 +2503,7 @@ begin
       // Check Attribute
       for Attr in Prop.GetAttributes do
       begin
-        if Attr is AutoIncAttribute then
+        if (Attr is AutoIncAttribute) and not ((PropMap <> nil) and PropMap.IsSequenced) then
         begin
           AutoIncProp := Prop;
           AutoIncColumn := Prop.Name;

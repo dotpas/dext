@@ -2027,6 +2027,8 @@ begin
         if PropMap.IsIgnored then IsMapped := False;
         if PropMap.IsNavigation and not PropMap.IsJsonColumn then IsMapped := False;
         if PropMap.IsAutoInc then IsAutoInc := True;
+        // A sequenced key takes its id from a generator, so the INSERT carries it
+        if PropMap.IsSequenced then IsAutoInc := False;
         if PropMap.ColumnName <> '' then ColName := PropMap.ColumnName;
       end;
 
@@ -2232,6 +2234,7 @@ begin
         if PropMap.IsIgnored then IsMapped := False;
         if PropMap.IsNavigation then IsMapped := False;
         if PropMap.IsAutoInc then IsAutoInc := True;
+        if PropMap.IsSequenced then IsAutoInc := False;
         if PropMap.ColumnName <> '' then ColName := PropMap.ColumnName;
       end;
 
@@ -3660,6 +3663,11 @@ begin
       end;
 
       
+      // A sequenced key takes its id from a generator, not from an identity
+      // column (the insert path already lets IsSequenced win over IsAutoInc)
+      if (PropMap <> nil) and PropMap.IsSequenced then
+        IsAutoInc := False;
+
       if not IsMapped then Continue;
 
       // A column already emitted by another class of the hierarchy
