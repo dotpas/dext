@@ -498,8 +498,8 @@ begin
   {$ENDIF}
   WriteLn('InterBase configured: ' + AFileName);
   // The demo entities map their keys with [AutoInc], and InterBase has no identity
-  // column: EnsureCreated raises ENotSupportedException asking for [Sequence].
-  WriteLn('Note: the demo entities use [AutoInc]; InterBase needs [Sequence] (no identity column).');
+  // column: TEntityDemoContext declares a generator (UseSequence) for each of them.
+  WriteLn('Note: InterBase has no identity column; the demo context maps each key to a generator.');
 end;
 
 class procedure TDbConfig.ConfigureOracle(

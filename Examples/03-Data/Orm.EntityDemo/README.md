@@ -223,6 +223,13 @@ TDbConfig.ConfigureSQLServerWindowsAuth('localhost', 'dext_test');
 TDbConfig.ConfigureSQLServer('localhost', 'dext_test', 'sa', 'password');
 ```
 
+### InterBase
+
+> **Note**: needs `{$DEFINE DEXT_ENABLE_DB_IB}` in `Dext.inc`. InterBase has no identity
+> column, so `TEntityDemoContext` declares a generator (`UseSequence`) for each `[AutoInc]`
+> entity when the provider is InterBase. Run it with `Orm.EntityDemo interbase`; set
+> `DEXT_DEMO_DEBUGSQL=1` to print every SQL statement.
+
 ### Oracle
 
 > **Note**: needs `{$DEFINE DEXT_ENABLE_DB_ORACLE}` in `Dext.inc`. In Oracle a
