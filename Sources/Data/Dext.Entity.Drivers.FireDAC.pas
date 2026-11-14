@@ -1141,7 +1141,8 @@ end;
 
 // A "?" marker has no name, and two or more of them in one command are not
 // told apart. Each one outside a string, a quoted identifier or a comment
-// gets its own name (_pos1, _pos2, ...), in order, so BindSequentialParams can
+// gets its own name (mark1, mark2, ...: a bind name must start with a letter,
+// or Oracle refuses it with ORA-01036), in order, so BindSequentialParams can
 // fill them by position.
 function NameTheMarkers(const ASQL: string): string;
 var
@@ -1191,7 +1192,7 @@ begin
     else if C = '?' then
     begin
       Inc(N);
-      Result := Result + ':_pos' + IntToStr(N);
+      Result := Result + ':mark' + IntToStr(N);
     end
     else
       Result := Result + C;

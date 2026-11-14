@@ -32,6 +32,8 @@ unit Dext.Entity.BatchDelete.Tests;
 interface
 
 uses
+  Data.FmtBcd,
+  System.Rtti,
   System.SysUtils,
   Dext.Assertions,
   Dext.Core.SmartTypes,
@@ -163,9 +165,16 @@ begin
 end;
 
 function TBatchDeleteTests.RowCount: Integer;
+var
+  Value: TValue;
 begin
-  Result := FCtx.Connection.CreateCommand(
-    'SELECT COUNT(*) FROM ' + Quoted('BATCH_WIDGETS')).ExecuteScalar.AsInteger;
+  Value := FCtx.Connection.CreateCommand(
+    'SELECT COUNT(*) FROM ' + Quoted('BATCH_WIDGETS')).ExecuteScalar;
+  // A NUMBER column (Oracle) arrives as a TBcd, not as an integer.
+  if Value.TypeInfo = TypeInfo(TBcd) then
+    Result := BcdToInteger(Value.AsType<TBcd>)
+  else
+    Result := Value.AsInteger;
 end;
 
 procedure TBatchDeleteTests.Batch_Deletes_Existing_Rows;

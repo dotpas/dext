@@ -511,6 +511,8 @@ type
 // TValue.ToString does not work correctly for TGUID (returns type name, not value)
 function TValueToKeyString(const AValue: TValue): string;
 function TValueToVariant(const AValue: TValue): Variant;
+/// <summary>The integer in a scalar a command returned: a NUMBER column (Oracle) arrives as a TBcd, which TValue.AsInteger does not convert.</summary>
+function TValueToInteger(const AValue: TValue): Integer;
 function GetFieldType(ATypeInfo: PTypeInfo): TFieldType;
 
 implementation
@@ -571,6 +573,12 @@ begin
       Exit(AValue.AsString);
   end;
 
+  // A NUMBER column (Oracle) arrives as a TBcd: its text is the key (a TBcd is
+  // a record with no variant of its own, so the fallback below would give the
+  // same text to every value)
+  if AValue.TypeInfo = TypeInfo(TBcd) then
+    Exit(BcdToStr(AValue.AsType<TBcd>, TFormatSettings.Invariant));
+
   // Fallback for GUIDs, Nullables, Records, etc.
   V := TValueToVariant(AValue);
   if VarIsNull(V) or VarIsEmpty(V) then
@@ -581,6 +589,14 @@ begin
   // Normalize GUIDs to lowercase matches for consistency
   if Result.StartsWith('{') and (Length(Result) = 38) then
     Result := LowerCase(Result);
+end;
+
+function TValueToInteger(const AValue: TValue): Integer;
+begin
+  if AValue.TypeInfo = TypeInfo(TBcd) then
+    Result := BcdToInteger(AValue.AsType<TBcd>)
+  else
+    Result := AValue.AsInteger;
 end;
 
 function TValueToVariant(const AValue: TValue): Variant;
@@ -625,6 +641,9 @@ begin
       AValue.ExtractRawData(@U);
       Exit(U.ToString);
     end;
+
+    if AValue.TypeInfo = TypeInfo(TBcd) then
+      Exit(VarFMTBcdCreate(AValue.AsType<TBcd>));
   end;
   
   // Fallback to variant conversion
@@ -4845,7 +4864,7 @@ begin
         Cmd.AddParam(Pair.Key, Pair.Value);
     end;
     Val := Cmd.ExecuteScalar;
-    if Val.IsEmpty then Result := 0 else Result := Val.AsInteger;
+    if Val.IsEmpty then Result := 0 else Result := TValueToInteger(Val);
   finally
     Generator.Free;
     ResetQueryFlags;

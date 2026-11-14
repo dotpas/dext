@@ -6,14 +6,17 @@ unit Dext.Entity.TestServer;
 {  No variable set: SQLite in memory.                                       }
 {                                                                           }
 {  DEXT_TEST_SERVER   postgresql (default when DEXT_TEST_PG is set),        }
-{                     mariadb, firebird, interbase or sqlserver.            }
+{                     mariadb, firebird, interbase, sqlserver or oracle.    }
 {                     When it names a server whose connection is missing,   }
 {                     the tests fail instead of falling back to SQLite.     }
 {                                                                           }
 {  Connection of each server (FireDAC parameters; the PostgreSQL one has    }
 {  Database=..., the others do not: each test creates its own database):   }
 {    DEXT_TEST_PG, DEXT_TEST_MARIADB, DEXT_TEST_FIREBIRD,                   }
-{    DEXT_TEST_INTERBASE, DEXT_TEST_SQLSERVER                               }
+{    DEXT_TEST_INTERBASE, DEXT_TEST_SQLSERVER, DEXT_TEST_ORACLE            }
+{  Oracle: the connection is of an administrator of the pluggable database  }
+{    (Database=host:1521/XEPDB1;User_Name=system;Password=...); each test   }
+{    creates its own user (schema) and drops it at the end.                 }
 {  DEXT_TEST_<SERVER>_VENDORLIB  the client library, of the same bitness    }
 {                                as the executable (optional)               }
 {  DEXT_TEST_FIREBIRD_DIR / DEXT_TEST_INTERBASE_DIR                         }
@@ -28,7 +31,7 @@ uses
 
 type
   TTestServer = (tsSQLite, tsPostgreSQL, tsMariaDB, tsFirebird, tsInterBase,
-    tsSQLServer);
+    tsSQLServer, tsOracle);
 
 /// <summary>The server the tests run on (tsSQLite when none is configured).</summary>
 function TestServer: TTestServer;
@@ -67,13 +70,16 @@ uses
   FireDAC.Phys.IB,
   FireDAC.Phys.IBDef,
   FireDAC.Phys.MSSQL,
-  FireDAC.Phys.MSSQLDef;
+  FireDAC.Phys.MSSQLDef,
+  FireDAC.Phys.Oracle,
+  FireDAC.Phys.OracleDef;
 
 var
   GLinkMy: TFDPhysMySQLDriverLink;
   GLinkFB: TFDPhysFBDriverLink;
   GLinkIB: TFDPhysIBDriverLink;
   GLinkMS: TFDPhysMSSQLDriverLink;
+  GLinkOra: TFDPhysOracleDriverLink;
 
 function Prefix(AServer: TTestServer): string;
 begin
@@ -82,6 +88,7 @@ begin
     tsFirebird: Result := 'DEXT_TEST_FIREBIRD';
     tsInterBase: Result := 'DEXT_TEST_INTERBASE';
     tsSQLServer: Result := 'DEXT_TEST_SQLSERVER';
+    tsOracle: Result := 'DEXT_TEST_ORACLE';
   else
     Result := 'DEXT_TEST_PG';
   end;
@@ -108,6 +115,7 @@ begin
   else if Name = 'firebird' then Result := tsFirebird
   else if Name = 'interbase' then Result := tsInterBase
   else if Name = 'sqlserver' then Result := tsSQLServer
+  else if Name = 'oracle' then Result := tsOracle
   else
     raise Exception.CreateFmt('DEXT_TEST_SERVER=%s: unknown server', [Name]);
 
@@ -154,6 +162,12 @@ begin
     tsSQLServer:
       if GLinkMS = nil then
         GLinkMS := TFDPhysMSSQLDriverLink.Create(nil);
+    tsOracle:
+      if GLinkOra = nil then
+      begin
+        GLinkOra := TFDPhysOracleDriverLink.Create(nil);
+        GLinkOra.VendorLib := Lib;
+      end;
   end;
 end;
 
@@ -177,6 +191,7 @@ begin
       tsSQLServer: Result.DriverName := 'MSSQL';
       tsFirebird: Result.DriverName := 'FB';
       tsInterBase: Result.DriverName := 'IB';
+      tsOracle: Result.DriverName := 'Ora';
     end;
   except
     Result.Free;
@@ -212,6 +227,19 @@ begin
           Conn.Free;
         end;
       end;
+    tsOracle:
+      begin
+        Conn := AdminConnection(AServer, '');
+        try
+          Conn.Open;
+          // ORA-01918: the user does not exist
+          Conn.ExecSQL('BEGIN EXECUTE IMMEDIATE ''DROP USER ' + AName +
+            ' CASCADE''; EXCEPTION WHEN OTHERS THEN IF SQLCODE <> -1918 THEN RAISE; ' +
+            'END IF; END;');
+        finally
+          Conn.Free;
+        end;
+      end;
     tsFirebird, tsInterBase:
       if FileExists(DatabaseFile(AServer, AName)) then
       begin
@@ -231,17 +259,44 @@ procedure CreateDatabase(AServer: TTestServer; const AName: string);
 var
   Conn: TFDConnection;
 begin
-  if not (AServer in [tsMariaDB, tsSQLServer]) then
+  if not (AServer in [tsMariaDB, tsSQLServer, tsOracle]) then
     Exit; // OpenMode=OpenOrCreate creates the file on the first connection
   Conn := AdminConnection(AServer, '');
   try
     Conn.Open;
     if AServer = tsSQLServer then
       Conn.ExecSQL('CREATE DATABASE [' + AName + ']')
+    else if AServer = tsOracle then
+    begin
+      // On Oracle a "database" is a user (schema) of the pluggable database.
+      Conn.ExecSQL('CREATE USER ' + AName + ' IDENTIFIED BY "' +
+        Conn.Params.Values['Password'] + '" QUOTA UNLIMITED ON USERS');
+      Conn.ExecSQL('GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE SEQUENCE, ' +
+        'CREATE SYNONYM TO ' + AName);
+    end
     else
       Conn.ExecSQL('CREATE DATABASE ' + AName + ' CHARACTER SET utf8mb4');
   finally
     Conn.Free;
+  end;
+end;
+
+function OracleUserConnection(const AName: string): string;
+var
+  Parts: TStringList;
+  Password: string;
+begin
+  Parts := TStringList.Create;
+  try
+    Parts.Delimiter := ';';
+    Parts.StrictDelimiter := True;
+    Parts.DelimitedText := Connection(tsOracle);
+    Password := Parts.Values['Password'];
+    Parts.Values['User_Name'] := AName;
+    Parts.Values['Password'] := Password;
+    Result := Parts.DelimitedText;
+  finally
+    Parts.Free;
   end;
 end;
 
@@ -269,6 +324,8 @@ begin
       Result := DbContextOptions.UseMySQL(Connection(Server) + ';Database=' + AName);
     tsSQLServer:
       Result := DbContextOptions.UseSQLServer(Connection(Server) + ';Database=' + AName);
+    tsOracle:
+      Result := DbContextOptions.UseOracle(OracleUserConnection(AName));
     tsFirebird:
       Result := DbContextOptions.UseFirebird(Connection(Server) + ';Database=' +
         DatabaseFile(Server, AName) + ';CharacterSet=UTF8;OpenMode=OpenOrCreate;PageSize=16384');
@@ -331,5 +388,6 @@ finalization
   FreeAndNil(GLinkFB);
   FreeAndNil(GLinkIB);
   FreeAndNil(GLinkMS);
+  FreeAndNil(GLinkOra);
 
 end.
