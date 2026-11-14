@@ -47,7 +47,7 @@ begin
 
   AssertTrue(not FContext.Entities<TProduct>.IsBulkInsertSafe, 'TProduct Insert should not be bulk safe (AutoInc)', 'TProduct Insert bulk safe mismatch');
   AssertTrue(not FContext.Entities<TProduct>.IsBulkUpdateSafe, 'TProduct Update should not be bulk safe (Version)', 'TProduct Update bulk safe mismatch');
-  AssertTrue(FContext.Entities<TProduct>.IsBulkDeleteSafe, 'TProduct Delete should be bulk safe', 'TProduct Delete bulk safe mismatch');
+  AssertTrue(not FContext.Entities<TProduct>.IsBulkDeleteSafe, 'TProduct Delete should not be bulk safe (Version)', 'TProduct Delete bulk safe mismatch');
 
   AssertTrue(not FContext.Entities<TTask>.IsBulkInsertSafe, 'TTask Insert should not be bulk safe (AutoInc)', 'TTask Insert bulk safe mismatch');
   AssertTrue(FContext.Entities<TTask>.IsBulkUpdateSafe, 'TTask Update should be bulk safe', 'TTask Update bulk safe mismatch');

@@ -49,10 +49,8 @@ begin
   FContext.Entities<TUser>.Add(U);
   FContext.SaveChanges;
 
-  // U is in IdentityMap. Address is nil because we didn't set it.
-  AssertTrue(U.Address = nil, 'Address should be nil initially', 'Address is not nil');
-
-  // Explicit Load
+  // U was created in code and is tracked: its Address is a Lazy reference,
+  // so reading it would also load it. Explicit Load does it on demand.
   FContext.Entry(U).Reference('Address').Load;
 
   AssertTrue(U.Address <> nil, 'Address should be loaded', 'Address is nil');
