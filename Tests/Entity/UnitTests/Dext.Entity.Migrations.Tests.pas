@@ -3,6 +3,7 @@
 interface
 
 uses
+  Data.DB,
   Dext.Collections,
   Dext.Testing,
   Dext.Entity,
@@ -115,6 +116,13 @@ type
     [Test]
     [Description('Firebird and InterBase change a column type with ALTER COLUMN ... TYPE')]
     procedure PostgreSQL_Alters_Column_Type_With_Type_Keyword;
+    [Test]
+    [Description('Oracle writes the types of a column from its field type with types that exist on Oracle')]
+    procedure Oracle_Field_Types_Exist_On_Oracle;
+
+    [Test]
+    [Description('Oracle changes a column type with MODIFY, and has no ALTER COLUMN')]
+    procedure Oracle_Alters_Column_Type_With_Modify;
     [Test]
     procedure Firebird_Identity_Column_Has_The_Type_Of_The_Key;
     [Test]
@@ -841,6 +849,39 @@ begin
     B.AlterColumn('t', 'c', 'VARCHAR(60)');
     Should(Postgres.GenerateMigration(B.Operations[0]))
       .Be('ALTER TABLE "t" ALTER COLUMN "c" TYPE VARCHAR(60)');
+  finally
+    B.Free;
+  end;
+end;
+
+procedure TMigrationTests.Oracle_Field_Types_Exist_On_Oracle;
+var
+  Oracle: ISQLDialect;
+begin
+  // Oracle has no BOOLEAN, BIGINT, TEXT or TIME column types (ORA-00902).
+  Oracle := TOracleDialect.Create;
+  Should(Oracle.GetColumnTypeForField(ftBoolean)).Be('NUMBER(1)');
+  Should(Oracle.GetColumnTypeForField(ftLargeint)).Be('NUMBER(19)');
+  Should(Oracle.GetColumnTypeForField(ftMemo)).Be('CLOB');
+  Should(Oracle.GetColumnTypeForField(ftWideMemo)).Be('CLOB');
+  Should(Oracle.GetColumnTypeForField(ftTime)).Be('TIMESTAMP');
+  Should(Oracle.GetColumnTypeForField(ftWideString)).Be('VARCHAR2(255)');
+  Should(Oracle.GetColumnTypeForField(ftInteger)).Be('NUMBER(10)');
+  Should(Oracle.GetColumnTypeForField(ftDateTime)).Be('TIMESTAMP');
+end;
+
+procedure TMigrationTests.Oracle_Alters_Column_Type_With_Modify;
+var
+  B: TSchemaBuilder;
+  Oracle: ISQLDialect;
+begin
+  // Oracle rejects ALTER COLUMN (ORA-01735): the column is changed with MODIFY.
+  Oracle := TOracleDialect.Create;
+  B := TSchemaBuilder.Create;
+  try
+    B.AlterColumn('t', 'c', 'VARCHAR2(60)');
+    Should(Oracle.GenerateMigration(B.Operations[0]))
+      .Be('ALTER TABLE "t" MODIFY ("c" VARCHAR2(60))');
   finally
     B.Free;
   end;

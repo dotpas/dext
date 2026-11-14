@@ -219,6 +219,9 @@ function FireDACFieldToTValue(Field: TField): TValue;
 var
   StrVal: string;
   Guid: TGUID;
+  Bcd: TBcd;
+  Whole: Boolean;
+  WholeText: string;
 begin
   if (Field = nil) or Field.IsNull then
     Exit(TValue.Empty);
@@ -242,7 +245,31 @@ begin
     ftCurrency:
       Result := TValue.From<Currency>(Field.AsCurrency);
     ftBCD, ftFMTBcd:
-      Result := TValue.From<TBcd>(Field.AsBcd);
+      begin
+        Bcd := Field.AsBcd;
+        // A NUMBER without a declared fraction (Oracle: ids, flags, and COUNT,
+        // whose scale FireDAC reports as 0 or 38) is a whole number, as an int4
+        // or an int8 is on the other servers. FireDAC pads the BCD with zero
+        // decimals (scale 2 or 4), so the digits are read, not the scale. A
+        // column declared with decimals, a value with a real fraction and a
+        // number too long for an Int64 stay a TBcd.
+        WholeText := BcdToStr(Bcd, TFormatSettings.Invariant);
+        Whole := (Field.Size = 0) or (Field.Size >= 38);
+        if Whole and (Pos('.', WholeText) > 0) then
+        begin
+          WholeText := WholeText.TrimRight(['0']);
+          if WholeText.EndsWith('.') then
+            SetLength(WholeText, Length(WholeText) - 1)
+          else
+            Whole := False;
+        end;
+        if Whole and (Length(WholeText) <= 9) then
+          Result := TValue.From<Integer>(StrToInt(WholeText))
+        else if Whole and (Length(WholeText) <= 18) then
+          Result := TValue.From<Int64>(StrToInt64(WholeText))
+        else
+          Result := TValue.From<TBcd>(Bcd);
+      end;
     ftBoolean:
       if Field is TBooleanField then
         Result := TValue.From<Boolean>(TBooleanField(Field).Value)
@@ -1099,6 +1126,7 @@ function TFireDACCommand.ExecuteScalar: TValue;
 var
   LSpan: TSpan;
   LParamObj: TJSONObject;
+  LRet: TFDParam;
   i: Integer;
 begin
   LogSqlCommand(FQuery.SQL.Text, FQuery.Params);
@@ -1117,15 +1145,33 @@ begin
   end;
 
   try
-    FQuery.Open;
-    try
-      if not FQuery.Eof then
-        Result := FireDACFieldToTValue(FQuery.Fields[0])
+    // Oracle: "INSERT ... RETURNING col INTO :RET_VAL" returns no cursor. The
+    // marker is an output parameter that has to be declared before the
+    // command runs, and its value is read after ExecSQL.
+    LRet := FQuery.Params.FindParam('RET_VAL');
+    if LRet <> nil then
+    begin
+      LRet.ParamType := ptOutput;
+      LRet.DataType := ftLargeint;
+      FQuery.ExecSQL;
+      if LRet.IsNull then
+        Result := TValue.Empty
       else
-        Result := TValue.Empty;
+        Result := TValue.From<Int64>(LRet.AsLargeInt);
       LSpan.SetStatus('Success');
-    finally
-      FQuery.Close;
+    end
+    else
+    begin
+      FQuery.Open;
+      try
+        if not FQuery.Eof then
+          Result := FireDACFieldToTValue(FQuery.Fields[0])
+        else
+          Result := TValue.Empty;
+        LSpan.SetStatus('Success');
+      finally
+        FQuery.Close;
+      end;
     end;
   except
     on E: Exception do
