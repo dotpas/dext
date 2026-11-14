@@ -523,6 +523,7 @@ var
   LFound: Boolean;
   LPkCount: Integer;
   LRowIdName: string;
+  FkNames, FkTables: TArray<string>;
 begin
   FDConn := TFireDACConnection(FConnection).Connection;
   LSchema := FDConn.Params.Values['MetaCurSchema'];
@@ -559,10 +560,21 @@ begin
       LCol.Scale := Meta.FieldByName('COLUMN_SCALE').AsInteger;
       LCol.IsNullable := True;
       if Meta.FindField('IS_NULLABLE') <> nil then LCol.IsNullable := Meta.FieldByName('IS_NULLABLE').AsString = 'YES'
-      else if Meta.FindField('NULLABLE') <> nil then LCol.IsNullable := Meta.FieldByName('NULLABLE').AsInteger = 1;
+      else if Meta.FindField('NULLABLE') <> nil then LCol.IsNullable := Meta.FieldByName('NULLABLE').AsInteger = 1
+      else if Meta.FindField('COLUMN_ATTRIBUTES') <> nil then
+        // FireDAC reports NOT NULL as the absence of caAllowNull.
+        LCol.IsNullable := (Meta.FieldByName('COLUMN_ATTRIBUTES').AsInteger and
+          (1 shl Ord(caAllowNull))) <> 0;
       LCol.IsPrimaryKey := False;
       if Meta.FindField('PRIMARY_KEY') <> nil then LCol.IsPrimaryKey := Meta.FieldByName('PRIMARY_KEY').AsBoolean;
+      // AUTO_INCREMENT (MariaDB) and IDENTITY (Firebird) come flagged as
+      // caAutoInc; SQL Server only says "identity" in the type name.
       LCol.IsAutoInc := False;
+      if Meta.FindField('COLUMN_ATTRIBUTES') <> nil then
+        LCol.IsAutoInc := (Meta.FieldByName('COLUMN_ATTRIBUTES').AsInteger and
+          (1 shl Ord(caAutoInc))) <> 0;
+      if (not LCol.IsAutoInc) and LCol.DataType.ToUpper.Contains('IDENTITY') then
+        LCol.IsAutoInc := True;
       LCol.IsArray := False;
       Result.Columns := Result.Columns + [LCol];
       Meta.Next;
@@ -615,11 +627,16 @@ begin
           if SameText(Result.Columns[i].Name, LColName) then
           begin
             Result.Columns[i].IsPrimaryKey := True;
+            Result.Columns[i].IsNullable := False;
             Break;
           end;
         Meta.Next;
       end;
     except
+      on E: Exception do
+        if Assigned(FConnection.OnLog) then
+          FConnection.OnLog('  [Scaffolding] primary key of ' + LActualTable +
+            ' could not be read: ' + E.Message);
     end;
 
     if SameText(FDConn.DriverName, 'SQLite') then
@@ -673,44 +690,59 @@ begin
     if not SameText(FDConn.DriverName, 'FB') then
     try
       Meta.Open;
-      if Meta.Eof then
-      begin
-         Meta.Close;
-         Meta.ObjectName := '';
-         Meta.BaseObjectName := LActualTable;
-         Meta.Open;
-      end;
-
+      SetLength(FkNames, 0);
+      SetLength(FkTables, 0);
       while not Meta.Eof do
       begin
+        if Meta.FindField('FKEY_NAME') <> nil then
+        begin
+          SetLength(FkNames, Length(FkNames) + 1);
+          SetLength(FkTables, Length(FkTables) + 1);
+          FkNames[High(FkNames)] := Meta.FieldByName('FKEY_NAME').AsString.Trim;
+          if Meta.FindField('PKEY_TABLE_NAME') <> nil then
+            FkTables[High(FkTables)] := Meta.FieldByName('PKEY_TABLE_NAME').AsString.Trim;
+        end;
+        Meta.Next;
+      end;
+
+      // One constraint can span several columns (composite key): each
+      // constraint becomes a single navigation, on its first column.
+      for FkIndex := 0 to High(FkNames) do
+      begin
+        Meta.Close;
+        Meta.MetaInfoKind := mkForeignKeyFields;
+        Meta.CatalogName := '';
+        Meta.SchemaName := LActualSchema;
+        Meta.BaseObjectName := LActualTable;
+        Meta.ObjectName := FkNames[FkIndex];
+        Meta.Open;
+        if Meta.Eof then Continue;
+
         LFK := Default(TMetaForeignKey);
-        if Meta.FindField('CONSTRAINT_NAME') <> nil then LFK.Name := Meta.FieldByName('CONSTRAINT_NAME').AsString.Trim
-        else if Meta.FindField('FKEY_NAME') <> nil then LFK.Name := Meta.FieldByName('FKEY_NAME').AsString.Trim
-        else LFK.Name := 'FK_' + LActualTable + '_' + (Length(Result.ForeignKeys) + 1).ToString;
-
-        if Meta.FindField('COLUMN_NAME') <> nil then LFK.ColumnName := Meta.FieldByName('COLUMN_NAME').AsString.Trim
-        else if Meta.FindField('FK_COLUMN_NAME') <> nil then LFK.ColumnName := Meta.FieldByName('FK_COLUMN_NAME').AsString.Trim;
-
-        if Meta.FindField('REF_TABLE_NAME') <> nil then LFK.ReferencedTable := Meta.FieldByName('REF_TABLE_NAME').AsString.Trim
-        else if Meta.FindField('PK_TABLE_NAME') <> nil then LFK.ReferencedTable := Meta.FieldByName('PK_TABLE_NAME').AsString.Trim;
-
-        if Meta.FindField('REF_COLUMN_NAME') <> nil then LFK.ReferencedColumn := Meta.FieldByName('REF_COLUMN_NAME').AsString.Trim
-        else if Meta.FindField('PK_COLUMN_NAME') <> nil then LFK.ReferencedColumn := Meta.FieldByName('PK_COLUMN_NAME').AsString.Trim;
+        LFK.Name := FkNames[FkIndex];
+        LFK.ReferencedTable := FkTables[FkIndex];
+        if Meta.FindField('COLUMN_NAME') <> nil then
+          LFK.ColumnName := Meta.FieldByName('COLUMN_NAME').AsString.Trim;
+        if Meta.FindField('PKEY_COLUMN_NAME') <> nil then
+          LFK.ReferencedColumn := Meta.FieldByName('PKEY_COLUMN_NAME').AsString.Trim;
 
         LFound := False;
         for ExistingFK in Result.ForeignKeys do
-          if SameText(ExistingFK.ColumnName, LFK.ColumnName) and 
+          if SameText(ExistingFK.ColumnName, LFK.ColumnName) and
              SameText(ExistingFK.ReferencedTable, LFK.ReferencedTable) then
           begin
             LFound := True;
             Break;
           end;
 
-        if not LFound then
+        if (not LFound) and (LFK.ColumnName <> '') and (LFK.ReferencedTable <> '') then
           Result.ForeignKeys := Result.ForeignKeys + [LFK];
-        Meta.Next;
       end;
     except
+      on E: Exception do
+        if Assigned(FConnection.OnLog) then
+          FConnection.OnLog('  [Scaffolding] foreign keys of ' + LActualTable +
+            ' could not be read: ' + E.Message);
     end;
 
     if SameText(FDConn.DriverName, 'SQLite') or SameText(FDConn.DriverName, 'FB') then
@@ -888,9 +920,11 @@ begin
   end;
 
   // GUID / UUID / RAW(16)
-  if LType.Contains('RAW') or LType.Contains('GUID') or LType.Contains('UUID') then
+  if LType.Contains('RAW') or LType.Contains('GUID') or LType.Contains('UUID') or
+     LType.Contains('UNIQUEIDENTIFIER') then
   begin
-    if (APrecision = 16) or (LType = 'RAW(16)') or LType.Contains('GUID') or LType.Contains('UUID') then
+    if (APrecision = 16) or (LType = 'RAW(16)') or LType.Contains('GUID') or
+       LType.Contains('UUID') or LType.Contains('UNIQUEIDENTIFIER') then
     begin
       if APropertyStyle = psSmart then Exit('GuidType');
       Exit('TGUID');
@@ -940,6 +974,12 @@ begin
     end;
   end;
 
+  // MySQL and MariaDB have no BOOLEAN: it is an alias of TINYINT(1).
+  if (LType = 'TINYINT') and (APrecision = 1) then
+  begin
+    if APropertyStyle = psSmart then Exit('BoolType') else Exit('Boolean');
+  end;
+
   // INTEGERS / ROWID / COUNTERS
   // INTERVAL and POINT contain 'INT' but are not integers.
   if (LType.Contains('INT') and not LType.Contains('INTERVAL') and
@@ -983,6 +1023,14 @@ begin
   if LType.Contains('TIME') then
   begin
     if APropertyStyle = psSmart then Exit('TimeType') else Exit('TTime');
+  end;
+
+  // Firebird and InterBase: BLOB SUB_TYPE 1 (or TEXT) holds text, not bytes.
+  if LType.StartsWith('BLOB') and
+     (LType.EndsWith('SUB_TYPE 1') or LType.Contains('SUB_TYPE 1 ') or
+      LType.Contains('SUB_TYPE TEXT')) then
+  begin
+    if APropertyStyle = psSmart then Exit('StringType') else Exit('string');
   end;
 
   // BINARY / BLOBS
@@ -1131,7 +1179,7 @@ begin
               if Col.IsPrimaryKey then Attrs.Add('PK');
               if Col.IsAutoInc then Attrs.Add('AutoInc');
               if not Col.IsNullable then Attrs.Add('Required');
-              if (Col.Length > 0) and
+              if (Col.Length > 0) and (Col.Length < MaxInt) and
                  (SameText(DelphiType, 'string') or SameText(DelphiType, 'StringType')) then
                 Attrs.Add('MaxLength(' + Col.Length.ToString + ')');
               if (Col.Precision > 0) and IsDecimalType then Attrs.Add(Format('Precision(%d, %d)', [Col.Precision, Col.Scale]));
