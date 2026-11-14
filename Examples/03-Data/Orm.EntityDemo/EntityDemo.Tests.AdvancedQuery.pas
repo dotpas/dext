@@ -30,6 +30,9 @@ type
 
 implementation
 
+uses
+  EntityDemo.DbConfig;
+
 procedure TAdvancedQueryTest.Run;
 begin
   Log('🧪 Running Advanced Query Tests...');
@@ -444,8 +447,13 @@ begin
   // TFluentQuery.Where(Expression) exists.
 
   Query := FContext.Entities<TUser>.QueryAll
-    .Where(TUserType.Age > 18)
-    .Where(TUserType.Name <> '');
+    .Where(TUserType.Age > 18);
+  // Oracle has no empty string (it is NULL): Name <> '' is never true there,
+  // so the test asks for a name with IS NOT NULL instead.
+  if TDbConfig.GetProvider = dpOracle then
+    Query := Query.Where(TUserType.Name.IsNotNull)
+  else
+    Query := Query.Where(TUserType.Name <> '');
     //.Where(TUserType.Age > 18)
     //.Where(TUserType.Name <> '');
 

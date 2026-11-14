@@ -10,6 +10,7 @@ uses
   FireDAC.Stan.Def,
   {$IFDEF DEXT_ENABLE_DB_MYSQL} FireDAC.Phys.MySQL, {$ENDIF}
   {$IFDEF DEXT_ENABLE_DB_IB} FireDAC.Phys.IB, {$ENDIF}
+  {$IFDEF DEXT_ENABLE_DB_ORACLE} FireDAC.Phys.Oracle, FireDAC.Phys.OracleDef, {$ENDIF}
   Dext.Entity.Drivers.FireDAC.Links,
   Dext.Entity.Drivers.Interfaces,
   Dext.Entity.Drivers.FireDAC,
@@ -53,6 +54,16 @@ type
     {$IFDEF DEXT_ENABLE_DB_IB}
     class var FInterBaseDriverLink: TFDPhysIBDriverLink;
     {$ENDIF}
+    class var FOracleHost: string;
+    class var FOraclePort: Integer;
+    class var FOracleService: string;
+    class var FOracleUsername: string;
+    class var FOraclePassword: string;
+    class var FOracleAdminUsername: string;
+    class var FOracleAdminPassword: string;
+    {$IFDEF DEXT_ENABLE_DB_ORACLE}
+    class var FOracleDriverLink: TFDPhysOracleDriverLink;
+    {$ENDIF}
     class var FSQLServerHost: string;
     class var FSQLServerDatabase: string;
     class var FSQLServerUsername: string;
@@ -72,6 +83,11 @@ type
     ///   Initialize default configuration
     /// </summary>
     class constructor Create;
+
+    /// <summary>
+    ///   Free the driver links created by the Configure* methods
+    /// </summary>
+    class destructor Destroy;
 
     /// <summary>
     ///   Get current database provider
@@ -126,6 +142,23 @@ type
       const AFileName: string = 'test.fdb';
       const AUsername: string = 'SYSDBA';
       const APassword: string = 'masterkey'
+    ); static;
+
+    /// <summary>
+    ///   Configure Oracle connection (needs DEXT_ENABLE_DB_ORACLE in Dext.inc).
+    ///   An Oracle "database" is a user (schema) of the service: the demo user is
+    ///   created by EnsureDatabaseExists when AAdminPassword is given (DBA user,
+    ///   SYSTEM by default). AVendorLib is the oci.dll of the same bitness as the exe.
+    /// </summary>
+    class procedure ConfigureOracle(
+      const AHost: string = 'localhost';
+      APort: Integer = 1521;
+      const AService: string = 'XEPDB1';
+      const AUsername: string = 'dext_demo';
+      const APassword: string = 'dext_demo';
+      const AAdminPassword: string = '';
+      const AVendorLib: string = '';
+      const AAdminUsername: string = 'system'
     ); static;
 
     /// <summary>
@@ -188,6 +221,7 @@ type
 implementation
 
 uses
+  Winapi.Windows,
   System.IOUtils,
   System.Variants,
   Data.DB;
@@ -219,6 +253,15 @@ begin
   FInterBaseUsername := 'SYSDBA';
   FInterBasePassword := 'masterkey';
 
+  // Default Oracle configuration (XE: service XEPDB1, a schema of its own)
+  FOracleHost := 'localhost';
+  FOraclePort := 1521;
+  FOracleService := 'XEPDB1';
+  FOracleUsername := 'dext_demo';
+  FOraclePassword := 'dext_demo';
+  FOracleAdminUsername := 'system';
+  FOracleAdminPassword := '';
+
   // Default SQL Server configuration
   FSQLServerHost := 'localhost';
   FSQLServerDatabase := 'dext_test';
@@ -231,6 +274,19 @@ begin
   FMySQLDatabase := 'dext_test';
   FMySQLUsername := 'root';
   FMySQLPassword := '';
+end;
+
+class destructor TDbConfig.Destroy;
+begin
+  {$IFDEF DEXT_ENABLE_DB_ORACLE}
+  FOracleDriverLink.Free;
+  {$ENDIF}
+  {$IFDEF DEXT_ENABLE_DB_IB}
+  FInterBaseDriverLink.Free;
+  {$ENDIF}
+  {$IFDEF DEXT_ENABLE_DB_MYSQL}
+  FMySQLDriverLink.Free;
+  {$ENDIF}
 end;
 
 class function TDbConfig.GetProvider: TDatabaseProvider;
@@ -291,6 +347,16 @@ begin
       FDConn.Params.Values['OpenMode'] := 'OpenOrCreate';
     end;
 
+    dpOracle:
+    begin
+      FDConn.DriverName := 'Ora';
+      // Easy Connect string: host:port/service
+      FDConn.Params.Values['Database'] := Format('%s:%d/%s', [FOracleHost, FOraclePort, FOracleService]);
+      FDConn.Params.Values['User_Name'] := FOracleUsername;
+      FDConn.Params.Values['Password'] := FOraclePassword;
+      FDConn.Params.Values['CharacterSet'] := 'UTF8';
+    end;
+
     dpSQLServer:
     begin
       FDConn.DriverName := 'MSSQL';
@@ -345,6 +411,7 @@ begin
     dpFirebird:   Result := TFirebirdDialect.Create;
     dpInterBase:  Result := TInterBaseDialect.Create;
     dpSQLServer:  Result := TSQLServerDialect.Create;
+    dpOracle:     Result := TOracleDialect.Create;
     dpMySQL:      Result := TMySQLDialect.Create;
     else
       raise Exception.CreateFmt('Dialect for %s not yet implemented', [GetProviderName]);
@@ -433,6 +500,43 @@ begin
   // The demo entities map their keys with [AutoInc], and InterBase has no identity
   // column: EnsureCreated raises ENotSupportedException asking for [Sequence].
   WriteLn('Note: the demo entities use [AutoInc]; InterBase needs [Sequence] (no identity column).');
+end;
+
+class procedure TDbConfig.ConfigureOracle(
+  const AHost: string;
+  APort: Integer;
+  const AService: string;
+  const AUsername: string;
+  const APassword: string;
+  const AAdminPassword: string;
+  const AVendorLib: string;
+  const AAdminUsername: string
+);
+begin
+  TDbConfig.SetProvider(dpOracle);
+  FOracleHost := AHost;
+  FOraclePort := APort;
+  FOracleService := AService;
+  FOracleUsername := AUsername;
+  FOraclePassword := APassword;
+  FOracleAdminUsername := AAdminUsername;
+  FOracleAdminPassword := AAdminPassword;
+  {$IFDEF DEXT_ENABLE_DB_ORACLE}
+  if (AVendorLib <> '') and (FOracleDriverLink = nil) then
+  begin
+    // The DLLs oci.dll depends on are in its folder: Windows only finds them
+    // when the folder is in the PATH of the process (else OCI init fails, NOE1/INIT).
+    Winapi.Windows.SetEnvironmentVariable('PATH',
+      PChar(ExtractFilePath(AVendorLib) + ';' + GetEnvironmentVariable('PATH')));
+    FOracleDriverLink := TFDPhysOracleDriverLink.Create(nil);
+    FOracleDriverLink.VendorLib := AVendorLib;
+  end;
+  {$ELSE}
+  WriteLn('Warning: Oracle needs DEXT_ENABLE_DB_ORACLE defined in Dext.inc; the driver is not linked.');
+  {$ENDIF}
+  WriteLn(Format('Oracle configured: %s:%d/%s (schema %s)', [AHost, APort, AService, AUsername]));
+  if AVendorLib <> '' then
+    WriteLn('   VendorLib (DriverLink): ' + AVendorLib);
 end;
 
 class procedure TDbConfig.ConfigureSQLServer(
@@ -547,6 +651,12 @@ begin
       end;
     end;
 
+    dpOracle:
+    begin
+      // Oracle: tables of the schema are dropped by the tests' setup
+      WriteLn('Oracle: Tables will be recreated by EnsureCreated');
+    end;
+
     dpSQLServer:
     begin
       // SQL Server: Tables will be recreated by EnsureCreated
@@ -625,6 +735,41 @@ begin
         FDConn.Connected := False;
       finally
         FDConn.Free;
+      end;
+    end;
+
+    dpOracle:
+    begin
+      // An Oracle "database" is a user: create it with the DBA user, if one was given
+      if FOracleAdminPassword = '' then
+        WriteLn('Oracle: user ' + FOracleUsername + ' must already exist (no admin password given)')
+      else
+      begin
+        FDConn := TFDConnection.Create(nil);
+        try
+          FDConn.DriverName := 'Ora';
+          FDConn.Params.Values['Database'] := Format('%s:%d/%s', [FOracleHost, FOraclePort, FOracleService]);
+          FDConn.Params.Values['User_Name'] := FOracleAdminUsername;
+          FDConn.Params.Values['Password'] := FOracleAdminPassword;
+          FDConn.Connected := True;
+
+          Query := FDConn.ExecSQLScalar(
+            'SELECT COUNT(*) FROM all_users WHERE username = ''' + UpperCase(FOracleUsername) + '''');
+          if Integer(Query) = 0 then
+          begin
+            FDConn.ExecSQL(Format('CREATE USER %s IDENTIFIED BY "%s" QUOTA UNLIMITED ON USERS',
+              [FOracleUsername, FOraclePassword]));
+            FDConn.ExecSQL(Format('GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE SEQUENCE, CREATE SYNONYM TO %s',
+              [FOracleUsername]));
+            WriteLn('Oracle user created: ' + FOracleUsername);
+          end
+          else
+            WriteLn('Oracle user already exists: ' + FOracleUsername);
+
+          FDConn.Connected := False;
+        finally
+          FDConn.Free;
+        end;
       end;
     end;
 

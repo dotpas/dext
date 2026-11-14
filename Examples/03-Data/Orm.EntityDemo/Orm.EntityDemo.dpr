@@ -60,6 +60,13 @@ begin
     dpSQLServerWindowsAuthetication: TDbConfig.ConfigureSQLServerWindowsAuth('localhost', 'dext_test');
     // Option 5: SQL Server with SQL Authentication
     dpSQLServer: TDbConfig.ConfigureSQLServer('localhost', 'dext_test', 'sa', 'SQL@d3veloper');
+    // Option 7: Oracle (needs DEXT_ENABLE_DB_ORACLE in Dext.inc). The schema dext_demo is
+    // created with SYSTEM when the password is in the DEXT_ORACLE_ADMIN_PASSWORD variable.
+    // oci.dll must have the bitness of the exe: the XE client for Win64, the
+    // Instant Client (32-bit) for Win32.
+    dpOracle: TDbConfig.ConfigureOracle('localhost', 1521, 'XEPDB1', 'dext_demo', 'dext_demo',
+      GetEnvironmentVariable('DEXT_ORACLE_ADMIN_PASSWORD'),
+      {$IFDEF WIN64}'C:\db\Oracle\21c\dbhomeXE\bin\oci.dll'{$ELSE}'C:\db\OracleIC\instantclient_21_23\oci.dll'{$ENDIF});
     // Option 6: MySQL / MariaDB
     dpMySQL: TDbConfig.ConfigureMySQL('localhost', 3306, 'dext_test', 'root', 'root',
       'libmariadb.dll', 'C:\Program Files\MariaDB 12.1\');
@@ -171,6 +178,7 @@ begin
       else if Arg = 'postgresql' then Provider := dpPostgreSQL
       else if Arg = 'firebird' then Provider := dpFirebird
       else if Arg = 'interbase' then Provider := dpInterBase
+      else if Arg = 'oracle' then Provider := dpOracle
       else if Arg = 'mysql' then Provider := dpMySQL
       else if Arg = 'mariadb' then Provider := dpMySQL
       else if Arg = 'sqlserver' then Provider := dpSQLServer

@@ -20,6 +20,9 @@ type
 
 implementation
 
+uses
+  EntityDemo.DbConfig;
+
 procedure TTypeSystemTest.Run;
 begin
   Log('🧪 Running TypeSystem Core Tests...');
@@ -95,7 +98,11 @@ begin
   Users := FContext.Entities<TUser>.QueryAll
     .Where(TUserType.City.IsNotNull)
     .ToList;
-  AssertTrue(Users.Count >= 3, 'All users have city');
+  // Oracle stores an empty string as NULL: Alice (no city) has none there.
+  if TDbConfig.GetProvider = dpOracle then
+    AssertTrue(Users.Count = 2, 'Bob and Charlie have a city (Oracle: empty = NULL)')
+  else
+    AssertTrue(Users.Count >= 3, 'All users have city');
 
   // Test 5: OrderBy via TypeSystem
   Users := FContext.Entities<TUser>.QueryAll

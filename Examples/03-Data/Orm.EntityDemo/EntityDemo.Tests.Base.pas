@@ -176,6 +176,14 @@ var
           // MySQL/MariaDB supports DROP TABLE IF EXISTS with backticks
           FConn.ExecSQL('DROP TABLE IF EXISTS `' + ATableName + '`');
         end;
+
+        dpOracle:
+        begin
+          // Oracle 21c has no DROP TABLE IF EXISTS: ORA-00942 (no such table) is ignored
+          FConn.ExecSQL('BEGIN EXECUTE IMMEDIATE ''DROP TABLE "' + ATableName +
+            '" CASCADE CONSTRAINTS''; EXCEPTION WHEN OTHERS THEN ' +
+            'IF SQLCODE <> -942 THEN RAISE; END IF; END;');
+        end;
       end;
     except
       on E: Exception do
