@@ -1497,6 +1497,13 @@ begin
   if Log.HasSinks then
     Scope := Log.Logger.BeginScope('Fixture {Fixture}', [Fixture.Name]);
   try
+    // A fixture with no test left by the filter is skipped entirely: no header
+    // in the console, no start without a matching complete for the listeners,
+    // and its [BeforeAll] does not run (nor fail the run). Discovery mode
+    // still lists every test.
+    if (not FDiscoveryMode) and (GetActiveTestCount(Fixture) = 0) then
+      Exit;
+
     NotifyFixtureStart(Fixture.Name, Fixture.TestMethods.Count);
     if Assigned(FOnFixtureStart) then
       FOnFixtureStart(Fixture.Name, Fixture.TestMethods.Count);
@@ -1522,11 +1529,6 @@ begin
       end;
       Exit;
     end;
-
-    // A fixture with no test left by the filter is not created: its
-    // [BeforeAll] must not run (nor fail the run)
-    if GetActiveTestCount(Fixture) = 0 then
-      Exit;
 
     // Create fixture instance
     GFixtureInstanceAbandoned := False;

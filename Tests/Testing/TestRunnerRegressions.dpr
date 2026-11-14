@@ -114,6 +114,25 @@ type
     procedure Coleta(const Info: TTestInfo);
   end;
 
+type
+  TColetorFixtures = class
+  public
+    Inicios: string;
+    Fins: string;
+    procedure Inicio(const FixtureName: string; TestCount: Integer);
+    procedure Fim(const FixtureName: string);
+  end;
+
+procedure TColetorFixtures.Inicio(const FixtureName: string; TestCount: Integer);
+begin
+  Inicios := Inicios + FixtureName + ';';
+end;
+
+procedure TColetorFixtures.Fim(const FixtureName: string);
+begin
+  Fins := Fins + FixtureName + ';';
+end;
+
 procedure TColetorTimeout.Coleta(const Info: TTestInfo);
 begin
   if Info.Result = trTimeout then
@@ -344,6 +363,7 @@ var
   Ok: Boolean;
   Watch: TStopwatch;
   Coletor: TColetorTimeout;
+  Fixtures: TColetorFixtures;
 begin
   SetConsoleCharSet;
 
@@ -374,6 +394,22 @@ begin
   Check(Ok and (TTestRunner.Summary.TotalTests = 1),
     '[Category] on the method still filters',
     Format('ok=%s total=%d', [BoolToStr(Ok, True), TTestRunner.Summary.TotalTests]));
+
+  Fixtures := TColetorFixtures.Create;
+  try
+    TTestRunner.OnFixtureStart := Fixtures.Inicio;
+    TTestRunner.OnFixtureComplete := Fixtures.Fim;
+    Ok := TTest.Configure
+      .FilterByCategory('ciclo')
+      .Run;
+    TTestRunner.OnFixtureStart := nil;
+    TTestRunner.OnFixtureComplete := nil;
+    Check(Ok and (Fixtures.Inicios = 'TTabelaFiscalTests;') and (Fixtures.Fins = Fixtures.Inicios),
+      'a fixture the filter leaves empty is neither printed nor announced to listeners',
+      'starts=' + Fixtures.Inicios + ' completes=' + Fixtures.Fins);
+  finally
+    Fixtures.Free;
+  end;
 
   Ok := TTest.Configure
     .FilterByCategory('inexistente')
