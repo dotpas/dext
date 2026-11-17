@@ -161,7 +161,10 @@ type
     /// <summary>Gets the value type of a generic dictionary.</summary>
     class function GetDictionaryValueType(AType: PTypeInfo): PTypeInfo; static;
     /// <summary>Robustly converts a string value to the specified native type.</summary>
-    class function CastFromString(const AValue: string; AType: PTypeInfo): TValue; static;
+    /// <param name="ADecode">True (default) URL-decodes the value first, as needed for route,
+    ///   query and header values; False for text that is already plain, such as a JSON string.</param>
+    class function CastFromString(const AValue: string; AType: PTypeInfo;
+      ADecode: Boolean = True): TValue; static;
     /// <summary>Gets the default value for a member, checking for [DefaultValue] attribute.</summary>
     class function GetDefaultValue(AMember: TRttiObject; AType: PTypeInfo): TValue; static;
     class property Context: TRttiContext read FContext;
@@ -1258,7 +1261,8 @@ begin
   Result := GetListElementType(AType);
 end;
 
-class function TReflection.CastFromString(const AValue: string; AType: PTypeInfo): TValue;
+class function TReflection.CastFromString(const AValue: string; AType: PTypeInfo;
+  ADecode: Boolean): TValue;
 var
   G: TGUID;
   DecodedValue: string;
@@ -1277,8 +1281,11 @@ begin
     Exit;
   end;
 
-  // Auto URL Decode
-  DecodedValue := TNetEncoding.URL.Decode(AValue);
+  // Auto URL Decode (route, query and header values); a JSON string is already plain text
+  if ADecode then
+    DecodedValue := TNetEncoding.URL.Decode(AValue)
+  else
+    DecodedValue := AValue;
 
   try
     case AType.Kind of
