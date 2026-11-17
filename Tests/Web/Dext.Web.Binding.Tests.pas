@@ -17,6 +17,7 @@ uses
   Dext.Auth.Identity,
   Dext.Collections,
   Dext.Collections.Dict,
+  Dext.Core.Reflection,
   Dext.DI.Interfaces,
   Dext.Entity.Attributes,
   Dext.Testing,
@@ -153,6 +154,15 @@ type
 
     [Test]
     procedure Test_BindBodyPrimitive_Array_Malformed;
+
+    [Test]
+    procedure Test_BindBodyPrimitive_String_Not_UrlDecoded;
+
+    [Test]
+    procedure Test_BindBodyPrimitive_BareString_Not_UrlDecoded;
+
+    [Test]
+    procedure Test_CastFromString_Decode_Default_And_Plain;
   end;
 
 implementation
@@ -479,6 +489,43 @@ begin
     end,
     EBindingException
   );
+end;
+
+procedure TWebBindingTests.Test_BindBodyPrimitive_String_Not_UrlDecoded;
+var
+  Context: IHttpContext;
+  Ctx: TRttiContext;
+  Meth: TRttiMethod;
+begin
+  // A JSON string is plain text: '+' and '%xx' must arrive as they were sent
+  // (Base64, hashes, signatures, passwords).
+  Context := CreateMockContextWithBody(
+    '{"codice":"a+b","denominazione":"100%41","note":"AQID+/8="}');
+  Meth := Ctx.GetType(TDummyController).GetMethod('MultiBodyAction');
+  Should(FBinder.BindParameter(Meth.GetParameters[0], Context).AsString).Be('a+b');
+  Should(FBinder.BindParameter(Meth.GetParameters[1], Context).AsString).Be('100%41');
+  Should(FBinder.BindParameter(Meth.GetParameters[3], Context).AsString).Be('AQID+/8=');
+end;
+
+procedure TWebBindingTests.Test_BindBodyPrimitive_BareString_Not_UrlDecoded;
+var
+  Context: IHttpContext;
+  Ctx: TRttiContext;
+  Meth: TRttiMethod;
+begin
+  // The whole body is a JSON string
+  Context := CreateMockContextWithBody('"a+b%41"');
+  Meth := Ctx.GetType(TDummyController).GetMethod('MultiBodyAction');
+  Should(FBinder.BindParameter(Meth.GetParameters[0], Context).AsString).Be('a+b%41');
+end;
+
+procedure TWebBindingTests.Test_CastFromString_Decode_Default_And_Plain;
+begin
+  // Route, query and header values: URL-decoded by default, as before
+  Should(TReflection.CastFromString('a+b%41', TypeInfo(string)).AsString).Be('a bA');
+  // Plain text (a JSON string): left as it is
+  Should(TReflection.CastFromString('a+b%41', TypeInfo(string), False).AsString).Be('a+b%41');
+  Should(TReflection.CastFromString('42', TypeInfo(Integer), False).AsInteger).Be(42);
 end;
 
 end.

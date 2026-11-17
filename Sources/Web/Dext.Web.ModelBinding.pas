@@ -378,6 +378,9 @@ begin
       Stream.ReadBuffer(Bytes[0], BodyLen);
   end;
   BodyJsonStr := TEncoding.UTF8.GetString(Bytes, 0, BodyLen);
+  // The values below come from a JSON body: they are plain text, never URL-encoded, so they are
+  // converted without the URL decoding that route, query and header values need
+  // ('+' would become a space and '%41' an 'A', breaking Base64, hashes, signatures, passwords).
 
   if BodyJsonStr <> '' then
   begin
@@ -400,12 +403,12 @@ begin
               else
               begin
                 case NodeVal.GetNodeType of
-                  jntString: Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle);
-                  jntNumber: Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle);
+                  jntString: Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle, False);
+                  jntNumber: Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle, False);
                   jntBoolean: Result := TValue.From<Boolean>(NodeVal.AsBoolean);
                   jntNull: Result := TReflection.GetDefaultValue(AParam, AParam.ParamType.Handle);
                 else
-                  Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle);
+                  Result := TReflection.CastFromString(NodeVal.AsString, AParam.ParamType.Handle, False);
                 end;
               end;
             end
@@ -418,17 +421,17 @@ begin
         end;
 
         case JsonNode.GetNodeType of
-          jntString: Result := TReflection.CastFromString(JsonNode.AsString, AParam.ParamType.Handle);
-          jntNumber: Result := TReflection.CastFromString(JsonNode.AsString, AParam.ParamType.Handle);
+          jntString: Result := TReflection.CastFromString(JsonNode.AsString, AParam.ParamType.Handle, False);
+          jntNumber: Result := TReflection.CastFromString(JsonNode.AsString, AParam.ParamType.Handle, False);
           jntBoolean: Result := TValue.From<Boolean>(JsonNode.AsBoolean);
           jntNull: Result := TReflection.GetDefaultValue(nil, AParam.ParamType.Handle);
         else
           if AParam.ParamType.Handle.Kind = tkDynArray then
             Result := TDextJson.Deserialize(AParam.ParamType.Handle, BodyJsonStr)
           else if (Length(BodyJsonStr) >= 2) and (BodyJsonStr[1] = '"') and (BodyJsonStr[Length(BodyJsonStr)] = '"') then
-            Result := TReflection.CastFromString(Copy(BodyJsonStr, 2, Length(BodyJsonStr) - 2), AParam.ParamType.Handle)
+            Result := TReflection.CastFromString(Copy(BodyJsonStr, 2, Length(BodyJsonStr) - 2), AParam.ParamType.Handle, False)
           else
-            Result := TReflection.CastFromString(BodyJsonStr, AParam.ParamType.Handle);
+            Result := TReflection.CastFromString(BodyJsonStr, AParam.ParamType.Handle, False);
         end;
       end
       else
@@ -439,9 +442,9 @@ begin
         if AParam.ParamType.Handle.Kind = tkDynArray then
           raise EBindingException.CreateFmt('Error binding parameter "%s": %s', [AParam.Name, E.Message])
         else if (Length(BodyJsonStr) >= 2) and (BodyJsonStr[1] = '"') and (BodyJsonStr[Length(BodyJsonStr)] = '"') then
-          Result := TReflection.CastFromString(Copy(BodyJsonStr, 2, Length(BodyJsonStr) - 2), AParam.ParamType.Handle)
+          Result := TReflection.CastFromString(Copy(BodyJsonStr, 2, Length(BodyJsonStr) - 2), AParam.ParamType.Handle, False)
         else
-          Result := TReflection.CastFromString(BodyJsonStr, AParam.ParamType.Handle);
+          Result := TReflection.CastFromString(BodyJsonStr, AParam.ParamType.Handle, False);
       end;
     end;
   end
