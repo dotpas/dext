@@ -1366,10 +1366,10 @@ begin
           TValue.Make(@U, AType, Result);
         end
         else
-          Result := TReflection.CastFromString(AText, AType);
+          Result := TReflection.CastFromString(AText, AType, ADecode);
       end;
   else
-    Result := TReflection.CastFromString(AText, AType);
+    Result := TReflection.CastFromString(AText, AType, ADecode);
   end;
 end;
 
@@ -1666,10 +1666,11 @@ begin
                     else
                     begin
                       // Types this binder does not convert (nested records,
-                      // arrays, Nullable, ...): unchanged.
+                      // arrays, Nullable, ...): unchanged. A JSON string is
+                      // plain text: no URL decoding.
                       try
                         StrVal := BodyJsonObj.GetString(JsonFieldName);
-                        FieldValue := TReflection.CastFromString(StrVal, Field.FieldType.Handle);
+                        FieldValue := TReflection.CastFromString(StrVal, Field.FieldType.Handle, False);
                       except
                         FieldValue := TValue.Empty;
                       end;
